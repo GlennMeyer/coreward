@@ -1,0 +1,201 @@
+/* Coreward prototype UI. Rectangles and text, per §12 — no art. */
+
+:root {
+  --bg: #14131a;
+  --panel: #1e1d27;
+  --panel-2: #272632;
+  --line: #383646;
+  --ink: #ddd9e8;
+  --dim: #8b869e;
+  --mana: #62a8ff;
+  --gold: #e8bd52;
+  --souls: #b26ee0;
+  --renown: #57c98a;
+  --danger: #e0574f;
+  --warn: #e8963f;
+  --adv: #6fd0e8;
+  --mob: #c76a5c;
+  --shop: #d6a83c;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 13px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+#app { max-width: 1180px; margin: 0 auto; padding: 14px; }
+
+h1 { font-size: 15px; margin: 0; letter-spacing: 0.14em; text-transform: uppercase; }
+h2 { font-size: 12px; margin: 0 0 8px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.1em; }
+
+/* ─── Layout ─────────────────────────────────────────────────────────────── */
+
+.topbar {
+  display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  padding: 10px 14px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 6px; margin-bottom: 12px;
+}
+.stats { display: flex; gap: 16px; flex-wrap: wrap; margin-left: auto; }
+.stat b { font-weight: 600; }
+.stat .lbl { color: var(--dim); margin-right: 5px; }
+.mana b { color: var(--mana); }
+.gold b { color: var(--gold); }
+.souls b { color: var(--souls); }
+.renown b { color: var(--renown); }
+.hearts b { color: var(--danger); }
+
+.cols { display: grid; grid-template-columns: 1fr 330px; gap: 12px; align-items: start; }
+@media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
+
+.panel {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 6px; padding: 12px; margin-bottom: 12px;
+}
+
+/* ─── Dungeon ────────────────────────────────────────────────────────────── */
+
+.floor { margin-bottom: 6px; }
+.floor-label { color: var(--dim); font-size: 11px; margin-bottom: 4px; }
+.rooms { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+
+.room {
+  min-height: 74px; background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 4px; padding: 6px; display: flex; flex-direction: column; gap: 4px;
+  cursor: pointer; transition: border-color .12s, background .12s;
+}
+.room:hover { border-color: var(--dim); }
+.room.active { border-color: var(--adv); background: #232a34; box-shadow: 0 0 0 1px var(--adv) inset; }
+.room.droppable { border-color: var(--renown); border-style: dashed; }
+.room .slots { color: var(--dim); font-size: 10px; margin-top: auto; text-align: right; }
+
+.mob {
+  background: #33242a; border-left: 3px solid var(--mob); border-radius: 3px;
+  padding: 3px 5px; font-size: 11px; cursor: pointer;
+}
+.mob.selected { outline: 1px solid var(--gold); }
+.mob.downed { opacity: .35; text-decoration: line-through; }
+.mob .lv { color: var(--gold); }
+.mob .gear { color: var(--dim); font-size: 10px; }
+.hpbar { height: 3px; background: #4a2a2a; border-radius: 2px; margin-top: 3px; overflow: hidden; }
+.hpbar i { display: block; height: 100%; background: var(--mob); }
+
+.landing {
+  background: #1a2320; border: 1px dashed #3d5147; border-radius: 4px;
+  padding: 6px 8px; margin: 6px 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+}
+.landing.active { border-color: var(--adv); background: #1c2a2e; }
+.landing .tag { color: #6e9c85; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
+.amenity {
+  background: #2b2718; border-left: 3px solid var(--shop); border-radius: 3px;
+  padding: 3px 6px; font-size: 11px; cursor: pointer;
+}
+.amenity.closed { opacity: .5; border-left-color: var(--dim); }
+.amenity .price { color: var(--gold); }
+
+.core {
+  text-align: center; padding: 8px; margin-top: 6px; border-radius: 4px;
+  background: #2a1a1e; border: 1px solid #5a2b30; color: var(--danger);
+  letter-spacing: .18em; font-size: 11px;
+}
+
+/* ─── Party ──────────────────────────────────────────────────────────────── */
+
+.adv { display: flex; align-items: center; gap: 8px; font-size: 11px; padding: 2px 0; }
+.adv .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.adv.dead { opacity: .35; text-decoration: line-through; }
+.adv.named .nm { color: var(--warn); font-weight: 600; }
+.bar { width: 70px; height: 5px; background: #2c2c38; border-radius: 3px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--adv); }
+.bar.res i { background: var(--souls); }
+
+.meters { display: flex; gap: 14px; margin-bottom: 8px; font-size: 11px; }
+
+/* ─── Controls ───────────────────────────────────────────────────────────── */
+
+button {
+  font: inherit; background: var(--panel-2); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 4px; padding: 5px 9px; cursor: pointer;
+}
+button:hover:not(:disabled) { border-color: var(--dim); background: #30303e; }
+button:disabled { opacity: .35; cursor: not-allowed; }
+button.primary { background: #2c4a63; border-color: #3d6a8d; }
+button.primary:hover:not(:disabled) { background: #35597a; }
+button.danger { background: #4d2725; border-color: #7a3b37; }
+button.on { background: #2c4a63; border-color: var(--adv); }
+
+.row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.row + .row { margin-top: 6px; }
+
+.buy {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  padding: 5px 7px; border: 1px solid var(--line); border-radius: 4px;
+  margin-bottom: 4px; cursor: pointer; font-size: 11px;
+}
+.buy:hover:not(.off) { border-color: var(--dim); background: var(--panel-2); }
+.buy.off { opacity: .4; cursor: not-allowed; }
+.buy .cost { color: var(--mana); }
+.buy .cost.g { color: var(--gold); }
+.buy .meta { color: var(--dim); font-size: 10px; }
+
+/* ─── Log ────────────────────────────────────────────────────────────────── */
+
+.log { height: 260px; overflow-y: auto; font-size: 11px; line-height: 1.45; }
+.log div { padding: 1px 0; border-bottom: 1px solid #232230; }
+.log .t { color: var(--dim); margin-right: 6px; }
+.log .hit { color: #c9a0a0; }
+.log .crit { color: var(--danger); }
+.log .buy2 { color: var(--gold); }
+.log .good { color: var(--renown); }
+.log .info { color: var(--adv); }
+
+.hint { color: var(--dim); font-size: 11px; margin-top: 6px; }
+.err { color: var(--danger); font-size: 11px; min-height: 16px; margin-top: 4px; }
+
+/* ─── Modal ──────────────────────────────────────────────────────────────── */
+
+.modal-bg {
+  position: fixed; inset: 0; background: #0c0b10cc; display: flex;
+  align-items: center; justify-content: center; padding: 20px; z-index: 10;
+}
+.modal {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: 18px; max-width: 460px; width: 100%;
+}
+.modal h3 { margin: 0 0 8px; font-size: 14px; }
+.modal p { color: var(--dim); margin: 0 0 14px; }
+.modal .row { justify-content: flex-end; }
+
+table { width: 100%; border-collapse: collapse; font-size: 11px; }
+td { padding: 2px 0; }
+td:last-child { text-align: right; }
+.tot { border-top: 1px solid var(--line); font-weight: 600; }
+.pos { color: var(--renown); }
+.neg { color: var(--danger); }
+
+/* ─── Drag and drop ──────────────────────────────────────────────────────── */
+
+.ghost {
+  position: fixed; z-index: 100; pointer-events: none;
+  transform: translate(-50%, -50%);
+  background: #33242a; border: 1px solid var(--mob); border-radius: 3px;
+  padding: 4px 8px; font-size: 11px; color: var(--ink);
+  box-shadow: 0 4px 14px #000a; opacity: .92;
+}
+
+/* Suppress text selection and hover noise while a drag is in flight. */
+body.dragging { user-select: none; cursor: grabbing; }
+body.dragging .room:hover { border-color: var(--line); }
+
+.mob, .buy:not(.off) { touch-action: none; }
+.mob { cursor: grab; }
+body.dragging .mob { cursor: grabbing; }
+
+.room.drop-hover {
+  border-color: var(--renown); background: #1f2b24;
+  box-shadow: 0 0 0 1px var(--renown) inset;
+}
+.amenity.drop-hover { outline: 1px solid var(--renown); background: #33301c; }

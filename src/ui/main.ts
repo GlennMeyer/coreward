@@ -1,0 +1,745 @@
+/**
+ * Prototype renderer: DOM rectangles and text (§12 — no art).
+ *
+ * This file is a pure *consumer* of the sim. It reads sim state for display and
+ * drains the RaidEvent stream for pacing and the log, but the sim knows nothing
+ * about it (§13.2). Swapping this for an isometric renderer should not require
+ * touching anything under src/sim.
+ */
+import './styles.css';
+import {
+  AMENITIES, GEAR, HIRED_STAFF_COST, MAX_GEAR_SLOTS, MOBS, PRICE_TIERS,
+  SEASON_RAIDS,
+} from '../sim/data';
+import {
+  assignStaff, buildAmenity, buyMob, demolishAmenity, digCost, digFloor,
+  equipGear, getMob, hireStaff, isOpen, mobEffectiveHp, placeMobInRoom,
+  roomSlotsUsed, setPrice, totalUpkeep,
+} from '../sim/dungeon';
+import { applyAftermath, createSeason, currentTier, startRaid } from '../sim/season';
+import type { RaidSim } from '../sim/raid';
+import type {
+  Adventurer, Amenity, AmenityId, Mob, PriceTier, RaidEvent, SeasonState,
+} from '../sim/types';
+import type { Aftermath as AftermathType } from '../sim/season';
+
+// ─── App state ───────────────────────────────────────────────────────────────
+
+type Phase = 'build' | 'raid' | 'aftermath' | 'over';
+
+const SPEEDS = [
+  { label: 'II', ms: 0 },
+  { label: '1x', ms: 340 },
+  { label: '2x', ms: 170 },
+  { label: '4x', ms: 85 },
+] as const;
+
+interface LogLine { t: number; cls: string; text: string; }
+
+interface App {
+  season: SeasonState;
+  phase: Phase;
+  sim: RaidSim | null;
+  speedIdx: number;
+  log: LogLine[];
+  selectedMob: number | null;
+  aftermath: AftermathType | null;
+  error: string;
+}
+
+const app: App = {
+  season: createSeason(Math.floor(Date.now() % 100000)),
+  phase: 'build',
+  sim: null,
+  speedIdx: 1,
+  log: [],
+  selectedMob: null,
+  aftermath: null,
+  error: '',
+};
+
+let timer: number | null = null;
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+const root = document.getElementById('app')!;
+const el = (html: string): HTMLElement => {
+  const d = document.createElement('div');
+  d.innerHTML = html.trim();
+  return d.firstElementChild as HTMLElement;
+};
+const esc = (s: string): string =>
+  s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
+
+function fail(msg: string | null): boolean {
+  app.error = msg ?? '';
+  render();
+  return msg === null;
+}
+
+function pushLog(e: RaidEvent): void {
+  const line = describe(e);
+  if (line) app.log.push({ t: e.t, ...line });
+  if (app.log.length > 400) app.log.splice(0, app.log.length - 400);
+}
+
+function mobName(uid: number): string {
+  const m = getMob(app.season.dungeon, uid);
+  return m ? MOBS[m.defId]!.name : `#${uid}`;
+}
+
+function advName(id: number): string {
+  return app.sim?.party.members.find((m) => m.id === id)?.name ?? `#${id}`;
+}
+
+/** RaidEvent → log line. The renderer's only interpretation of the stream. */
+function describe(e: RaidEvent): { cls: string; text: string } | null {
+  switch (e.type) {
+    case 'raid-start':
+      return { cls: 'info', text: `A party of ${e.partySize} enters (Threat Tier ${e.tier}).` };
+    case 'floor-enter':
+      return { cls: 'info', text: `— they descend to Floor ${e.floor + 1} —` };
+    case 'room-enter':
+      return { cls: '', text: `Room ${e.room + 1} of Floor ${e.floor + 1}.` };
+    case 'attack':
+      return e.source === 'mob'
+        ? { cls: 'hit', text: `${mobName(e.uid)} hits ${advName(e.targetId)} for ${e.dmg}.` }
+        : { cls: '', text: `${advName(e.advId)} hits ${mobName(e.targetUid)} for ${e.dmg}.` };
+    case 'kit-strip':
+      return { cls: 'good', text: `${mobName(e.uid)} destroys supplies. Kit ${e.kitLeft}.` };
+    case 'resolve-hit':
+      return { cls: 'good', text: `${advName(e.advId)} falters. Resolve ${e.resolveLeft}.` };
+    case 'kit-heal':
+      return { cls: '', text: `${advName(e.advId)} drinks a potion (+${e.amount}). Kit ${e.kitLeft}.` };
+    case 'mob-downed':
+      return { cls: 'crit', text: `${MOBS[e.defId]!.name} is downed.` };
+    case 'mob-slain':
+      return { cls: 'crit', text: `${MOBS[e.defId]!.name} (lv ${e.level}) is slain for good.` };
+    case 'adv-death':
+      return { cls: 'good', text: `${e.name} dies. ${e.goldDropped}g recovered.` };
+    case 'mob-levelup':
+      return { cls: 'buy2', text: `${mobName(e.uid)} reaches level ${e.level}.` };
+    case 'room-clear':
+      return { cls: '', text: `Room ${e.room + 1} cleared.` };
+    case 'landing-enter':
+      return { cls: 'info', text: `They reach Landing ${e.landing + 1}.` };
+    case 'rest':
+      return e.kitSpent > 0
+        ? { cls: '', text: `They rest: +${e.hpRestored} HP for ${e.kitSpent} Kit. Kit ${e.kitLeft}.` }
+        : { cls: 'good', text: `No supplies left to rest with.` };
+    case 'purchase':
+      return { cls: 'buy2', text: `${advName(e.advId)} buys from the ${AMENITIES[e.amenity].name}: ${e.detail} (${e.gold}g).` };
+    case 'descend':
+      return null;
+    case 'retreat':
+      return { cls: 'good', text: `They turn back (${reasonText(e.reason)}).` };
+    case 'taunt-offer':
+      return { cls: 'info', text: `They are leaving...` };
+    case 'taunt-used':
+      return { cls: 'crit', text: `TAUNTED — the dungeon goads them deeper.` };
+    case 'intervention-retreat':
+      return { cls: 'info', text: `${mobName(e.uid)} is pulled from the fight.` };
+    case 'core-breach':
+      return { cls: 'crit', text: `THE CORE IS BREACHED. Hearts left: ${e.heartsLeft}.` };
+    case 'raid-end':
+      return { cls: 'info', text: `Raid over: ${e.outcome}.` };
+  }
+}
+
+function reasonText(r: string): string {
+  return { hp: 'too wounded', kit: 'out of supplies', resolve: 'nerve broken', wiped: 'all dead' }[r] ?? r;
+}
+
+// ─── Playback ────────────────────────────────────────────────────────────────
+
+function stopTimer(): void {
+  if (timer !== null) { clearInterval(timer); timer = null; }
+}
+
+function syncTimer(): void {
+  stopTimer();
+  if (app.phase !== 'raid' || !app.sim) return;
+  const ms = SPEEDS[app.speedIdx]!.ms;
+  if (ms === 0) return; // paused
+  timer = setInterval(tick, ms) as unknown as number;
+}
+
+function tick(): void {
+  const sim = app.sim;
+  if (!sim || sim.status !== 'running') { stopTimer(); return; }
+  for (const e of sim.step()) pushLog(e);
+  if (sim.status !== 'running') stopTimer();
+  render();
+}
+
+/** "Instant": drain the whole raid with no renderer in the loop. */
+function runInstant(): void {
+  const sim = app.sim;
+  if (!sim) return;
+  stopTimer();
+  while (sim.status !== 'complete') {
+    for (const e of sim.step()) pushLog(e);
+    if (sim.status === 'awaiting-taunt') {
+      for (const e of sim.resolveTaunt(false)) pushLog(e);
+    }
+  }
+  render();
+}
+
+// ─── Phase transitions ───────────────────────────────────────────────────────
+
+function beginRaid(): void {
+  app.sim = startRaid(app.season);
+  app.phase = 'raid';
+  app.log = [];
+  app.selectedMob = null;
+  app.error = '';
+  for (const e of app.sim.step()) pushLog(e);
+  render();
+  syncTimer();
+}
+
+function finishRaid(): void {
+  const sim = app.sim;
+  if (!sim || sim.status !== 'complete') return;
+  stopTimer();
+  app.aftermath = applyAftermath(app.season, sim);
+  app.phase = app.season.over ? 'over' : 'aftermath';
+  render();
+}
+
+function nextRaid(): void {
+  app.phase = 'build';
+  app.sim = null;
+  app.aftermath = null;
+  render();
+}
+
+function restart(): void {
+  stopTimer();
+  Object.assign(app, {
+    season: createSeason(Math.floor(Math.random() * 100000)),
+    phase: 'build', sim: null, speedIdx: 1, log: [],
+    selectedMob: null, aftermath: null, error: '',
+  });
+  render();
+}
+
+// ─── Drag and drop ───────────────────────────────────────────────────────────
+
+/**
+ * Pointer-events based rather than the HTML5 drag API: one code path for mouse,
+ * touch and pen, and full control over the drag ghost. A drag that never passes
+ * the movement threshold falls through to the element's click handler, so
+ * click-to-select still works (and keeps the UI usable without a pointer).
+ */
+type DragPayload =
+  | { kind: 'mob'; uid: number }
+  | { kind: 'buy'; defId: string };
+
+const DRAG_THRESHOLD = 5;
+let ghost: HTMLElement | null = null;
+
+function attachDrag(node: HTMLElement, payload: DragPayload, label: string): void {
+  node.addEventListener('pointerdown', (ev: PointerEvent) => {
+    if (ev.button !== 0 || app.phase !== 'build') return;
+    const x0 = ev.clientX;
+    const y0 = ev.clientY;
+    let dragging = false;
+
+    const move = (e: PointerEvent): void => {
+      if (!dragging) {
+        if (Math.hypot(e.clientX - x0, e.clientY - y0) < DRAG_THRESHOLD) return;
+        dragging = true;
+        ghost = el(`<div class="ghost">${esc(label)}</div>`);
+        document.body.append(ghost);
+        document.body.classList.add('dragging');
+      }
+      ghost!.style.left = `${e.clientX}px`;
+      ghost!.style.top = `${e.clientY}px`;
+      markHover(e);
+    };
+
+    const up = (e: PointerEvent): void => {
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerup', up);
+      document.removeEventListener('pointercancel', up);
+      if (!dragging) return; // a click, not a drag — let onclick handle it
+      ghost?.remove();
+      ghost = null;
+      document.body.classList.remove('dragging');
+      clearHover();
+      drop(e, payload);
+    };
+
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerup', up);
+    document.addEventListener('pointercancel', up);
+  });
+}
+
+/** The ghost is pointer-events:none, so elementFromPoint sees through it. */
+function targetUnder(e: PointerEvent): HTMLElement | null {
+  const node = document.elementFromPoint(e.clientX, e.clientY);
+  return (node?.closest('.room, .amenity') as HTMLElement | null) ?? null;
+}
+
+function markHover(e: PointerEvent): void {
+  clearHover();
+  targetUnder(e)?.classList.add('drop-hover');
+}
+
+function clearHover(): void {
+  document.querySelectorAll('.drop-hover').forEach((n) => n.classList.remove('drop-hover'));
+}
+
+function drop(e: PointerEvent, payload: DragPayload): void {
+  const target = targetUnder(e);
+  if (!target) return;
+  const d = app.season.dungeon;
+
+  // Buying and placing in one gesture.
+  let uid: number;
+  if (payload.kind === 'buy') {
+    const def = MOBS[payload.defId]!;
+    if (app.season.mana < def.cost) return void fail('Not enough mana.');
+    const mob = buyMob(d, def.id);
+    if (typeof mob === 'string') return void fail(mob);
+    uid = mob.uid;
+
+    const err = applyDrop(target, uid);
+    if (err) {
+      d.mobs.pop(); // undo the purchase rather than stranding it
+      return void fail(err);
+    }
+    app.season.mana -= def.cost;
+    app.selectedMob = uid;
+    return void fail(null);
+  }
+
+  uid = payload.uid;
+  const err = applyDrop(target, uid);
+  if (!err) app.selectedMob = null;
+  fail(err);
+}
+
+function applyDrop(target: HTMLElement, uid: number): string | null {
+  const d = app.season.dungeon;
+  if (target.classList.contains('room')) {
+    return placeMobInRoom(d, uid, Number(target.dataset['floor']), Number(target.dataset['room']));
+  }
+  return assignStaff(d, uid, Number(target.dataset['landing']), Number(target.dataset['slot']));
+}
+
+// ─── Render ──────────────────────────────────────────────────────────────────
+
+function render(): void {
+  root.innerHTML = '';
+  root.append(topbar());
+
+  const cols = el('<div class="cols"></div>');
+  const left = el('<div></div>');
+  const right = el('<div></div>');
+
+  left.append(dungeonPanel());
+  right.append(app.phase === 'raid' ? raidPanel() : buildPanel());
+  cols.append(left, right);
+  root.append(cols);
+
+  if (app.phase === 'aftermath' && app.aftermath) root.append(aftermathModal(app.aftermath));
+  if (app.phase === 'over') root.append(gameOverModal());
+  if (app.sim?.status === 'awaiting-taunt') root.append(tauntModal());
+  if (app.sim?.status === 'complete' && app.phase === 'raid') root.append(raidDoneBar());
+}
+
+function topbar(): HTMLElement {
+  const s = app.season;
+  const tier = currentTier(s);
+  const bar = el(`
+    <div class="topbar">
+      <h1>Coreward</h1>
+      <span class="stat"><span class="lbl">raid</span><b>${s.raidNumber}/${SEASON_RAIDS}</b></span>
+      <span class="stat"><span class="lbl">tier</span><b>${tier.tier}</b></span>
+      <div class="stats">
+        <span class="stat hearts"><span class="lbl">hearts</span><b>${'♥'.repeat(s.dungeon.hearts) || '—'}</b></span>
+        <span class="stat mana"><span class="lbl">mana</span><b>${Math.round(s.mana)}</b></span>
+        <span class="stat gold"><span class="lbl">gold</span><b>${s.gold}</b></span>
+        <span class="stat souls"><span class="lbl">souls</span><b>${s.souls}</b></span>
+        <span class="stat renown"><span class="lbl">renown</span><b>${s.renown}</b></span>
+      </div>
+    </div>`);
+  return bar;
+}
+
+function dungeonPanel(): HTMLElement {
+  const s = app.season;
+  const d = s.dungeon;
+  const sim = app.sim;
+  const panel = el('<div class="panel"></div>');
+  panel.append(el(`<h2>The Dungeon &nbsp;·&nbsp; upkeep ${totalUpkeep(d)}/raid</h2>`));
+
+  d.floors.forEach((floor, fi) => {
+    const wrap = el(`<div class="floor"></div>`);
+    wrap.append(el(`<div class="floor-label">Floor ${fi + 1}</div>`));
+    const rooms = el('<div class="rooms"></div>');
+
+    floor.rooms.forEach((_, ri) => {
+      const isActive = app.phase === 'raid' && sim?.status !== 'complete'
+        && sim?.currentFloor === fi && sim?.currentRoom === ri;
+      const canDrop = app.phase === 'build' && app.selectedMob !== null;
+      const room = el(
+        `<div class="room ${isActive ? 'active' : ''} ${canDrop ? 'droppable' : ''}"
+              data-floor="${fi}" data-room="${ri}"></div>`,
+      );
+
+      for (const uid of d.floors[fi]!.rooms[ri]!.mobUids) {
+        const mob = getMob(d, uid);
+        if (!mob || !mob.alive) continue;
+        room.append(mobChip(mob));
+      }
+      room.append(el(`<div class="slots">${roomSlotsUsed(d, fi, ri)}/3</div>`));
+
+      room.onclick = (ev) => {
+        ev.stopPropagation();
+        if (app.phase !== 'build' || app.selectedMob === null) return;
+        const err = placeMobInRoom(d, app.selectedMob, fi, ri);
+        if (!err) app.selectedMob = null;
+        fail(err);
+      };
+      rooms.append(room);
+    });
+
+    wrap.append(rooms);
+    panel.append(wrap);
+
+    const landing = d.landings[fi];
+    if (landing) panel.append(landingRow(fi, landing.amenities));
+  });
+
+  panel.append(el(`<div class="core">◆ THE CORE ◆</div>`));
+  if (app.error) panel.append(el(`<div class="err">${esc(app.error)}</div>`));
+  return panel;
+}
+
+function mobChip(mob: Mob): HTMLElement {
+  const def = MOBS[mob.defId]!;
+  const maxHp = mobEffectiveHp(mob);
+  const pct = Math.max(0, Math.min(100, (mob.hp / maxHp) * 100));
+  const sel = app.selectedMob === mob.uid ? 'selected' : '';
+  const gear = mob.gear.length
+    ? `<span class="gear"> ${mob.gear.map((g) => GEAR[g]!.name.split(' ')[0]).join('/')}</span>` : '';
+  const chip = el(`
+    <div class="mob ${mob.downed ? 'downed' : ''} ${sel}">
+      ${esc(def.name)}${mob.level > 1 ? ` <span class="lv">lv${mob.level}</span>` : ''}${gear}
+      <div class="hpbar"><i style="width:${pct}%"></i></div>
+    </div>`);
+
+  attachDrag(chip, { kind: 'mob', uid: mob.uid }, def.name);
+
+  chip.onclick = (ev) => {
+    ev.stopPropagation();
+    if (app.phase === 'build') {
+      app.selectedMob = app.selectedMob === mob.uid ? null : mob.uid;
+      fail(null);
+    } else if (app.phase === 'raid' && app.sim) {
+      // Retreat intervention: pull a veteran out before the room falls.
+      const ok = app.sim.applyRetreatIntervention(mob.uid);
+      fail(ok ? null : 'Retreat needs a Ley Charge and a monster in the active room.');
+    }
+  };
+  return chip;
+}
+
+function landingRow(idx: number, amenities: readonly (Amenity | null)[]): HTMLElement {
+  const d = app.season.dungeon;
+  const deepest = idx === d.floors.length - 1;
+  const active = app.phase === 'raid' && app.sim?.currentFloor === idx
+    && app.sim?.status === 'awaiting-taunt';
+  const row = el(`<div class="landing ${active ? 'active' : ''}"></div>`);
+  row.append(el(`<span class="tag">${deepest ? 'Core approach' : `Landing ${idx + 1}`}</span>`));
+
+  amenities.forEach((a, slot) => {
+    if (!a) {
+      if (app.phase !== 'build') return;
+      for (const id of Object.keys(AMENITIES) as AmenityId[]) {
+        const def = AMENITIES[id];
+        const b = el(`<button ${app.season.mana < def.buildCost ? 'disabled' : ''}>+ ${def.name} ${def.buildCost}</button>`);
+        b.onclick = () => {
+          const err = buildAmenity(d, idx, slot, id);
+          if (!err) app.season.mana -= def.buildCost;
+          fail(err);
+        };
+        row.append(b);
+      }
+      return;
+    }
+
+    const def = AMENITIES[a.defId];
+    const p = PRICE_TIERS[a.price];
+    const staff = a.hired ? 'hirelings' : a.staffUid !== null ? mobName(a.staffUid) : 'CLOSED';
+    const chip = el(`
+      <div class="amenity ${isOpen(a) ? '' : 'closed'}"
+           data-landing="${idx}" data-slot="${slot}">
+        ${def.name} <span class="price">${Math.round(def.basePrice * p.mult)}g</span>
+        · ${a.price} · ${esc(staff)}
+      </div>`);
+    if (app.phase === 'build') {
+      chip.onclick = () => {
+        if (app.selectedMob !== null) {
+          const err = assignStaff(d, app.selectedMob, idx, slot);
+          if (!err) app.selectedMob = null;
+          fail(err);
+        } else {
+          const order: PriceTier[] = ['modest', 'standard', 'premium', 'gouge'];
+          setPrice(d, idx, slot, order[(order.indexOf(a.price) + 1) % order.length]!);
+          fail(null);
+        }
+      };
+    }
+    row.append(chip);
+
+    if (app.phase === 'build') {
+      if (!a.hired) {
+        const hire = el(`<button ${app.season.gold < HIRED_STAFF_COST ? 'disabled' : ''}>Hire ${HIRED_STAFF_COST}g</button>`);
+        hire.onclick = () => {
+          const err = hireStaff(d, idx, slot);
+          if (!err) app.season.gold -= HIRED_STAFF_COST;
+          fail(err);
+        };
+        row.append(hire);
+      }
+      const del = el('<button class="danger">×</button>');
+      del.onclick = () => fail(demolishAmenity(d, idx, slot));
+      row.append(del);
+    }
+  });
+  return row;
+}
+
+// ─── Build panel ─────────────────────────────────────────────────────────────
+
+function buildPanel(): HTMLElement {
+  const s = app.season;
+  const d = s.dungeon;
+  const wrap = el('<div></div>');
+
+  const actions = el('<div class="panel"></div>');
+  actions.append(el('<h2>Build Phase</h2>'));
+  const cost = digCost(d);
+  const digBtn = el(`<button ${cost === null || s.mana < cost ? 'disabled' : ''}>Dig Floor ${d.floors.length + 1}${cost !== null ? ` — ${cost}` : ' (max)'}</button>`);
+  digBtn.onclick = () => {
+    if (cost === null) return;
+    const err = digFloor(d);
+    if (!err) s.mana -= cost;
+    fail(err);
+  };
+  const go = el('<button class="primary">Begin Raid →</button>');
+  go.onclick = beginRaid;
+  const rowA = el('<div class="row"></div>');
+  rowA.append(digBtn, go);
+  actions.append(rowA);
+  actions.append(el(`<div class="hint">Drag monsters into rooms, or onto a shop to staff it. Clicking works too: select, then click a target.</div>`));
+  wrap.append(actions);
+
+  // Roster
+  const idle = d.mobs.filter((m) => m.alive && m.placement.kind === 'unassigned');
+  if (idle.length) {
+    const p = el('<div class="panel"></div>');
+    p.append(el(`<h2>Unassigned (${idle.length}) — no upkeep, no defence</h2>`));
+    for (const m of idle) p.append(mobChip(m));
+    wrap.append(p);
+  }
+
+  // Selected monster: gear
+  if (app.selectedMob !== null) {
+    const mob = getMob(d, app.selectedMob);
+    if (mob) {
+      const p = el('<div class="panel"></div>');
+      p.append(el(`<h2>${esc(MOBS[mob.defId]!.name)} — lv ${mob.level} · ${mob.xp} xp</h2>`));
+      for (const g of Object.values(GEAR)) {
+        const owned = mob.gear.includes(g.id);
+        const full = mob.gear.length >= MAX_GEAR_SLOTS;
+        const off = owned || full || s.gold < g.cost;
+        const b = el(`<div class="buy ${off ? 'off' : ''}">
+            <span>${g.name}${owned ? ' ✓' : ''}</span>
+            <span class="cost g">${g.cost}g</span>
+          </div>`);
+        if (!off) {
+          b.onclick = () => {
+            const err = equipGear(d, mob.uid, g.id);
+            if (!err) s.gold -= g.cost;
+            fail(err);
+          };
+        }
+        p.append(b);
+      }
+      p.append(el(`<div class="hint">Gear survives its wearer — slain monsters return it to the armory.</div>`));
+      wrap.append(p);
+    }
+  }
+
+  // Monster shop
+  const shop = el('<div class="panel"></div>');
+  shop.append(el('<h2>Monsters</h2>'));
+  for (const def of Object.values(MOBS)) {
+    const off = s.mana < def.cost;
+    const b = el(`<div class="buy ${off ? 'off' : ''}">
+        <span>${def.name}<div class="meta">${def.role} · ${def.hp}hp ${def.dmg}dmg ${def.spd}spd · ${def.slots} slot${def.slots > 1 ? 's' : ''} · ${def.upkeep} upkeep</div></span>
+        <span class="cost">${def.cost}</span>
+      </div>`);
+    if (!off) {
+      attachDrag(b, { kind: 'buy', defId: def.id }, def.name);
+      b.onclick = () => {
+        const mob = buyMob(d, def.id);
+        if (typeof mob === 'string') return fail(mob);
+        s.mana -= def.cost;
+        app.selectedMob = mob.uid;
+        return fail(null);
+      };
+    }
+    shop.append(b);
+  }
+  wrap.append(shop);
+  return wrap;
+}
+
+// ─── Raid panel ──────────────────────────────────────────────────────────────
+
+function raidPanel(): HTMLElement {
+  const sim = app.sim!;
+  const wrap = el('<div></div>');
+
+  const ctl = el('<div class="panel"></div>');
+  ctl.append(el(`<h2>Raid — ${sim.charges} Ley Charge${sim.charges === 1 ? '' : 's'}</h2>`));
+  const row = el('<div class="row"></div>');
+  SPEEDS.forEach((sp, i) => {
+    const b = el(`<button class="${app.speedIdx === i ? 'on' : ''}">${sp.label}</button>`);
+    b.onclick = () => { app.speedIdx = i; render(); syncTimer(); };
+    row.append(b);
+  });
+  const inst = el('<button>Instant</button>');
+  inst.onclick = runInstant;
+  row.append(inst);
+  ctl.append(row);
+  ctl.append(el('<div class="hint">Click a monster in the active room to pull it out (costs a Ley Charge).</div>'));
+  if (app.error) ctl.append(el(`<div class="err">${esc(app.error)}</div>`));
+  wrap.append(ctl);
+
+  // Party
+  const p = el('<div class="panel"></div>');
+  p.append(el(`<h2>The Party — Tier ${sim.tier.tier}</h2>`));
+  p.append(el(`<div class="meters">
+      <span>Kit <b>${sim.party.kit}</b>/${sim.party.maxKit}</span>
+      <span>Gold <b>${sim.party.members.reduce((a, m) => a + (m.alive ? m.gold : 0), 0)}</b></span>
+    </div>`));
+  for (const a of sim.party.members) p.append(advRow(a));
+  wrap.append(p);
+
+  // Log
+  const lp = el('<div class="panel"></div>');
+  lp.append(el('<h2>Log</h2>'));
+  const log = el('<div class="log"></div>');
+  for (const line of app.log.slice(-160)) {
+    log.append(el(`<div class="${line.cls}"><span class="t">${line.t}</span>${esc(line.text)}</div>`));
+  }
+  lp.append(log);
+  wrap.append(lp);
+  queueMicrotask(() => { log.scrollTop = log.scrollHeight; });
+  return wrap;
+}
+
+function advRow(a: Adventurer): HTMLElement {
+  const hp = Math.max(0, (a.hp / a.maxHp) * 100);
+  const res = Math.max(0, (a.resolve / a.maxResolve) * 100);
+  return el(`
+    <div class="adv ${a.alive ? '' : 'dead'} ${a.namedId ? 'named' : ''}">
+      <span class="nm">${esc(a.name)} <span style="color:var(--dim)">${a.cls} ${a.level}</span></span>
+      <span class="bar" title="HP"><i style="width:${hp}%"></i></span>
+      <span class="bar res" title="Resolve"><i style="width:${res}%"></i></span>
+    </div>`);
+}
+
+function raidDoneBar(): HTMLElement {
+  const bg = el('<div class="modal-bg"></div>');
+  const r = app.sim!.result;
+  const m = el(`
+    <div class="modal">
+      <h3>${r.outcome === 'wiped' ? 'The party is destroyed' : r.outcome === 'breach' ? 'The Core is breached' : 'They turn back'}</h3>
+      <p>${r.killed} killed · ${r.escaped} escaped · ${r.mobsDowned.length} monsters downed, ${r.mobsLost.length} slain</p>
+      <div class="row"><button class="primary">Aftermath →</button></div>
+    </div>`);
+  m.querySelector('button')!.onclick = finishRaid;
+  bg.append(m);
+  return bg;
+}
+
+function tauntModal(): HTMLElement {
+  const sim = app.sim!;
+  const offer = sim.tauntOffer!;
+  const bg = el('<div class="modal-bg"></div>');
+  const m = el(`
+    <div class="modal">
+      <h3>They are leaving — ${reasonText(offer.reason)}</h3>
+      <p>Let them go and take the Renown, or spend a Ley Charge to goad them one
+         floor deeper and try for the Souls. ${sim.charges} charge(s) left.</p>
+      <div class="row">
+        <button data-a="0">Let them go</button>
+        <button class="danger" data-a="1">Taunt them deeper</button>
+      </div>
+    </div>`);
+  m.querySelectorAll('button').forEach((b) => {
+    (b as HTMLElement).onclick = () => {
+      for (const e of sim.resolveTaunt((b as HTMLElement).dataset['a'] === '1')) pushLog(e);
+      render();
+      syncTimer();
+    };
+  });
+  bg.append(m);
+  return bg;
+}
+
+function aftermathModal(a: AftermathType): HTMLElement {
+  const b = a.manaBreakdown;
+  const r = a.result;
+  const bg = el('<div class="modal-bg"></div>');
+  const m = el(`
+    <div class="modal">
+      <h3>Aftermath</h3>
+      <table>
+        <tr><td>Base</td><td class="pos">+${b.base}</td></tr>
+        <tr><td>Floors (${app.season.dungeon.floors.length})</td><td class="pos">+${b.floors}</td></tr>
+        <tr><td>Kills (${r.killed})</td><td class="pos">+${b.kills}</td></tr>
+        <tr><td>Tier bonus</td><td class="pos">+${b.tierBonus}</td></tr>
+        <tr><td>Upkeep</td><td class="neg">−${b.upkeep}</td></tr>
+        <tr class="tot"><td>Mana</td><td class="${a.manaIncome >= 0 ? 'pos' : 'neg'}">${a.manaIncome >= 0 ? '+' : ''}${a.manaIncome}</td></tr>
+        <tr><td>Gold — sales</td><td>+${r.goldFromSales}</td></tr>
+        <tr><td>Gold — corpses (25%)</td><td>+${r.goldFromCorpses}</td></tr>
+        <tr><td>Souls</td><td>+${r.souls}</td></tr>
+        <tr><td>Renown</td><td>+${r.renown}</td></tr>
+        ${a.tierAfter > a.tierBefore ? `<tr class="tot"><td colspan="2" class="neg">Threat Tier rises to ${a.tierAfter}</td></tr>` : ''}
+        ${r.mobsLost.length ? `<tr><td colspan="2" class="neg">Slain: ${r.mobsLost.map((x) => `${MOBS[x.defId]!.name} lv${x.level}`).join(', ')}</td></tr>` : ''}
+      </table>
+      <div class="row" style="margin-top:14px"><button class="primary">Continue →</button></div>
+    </div>`);
+  m.querySelector('button')!.onclick = nextRaid;
+  bg.append(m);
+  return bg;
+}
+
+function gameOverModal(): HTMLElement {
+  const s = app.season;
+  const won = s.ending === 'survived';
+  const bg = el('<div class="modal-bg"></div>');
+  const m = el(`
+    <div class="modal">
+      <h3>${won ? 'The season ends. The dungeon holds.' : 'The Core has fallen.'}</h3>
+      <p>${s.log.length} raids · renown ${s.renown} · gold ${s.gold} · souls ${s.souls}<br>
+         Killed ${s.log.reduce((a, r) => a + r.killed, 0)} · let ${s.log.reduce((a, r) => a + r.escaped, 0)} walk away.</p>
+      <div class="row"><button class="primary">New Season</button></div>
+    </div>`);
+  m.querySelector('button')!.onclick = restart;
+  bg.append(m);
+  return bg;
+}
+
+render();

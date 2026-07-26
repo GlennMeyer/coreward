@@ -1,0 +1,104 @@
+/**
+ * The load-bearing test. If determinism breaks, replays, reproducible bug
+ * reports, and the headless balance runner all break with it (§13.2).
+ */
+import { describe, expect, it } from 'vitest';
+import { RaidSim } from '../src/sim/raid';
+import { Rng } from '../src/sim/rng';
+import { TIERS } from '../src/sim/data';
+import { addMob, addStaffedAmenity, seasonWithFloors } from './helpers';
+import type { SeasonState } from '../src/sim/types';
+
+function buildScenario(seed: number): SeasonState {
+  const s = seasonWithFloors(seed, 3);
+  addMob(s.dungeon, 'rat', 0, 0);
+  addMob(s.dungeon, 'slime', 0, 1);
+  addMob(s.dungeon, 'cutpurse', 1, 0);
+  addMob(s.dungeon, 'skeleton', 1, 1);
+  addMob(s.dungeon, 'ogre', 2, 0);
+  addMob(s.dungeon, 'ooze', 2, 1);
+  addStaffedAmenity(s.dungeon, 0, 0, 'provisioner');
+  addStaffedAmenity(s.dungeon, 1, 0, 'hotspring');
+  return s;
+}
+
+describe('determinism', () => {
+  it('produces byte-identical event streams for the same seed', () => {
+    const runs = [0, 1].map(() => {
+      const s = buildScenario(4242);
+      const sim = new RaidSim(s.dungeon, TIERS[2]!, 999);
+      return JSON.stringify(sim.runToCompletion());
+    });
+    expect(runs[0]).toBe(runs[1]);
+    expect(JSON.parse(runs[0]!).length).toBeGreaterThan(10);
+  });
+
+  it('produces identical results for the same seed', () => {
+    const results = [0, 1].map(() => {
+      const s = buildScenario(777);
+      const sim = new RaidSim(s.dungeon, TIERS[3]!, 12345);
+      sim.runToCompletion();
+      return sim.result;
+    });
+    expect(results[0]).toEqual(results[1]);
+  });
+
+  it('produces different streams for different seeds', () => {
+    const a = new RaidSim(buildScenario(1).dungeon, TIERS[2]!, 1);
+    const b = new RaidSim(buildScenario(1).dungeon, TIERS[2]!, 2);
+    expect(JSON.stringify(a.runToCompletion()))
+      .not.toBe(JSON.stringify(b.runToCompletion()));
+  });
+
+  it('steps and runToCompletion agree', () => {
+    const s1 = buildScenario(31337);
+    const sim1 = new RaidSim(s1.dungeon, TIERS[1]!, 555);
+    const streamed = sim1.runToCompletion();
+
+    const s2 = buildScenario(31337);
+    const sim2 = new RaidSim(s2.dungeon, TIERS[1]!, 555);
+    const stepped = [];
+    while (sim2.status !== 'complete') {
+      stepped.push(...sim2.step());
+      if (sim2.status === 'awaiting-taunt') stepped.push(...sim2.resolveTaunt(false));
+    }
+    expect(stepped).toEqual(streamed);
+  });
+});
+
+describe('Rng', () => {
+  it('is reproducible and restorable', () => {
+    const a = new Rng(99);
+    const first = [a.next(), a.next(), a.next()];
+    const state = a.getState();
+    const mid = a.next();
+
+    const b = new Rng(99);
+    expect([b.next(), b.next(), b.next()]).toEqual(first);
+    b.setState(state);
+    expect(b.next()).toBe(mid);
+  });
+
+  it('survives seed 0 without collapsing', () => {
+    const r = new Rng(0);
+    const vals = new Set(Array.from({ length: 20 }, () => r.next()));
+    expect(vals.size).toBe(20);
+  });
+
+  it('weighted() respects weights', () => {
+    const r = new Rng(7);
+    let heavy = 0;
+    for (let i = 0; i < 2000; i++) {
+      if (r.weighted([['a', 9], ['b', 1]] as const) === 'a') heavy++;
+    }
+    expect(heavy / 2000).toBeGreaterThan(0.85);
+    expect(heavy / 2000).toBeLessThan(0.95);
+  });
+
+  it('forked streams diverge from the parent', () => {
+    const parent = new Rng(500);
+    const child = parent.fork(1);
+    const other = parent.fork(2);
+    expect(child.next()).not.toBe(other.next());
+  });
+});
