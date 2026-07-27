@@ -2254,3 +2254,39 @@ scores highest". Those are different questions, and the survivability pass had t
 measured against the scripted strategies instead.
 
 A second fitness mode (survival-weighted) would let it answer both. Not built.
+
+
+### 28.4 Two frontiers, not one
+
+`tools/evolve.ts` now takes a fitness mode, because "what scores highest" and "what
+actually survives" turned out to be different builds:
+
+```
+npx tsx tools/evolve.ts 60 30 6 renown      # what maximises Renown
+npx tsx tools/evolve.ts 60 30 6 survival    # what actually holds
+```
+
+| | Renown-optimised | Survival-optimised |
+|---|---|---|
+| Monsters | Ogre 46%, Rat 28%, Cutpurse 24% | **Rat 33%, Cutpurse 31%**, Ogre 17% |
+| Traps | Darts 55%, Deadfall 37% | **Snare 40%**, Darts 28%, Deadfall 26% |
+| Trap share of Gold | 86% | 66% |
+| Admission / cover | modest / modest | **premium / premium** |
+| Shop pricing | standard | **gouge** |
+| Renown | **406** | 328 |
+| Survival | **0%** | **100%** |
+
+They disagree on almost everything, and the disagreement is exactly the design working:
+
+- The Renown build **buys fame and dies of it** — cheap admission and cover to keep word of
+  mouth high, big damage to push the tier, and no survivors by raid 8. §15's premise, taken
+  to its logical end.
+- The survival build **prices itself out of trouble** — premium gate, premium cover, gouged
+  shops, all of which suppress Renown (§20, §21) and therefore the ratchet. It buys Snares
+  (delay, not damage) and cheap bodies, and it finishes every season.
+
+That is a real strategic axis rather than a dominant line, which is the first time that has
+been true in this project.
+
+**Reporting fix:** the one-line summary shows only the top two weights, which reads like a
+build order and is not one. The full weight profile is now printed alongside it.

@@ -265,7 +265,27 @@ export interface Fitness {
  * threatened is exactly the §15.1 failure we want a machine to keep hunting.
  * Dying early is punished only through the seasons it cuts short.
  */
-function evaluate(g: Genome, seasons: number, seedBase: number): Fitness {
+type FitnessMode = 'renown' | 'survival';
+
+/**
+ * How to score a genome.
+ *
+ * `renown` is what §15 says the player chases, and optimising it surfaces
+ * exploits — but its fittest build reliably has 0% survival, because dying rich
+ * at a high tier beats living poor at a low one. That is the design working,
+ * and it also means Renown alone cannot answer "is this survivable".
+ *
+ * `survival` weights finishing the season heavily, so it answers the other
+ * question: what does a build that actually holds look like?
+ */
+function score(f: Omit<Fitness, 'score'>, mode: FitnessMode): number {
+  if (mode === 'survival') return f.survival * 1000 + f.renown * 0.1;
+  return f.renown;
+}
+
+function evaluate(
+  g: Genome, seasons: number, seedBase: number, mode: FitnessMode = 'renown',
+): Fitness {
   let renown = 0, survived = 0, tier = 0, raids = 0, gold = 0, bestLv = 0;
   for (let i = 0; i < seasons; i++) {
     const seed = seedBase + i * 7919;
@@ -287,8 +307,7 @@ function evaluate(g: Genome, seasons: number, seedBase: number): Fitness {
     tier += currentTier(s).tier;
     bestLv += s.dungeon.mobs.reduce((m, x) => (x.alive && x.level > m ? x.level : m), 0);
   }
-  return {
-    score: renown / seasons,
+  const parts = {
     survival: survived / seasons,
     renown: renown / seasons,
     tier: tier / seasons,
@@ -296,6 +315,7 @@ function evaluate(g: Genome, seasons: number, seedBase: number): Fitness {
     gold: gold / seasons,
     bestMobLevel: bestLv / seasons,
   };
+  return { ...parts, score: score(parts, mode) };
 }
 
 // ─── The loop ────────────────────────────────────────────────────────────────
@@ -321,12 +341,16 @@ function main(): void {
   const generations = Number(process.argv[2] ?? 12);
   const population = Number(process.argv[3] ?? 24);
   const seasons = Number(process.argv[4] ?? 6);
+  const mode = (process.argv[5] ?? 'renown') as FitnessMode;
   const rng = new Rng(0xC0FFEE);
 
   let pop = Array.from({ length: population }, () => randomGenome(rng));
   const t0 = Date.now();
 
-  console.log(`evolving ${population} genomes × ${generations} generations × ${seasons} seasons\n`);
+  console.log(
+    `evolving ${population} genomes × ${generations} generations × ${seasons} seasons`
+    + `  [fitness: ${mode}]\n`,
+  );
   console.log('gen   best   survive  tier raids  gold  mobLv   build');
   console.log('─'.repeat(110));
 
@@ -337,7 +361,7 @@ function main(): void {
     // builds, not luck. Seeds rotate per generation so nothing overfits one run.
     const seedBase = 1000 + gen * 104729;
     const scored = pop
-      .map((g) => ({ g, f: evaluate(g, seasons, seedBase) }))
+      .map((g) => ({ g, f: evaluate(g, seasons, seedBase, mode) }))
       .sort((a, b) => b.f.score - a.f.score);
 
     const top = scored[0]!;
@@ -364,6 +388,19 @@ function main(): void {
 
   console.log('\n═══ fittest build found ═══');
   console.log(describe(best!.g));
+  // The one-line summary shows only the top two weights, which reads like a
+  // recipe and is not one — every genome weights the whole roster. Print the
+  // actual profile so the result can be acted on.
+  const profile = (label: string, m: Record<string, number>) => {
+    const total = Object.values(m).reduce((a, b) => a + b, 0) || 1;
+    const parts = Object.entries(m)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, v]) => `${k} ${(100 * v / total).toFixed(0)}%`)
+      .join('  ');
+    console.log(`  ${label.padEnd(9)} ${parts}`);
+  };
+  profile('monsters', best!.g.mobWeights);
+  profile('traps', best!.g.trapWeights);
   console.log(
     `renown=${best!.f.renown.toFixed(0)} survival=${(best!.f.survival * 100).toFixed(0)}% `
     + `tier=${best!.f.tier.toFixed(1)} raids=${best!.f.raids.toFixed(1)} gold=${best!.f.gold.toFixed(0)} `
