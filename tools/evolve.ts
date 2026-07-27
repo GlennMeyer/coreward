@@ -21,7 +21,7 @@ import {
   trapRearmPrice, rearmTrap,
 } from '../src/sim/dungeon';
 import { Rng } from '../src/sim/rng';
-import { applyAftermath, createSeason, startRaid } from '../src/sim/season';
+import { applyAftermath, createSeason, currentTier, startRaid } from '../src/sim/season';
 import type { UpgradeTrack } from '../src/sim/data';
 import type { AmenityId, PriceTier, SeasonState } from '../src/sim/types';
 
@@ -251,6 +251,8 @@ export interface Fitness {
   survival: number;
   renown: number;
   tier: number;
+  /** Raids actually played — distinct from the Threat Tier reached. */
+  raids: number;
   gold: number;
   bestMobLevel: number;
 }
@@ -264,7 +266,7 @@ export interface Fitness {
  * Dying early is punished only through the seasons it cuts short.
  */
 function evaluate(g: Genome, seasons: number, seedBase: number): Fitness {
-  let renown = 0, survived = 0, tier = 0, gold = 0, bestLv = 0;
+  let renown = 0, survived = 0, tier = 0, raids = 0, gold = 0, bestLv = 0;
   for (let i = 0; i < seasons; i++) {
     const seed = seedBase + i * 7919;
     const s = createSeason(seed);
@@ -281,7 +283,8 @@ function evaluate(g: Genome, seasons: number, seedBase: number): Fitness {
     renown += s.renown;
     gold += s.gold;
     if (s.ending === 'survived') survived++;
-    tier += s.log.length;
+    raids += s.log.length;
+    tier += currentTier(s).tier;
     bestLv += s.dungeon.mobs.reduce((m, x) => (x.alive && x.level > m ? x.level : m), 0);
   }
   return {
@@ -289,6 +292,7 @@ function evaluate(g: Genome, seasons: number, seedBase: number): Fitness {
     survival: survived / seasons,
     renown: renown / seasons,
     tier: tier / seasons,
+    raids: raids / seasons,
     gold: gold / seasons,
     bestMobLevel: bestLv / seasons,
   };
@@ -323,7 +327,7 @@ function main(): void {
   const t0 = Date.now();
 
   console.log(`evolving ${population} genomes × ${generations} generations × ${seasons} seasons\n`);
-  console.log('gen   best   survive  tier  gold  mobLv   build');
+  console.log('gen   best   survive  tier raids  gold  mobLv   build');
   console.log('─'.repeat(110));
 
   let best: { g: Genome; f: Fitness } | null = null;
@@ -342,7 +346,8 @@ function main(): void {
     console.log(
       `${String(gen).padStart(3)} ${top.f.score.toFixed(0).padStart(6)} `
       + `${(top.f.survival * 100).toFixed(0).padStart(7)}% `
-      + `${top.f.tier.toFixed(1).padStart(5)} ${top.f.gold.toFixed(0).padStart(5)} `
+      + `${top.f.tier.toFixed(1).padStart(5)} ${top.f.raids.toFixed(1).padStart(5)} `
+      + `${top.f.gold.toFixed(0).padStart(5)} `
       + `${top.f.bestMobLevel.toFixed(1).padStart(6)}   ${describe(top.g)}`,
     );
 
@@ -361,7 +366,7 @@ function main(): void {
   console.log(describe(best!.g));
   console.log(
     `renown=${best!.f.renown.toFixed(0)} survival=${(best!.f.survival * 100).toFixed(0)}% `
-    + `tier=${best!.f.tier.toFixed(1)} gold=${best!.f.gold.toFixed(0)} `
+    + `tier=${best!.f.tier.toFixed(1)} raids=${best!.f.raids.toFixed(1)} gold=${best!.f.gold.toFixed(0)} `
     + `bestMobLevel=${best!.f.bestMobLevel.toFixed(1)}`,
   );
   console.log(`\ndone in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

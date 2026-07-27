@@ -218,6 +218,19 @@ export const TUNING = {
    * losing felt like a timer expiring rather than something being taken. They
    * are standing in your treasury; they should leave with it.
    */
+  /**
+   * Chance a party carrying casualties turns back, per casualty (§19.2).
+   *
+   * This was an absolute rule and it became the game's dominant exploit: down
+   * one adventurer and the delve ALWAYS ended, so a build of cheap chaff plus
+   * two traps could guarantee it was never breached. Measured, the genetic
+   * search converged on exactly that — 100% season survival at 776 Renown.
+   *
+   * A hurt party is much more likely to leave, not certain to. Nerve, greed and
+   * how deep they already are all argue for pressing on, and a run should be
+   * winnable by threatening people rather than by tripping one of them.
+   */
+  casualtyRetreatChance: 0.55,
   breachLootPct: 0.35,
   /**
    * Extra loot share per previous breach this season.
@@ -905,7 +918,19 @@ export const TIERS: TierRow[] = [
   { tier: 10, renown: 1250, partySize: 5, levelMin: 26, levelMax: 30, gold: 205, manaBonus: 495, formation: 'party' },
 ];
 
-export const MAX_TIER_PROTOTYPE = 4;
+/**
+ * Highest Threat Tier that can be reached.
+ *
+ * Was 4, a §12 scoping decision made before any of the escalation systems
+ * existed — and it silently capped the difficulty while the dungeon kept
+ * growing, so a sufficiently built dungeon became unbeatable BY CONSTRUCTION.
+ * The genetic search found it immediately: 100% season survival at 773 Renown,
+ * every generation, because nothing stronger could ever arrive.
+ *
+ * The Renown ratchet is the whole premise of §15. It cannot have a ceiling
+ * below the top of the tier table.
+ */
+export const MAX_TIER_PROTOTYPE = 10;
 
 /** Player-facing copy for each formation, shared by the UI and the forecast. */
 export const FORMATION_INFO: Record<Formation, {

@@ -1462,8 +1462,20 @@ export class RaidSim {
     // grind to the Core. Measured, that collapsed kills to 0.3/season, Souls to
     // ~1, and pushed breaches to 2.9. Downing has to STOP a delve — that is the
     // payoff for a dungeon that hurts people without killing them.
-    if (this.party.members.some((m) => m.alive && (m.stable || m.downed))) {
-      return 'casualties';
+    const casualties = this.party.members
+      .filter((m) => m.alive && (m.stable || m.downed)).length;
+    if (casualties > 0) {
+      // Likely, not certain. Nerve and momentum argue for pressing on: a party
+      // that is still steady, or already most of the way down, may carry the
+      // body and keep going. Rolled once per Landing so a long delve with a
+      // casualty is progressively more likely to break off.
+      const resolve = avgResolvePct(this.party);
+      const depth = this.d.floors.length > 1
+        ? this.floor / (this.d.floors.length - 1)
+        : 1;
+      const chance = Math.min(0.95,
+        TUNING.casualtyRetreatChance * casualties * (1.4 - 0.5 * resolve - 0.35 * depth));
+      if (this.rng.chance(chance)) return 'casualties';
     }
 
     const greedMod = alive.reduce((s, m) => s + m.greed, 0) / alive.length;

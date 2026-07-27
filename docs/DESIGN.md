@@ -2083,3 +2083,48 @@ unbuilt.** Every run starts from exactly the same place, so failure is pure loss
 
 That is the single most important missing piece for the genre, more than any balance
 number. Until it exists, a hard run is just a wasted one.
+
+
+---
+
+## 25. The difficulty had a ceiling
+
+**Status: FIXED (v0.10).** Found by `tools/evolve.ts`, not by reading the code.
+
+### 25.1 What the search kept finding
+
+Every 100-generation run converged on the same thing: **100% season survival**, 773 Renown,
+cheap chaff plus two traps. Three separate attempts to close it — moving traps to Gold
+(§17), looting on breach (§24), making the casualty retreat probabilistic (§19.2) — all
+failed to dent it. Traps stopped being spammable and the build still never lost.
+
+### 25.2 The cause
+
+`MAX_TIER_PROTOTYPE = 4`. A §12 scoping decision, made before any of the escalation systems
+existed, that **capped the Threat Tier while the dungeon kept growing**. Past a certain
+build, nothing stronger could ever arrive, so a sufficiently developed dungeon was
+unbeatable *by construction*.
+
+The Renown ratchet is the entire premise of §15 — "the player sets the difficulty curve"
+is pillar 1. A ceiling below the top of the tier table quietly deletes both.
+
+### 25.3 Result
+
+| | before | after |
+|---|---|---|
+| Best evolved build's survival | **100%** | **83%** |
+| Threat Tier reached | 4 (capped) | **7.2** |
+| Renown of the fittest build | 773 | 665 |
+
+Escalation now catches up. The fittest build also finishes with **best monster level 0.0** —
+at Tier 7 the veterans do not survive, which is the ratchet working as designed.
+
+### 25.4 The lesson worth keeping
+
+Three plausible fixes were tried against a symptom before anyone checked whether difficulty
+could still rise. A constant named `MAX_TIER_PROTOTYPE` read as scope, not as balance, and
+nothing in the balance runner reported "tier is pinned" because it only ever printed the
+mean.
+
+The genetic search found it in 19 seconds, repeatedly, without knowing what any of the
+systems were — which is exactly the argument for keeping it in the loop after every change.
