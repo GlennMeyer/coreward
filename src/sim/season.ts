@@ -2,7 +2,8 @@
  * Season orchestration and the Aftermath economy (§3, §4).
  */
 import {
-  GRUDGE_TRAIT, MAX_TIER_PROTOTYPE, SEASON_RAIDS, TUNING, tierForRenown,
+  ENDLESS_RAIDS, GRUDGE_TRAIT, MAX_TIER_PROTOTYPE, SEASON_RAIDS, TUNING,
+  tierForRenown,
   type TierRow,
 } from './data';
 import {
@@ -12,11 +13,11 @@ import { createDungeon, healAllMobs, totalUpkeep } from './dungeon';
 import { RaidSim } from './raid';
 import type { Adventurer, RaidResult, SeasonState, Veteran } from './types';
 
-export function createSeason(seed: number): SeasonState {
+export function createSeason(seed: number, endless = false): SeasonState {
   return {
     seed,
     raidNumber: 1,
-    totalRaids: SEASON_RAIDS,
+    totalRaids: endless ? ENDLESS_RAIDS : SEASON_RAIDS,
     mana: TUNING.startingMana,
     souls: 0,
     gold: TUNING.startingGold,

@@ -162,9 +162,9 @@ function buildPhase(s: SeasonState, g: Genome, rng: Rng): void {
   // Re-arm spent traps before buying anything new: a spent trap is a hole.
   for (const t of d.traps ?? []) {
     const price = trapRearmPrice(d, t.uid);
-    if (price > 0 && s.mana >= price + 40) {
-      const paid = rearmTrap(d, t.uid, s.mana);
-      if (typeof paid === 'number') s.mana -= paid;
+    if (price > 0 && s.gold >= price + 20) {
+      const paid = rearmTrap(d, t.uid, s.gold);
+      if (typeof paid === 'number') s.gold -= paid;
     }
   }
 
@@ -198,10 +198,10 @@ function buildPhase(s: SeasonState, g: Genome, rng: Rng): void {
   }
 
   // Mana: traps, then monsters.
-  const trapBudget = s.mana * g.trapShare;
+  const trapBudget = s.gold * g.trapShare;
   let trapSpent = 0;
   for (let i = 0; i < 20; i++) {
-    const affordable = TRAP_IDS.filter((id) => TRAPS[id]!.cost <= Math.min(s.mana, trapBudget - trapSpent));
+    const affordable = TRAP_IDS.filter((id) => TRAPS[id]!.cost <= Math.min(s.gold, trapBudget - trapSpent));
     const pickId = weightedPick(g.trapWeights, affordable, rng);
     if (!pickId) break;
     const t = buyTrap(d, pickId);
@@ -210,7 +210,7 @@ function buildPhase(s: SeasonState, g: Genome, rng: Rng): void {
       d.traps!.pop();
       break;
     }
-    s.mana -= TRAPS[pickId]!.cost;
+    s.gold -= TRAPS[pickId]!.cost;
     trapSpent += TRAPS[pickId]!.cost;
   }
 

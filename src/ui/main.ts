@@ -12,7 +12,7 @@ import {
   MAX_UPGRADE_RANK, MOBS, upgradeName, type UpgradeTrack,
   INSURANCE_BASE, STAFFED_REVENUE_MULT,
   admissionPrice,
-  PRICE_TIERS, SEASON_RAIDS, TRAPS, TUNING, roomCapacity, trapCost,
+  PRICE_TIERS, TRAPS, TUNING, roomCapacity, trapCost,
   trapRearmCost,
 } from '../sim/data';
 import {
@@ -47,6 +47,8 @@ const SPEEDS = [
 interface LogLine { t: number; cls: string; text: string; }
 
 interface App {
+  /** Endless: raid until the Core falls, rather than stopping at 8 (§12a). */
+  endless: boolean;
   season: SeasonState;
   phase: Phase;
   sim: RaidSim | null;
@@ -77,6 +79,7 @@ interface App {
 }
 
 const app: App = {
+  endless: false,
   season: createSeason(Math.floor(Date.now() % 100000)),
   phase: 'build',
   sim: null,
@@ -351,7 +354,7 @@ function nextRaid(): void {
 function restart(): void {
   stopTimer();
   Object.assign(app, {
-    season: createSeason(Math.floor(Math.random() * 100000)),
+    season: createSeason(Math.floor(Math.random() * 100000), app.endless),
     phase: 'build', sim: null, speedIdx: 1, log: [], events: [],
     selectedMob: null, selectedTrap: null, aftermath: null, narration: null, error: '',
   });
@@ -532,7 +535,7 @@ function topbar(): HTMLElement {
         <span class="lbl">incoming</span><b>${tier.partySize}</b>
         <span class="lvl">lv ${tier.levelMin}–${tier.levelMax}</span>
       </span>
-      <span class="stat"><span class="lbl">raid</span><b>${s.raidNumber}/${SEASON_RAIDS}</b></span>
+      <span class="stat"><span class="lbl">raid</span><b>${s.raidNumber}${Number.isFinite(s.totalRaids) ? `/${s.totalRaids}` : ''}</b></span>
       <span class="stat"><span class="lbl">tier</span><b>${tier.tier}</b></span>
       <div class="stats">
         <span class="stat hearts"><span class="lbl">hearts</span><b>${'♥'.repeat(s.dungeon.hearts) || '—'}</b></span>
@@ -867,10 +870,10 @@ function buildPanel(): HTMLElement {
   const rearmPrice = rearmAllPrice(d);
   if (rearmPrice > 0) {
     const btn = el(
-      `<button class="${s.mana >= rearmPrice ? 'primary' : ''}" ${s.mana < rearmPrice ? 'disabled' : ''}>Re-arm traps — ${rearmPrice}</button>`,
+      `<button class="${s.gold >= rearmPrice ? 'primary' : ''}" ${s.gold < rearmPrice ? 'disabled' : ''}>Re-arm traps — ${rearmPrice}g</button>`,
     );
     btn.onclick = () => {
-      s.mana -= rearmAll(d, s.mana);
+      s.gold -= rearmAll(d, s.gold);
       fail(null);
     };
     rowA.append(btn);
@@ -1527,9 +1530,16 @@ function gameOverModal(): HTMLElement {
          Killed ${s.log.reduce((a, r) => a + r.killed, 0)} · let ${s.log.reduce((a, r) => a + r.escaped, 0)} walk away.<br>
          Best Thrill ${Math.round(s.log.reduce((a, r) => Math.max(a, r.thrill.total), 0))}
          · ${s.legends.length} Legend${s.legends.length === 1 ? '' : 's'} on the wall.</p>
-      <div class="row"><button class="primary">New Season</button></div>
+      <div class="row">
+        <button class="endless ${app.endless ? 'on' : ''}">Endless: ${app.endless ? 'on' : 'off'}</button>
+        <button class="primary">New Season</button>
+      </div>
     </div>`);
-  m.querySelector('button')!.onclick = restart;
+  const endlessBtn = m.querySelector('button.endless') as HTMLElement | null;
+  if (endlessBtn) {
+    endlessBtn.onclick = () => { app.endless = !app.endless; render(); };
+  }
+  (m.querySelector('button.primary') as HTMLElement).onclick = restart;
   bg.append(m);
   return bg;
 }

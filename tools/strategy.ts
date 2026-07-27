@@ -265,7 +265,7 @@ export function buildPhaseFor(s: SeasonState, strat: Strategy, rng: Rng): void {
   // against 12-85 for a monster that then bills you every raid forever. An AI
   // that bought a new Cave Rat while its Deadfall sat spent would be measuring
   // a mistake rather than a strategy.
-  if (rearmAllPrice(d) > 0) s.mana -= rearmAll(d, s.mana);
+  if (rearmAllPrice(d) > 0) s.gold -= rearmAll(d, s.gold);
 
   // 2. Commerce: one amenity per landing, staffed by a cheap monster.
   if (strat.commerceShare > 0) {
@@ -305,7 +305,7 @@ export function buildPhaseFor(s: SeasonState, strat: Strategy, rng: Rng): void {
       if (spent + def.buildCost + MOBS['rat']!.cost > budget) break;
       if (buildAmenity(d, l, slot, pick) !== null) continue;
       spent += def.buildCost;
-      s.mana -= def.buildCost;
+      s.gold -= def.buildCost;
       if (strat.priceTier) setPrice(d, l, slot, strat.priceTier);
 
       const staff = buyMob(d, 'rat');
@@ -339,7 +339,7 @@ export function buildPhaseFor(s: SeasonState, strat: Strategy, rng: Rng): void {
   // Reserving the share up front rather than spending the remainder is what
   // makes it a *share*: the monster loop below drains everything down to the
   // upkeep reserve, so anything not withheld here is never seen again.
-  const trapBudget = Math.floor(s.mana * (strat.trapShare ?? 0));
+  const trapBudget = Math.floor(s.gold * (strat.trapShare ?? 0));
 
   // 6. Spend the rest of the mana on monsters.
   const order = strat.buyOrder ?? DEFAULT_BUY_ORDER;
@@ -369,7 +369,7 @@ export function buildPhaseFor(s: SeasonState, strat: Strategy, rng: Rng): void {
   // 7. Install traps into the rooms the monsters are now standing in.
   if (trapBudget > 0) {
     const trapOrder = strat.trapOrder ?? DEFAULT_TRAP_ORDER;
-    let budget = Math.min(trapBudget, s.mana);
+    let budget = Math.min(trapBudget, s.gold);
     let tcursor = 0;
     let tguard = 0;
     while (tguard++ < 40) {
@@ -382,7 +382,7 @@ export function buildPhaseFor(s: SeasonState, strat: Strategy, rng: Rng): void {
         break;
       }
       const price = trapCost(defId);
-      s.mana -= price;
+      s.gold -= price;
       budget -= price;
     }
   }

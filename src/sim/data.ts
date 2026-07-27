@@ -1153,3 +1153,13 @@ export const EPITHETS = [
 ];
 
 export const SEASON_RAIDS = 8;
+
+/**
+ * Endless: raid until the Core falls (§12a).
+ *
+ * The 8-raid cap is a prototype convenience, not a design position — §3 calls a
+ * season a run, and a roguelite run should end because you lost, not because a
+ * counter ran out. Endless lets the Renown ratchet keep climbing until it beats
+ * you, which is the only honest test of whether the ratchet is tuned.
+ */
+export const ENDLESS_RAIDS = Number.POSITIVE_INFINITY;
