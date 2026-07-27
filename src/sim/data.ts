@@ -950,15 +950,15 @@ export interface TierRow {
  */
 export const TIERS: TierRow[] = [
   { tier: 1, renown: 0, partySize: 3, levelMin: 1, levelMax: 2, gold: 25, manaBonus: 0, formation: 'single-file' },
-  { tier: 2, renown: 30, partySize: 3, levelMin: 3, levelMax: 4, gold: 45, manaBonus: 25, formation: 'single-file' },
-  { tier: 3, renown: 75, partySize: 4, levelMin: 5, levelMax: 6, gold: 65, manaBonus: 55, formation: 'single-file' },
-  { tier: 4, renown: 140, partySize: 4, levelMin: 7, levelMax: 8, gold: 85, manaBonus: 95, formation: 'party' },
-  { tier: 5, renown: 230, partySize: 4, levelMin: 9, levelMax: 11, gold: 105, manaBonus: 140, formation: 'party' },
-  { tier: 6, renown: 350, partySize: 5, levelMin: 12, levelMax: 14, gold: 125, manaBonus: 195, formation: 'party' },
-  { tier: 7, renown: 500, partySize: 5, levelMin: 15, levelMax: 17, gold: 145, manaBonus: 255, formation: 'party' },
-  { tier: 8, renown: 700, partySize: 5, levelMin: 18, levelMax: 21, gold: 165, manaBonus: 325, formation: 'party' },
-  { tier: 9, renown: 950, partySize: 5, levelMin: 22, levelMax: 25, gold: 185, manaBonus: 405, formation: 'party' },
-  { tier: 10, renown: 1250, partySize: 5, levelMin: 26, levelMax: 30, gold: 205, manaBonus: 495, formation: 'party' },
+  { tier: 2, renown: 66, partySize: 3, levelMin: 3, levelMax: 4, gold: 45, manaBonus: 25, formation: 'single-file' },
+  { tier: 3, renown: 165, partySize: 4, levelMin: 5, levelMax: 6, gold: 65, manaBonus: 55, formation: 'single-file' },
+  { tier: 4, renown: 308, partySize: 4, levelMin: 7, levelMax: 8, gold: 85, manaBonus: 95, formation: 'party' },
+  { tier: 5, renown: 506, partySize: 4, levelMin: 9, levelMax: 11, gold: 105, manaBonus: 140, formation: 'party' },
+  { tier: 6, renown: 770, partySize: 5, levelMin: 12, levelMax: 14, gold: 125, manaBonus: 195, formation: 'party' },
+  { tier: 7, renown: 1100, partySize: 5, levelMin: 15, levelMax: 17, gold: 145, manaBonus: 255, formation: 'party' },
+  { tier: 8, renown: 1540, partySize: 5, levelMin: 18, levelMax: 21, gold: 165, manaBonus: 325, formation: 'party' },
+  { tier: 9, renown: 2090, partySize: 5, levelMin: 22, levelMax: 25, gold: 185, manaBonus: 405, formation: 'party' },
+  { tier: 10, renown: 2750, partySize: 5, levelMin: 26, levelMax: 30, gold: 205, manaBonus: 495, formation: 'party' },
 ];
 
 /**

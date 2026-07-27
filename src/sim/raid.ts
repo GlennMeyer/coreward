@@ -1925,6 +1925,7 @@ export class RaidSim {
       formation: this.formation,
       killed: this.killed,
       escaped,
+      tellers,
       goldFromSales: this.goldFromSales,
       goldFromCorpses: this.goldFromCorpses,
       goldFromRescues: this.goldFromRescues,

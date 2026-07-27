@@ -185,11 +185,15 @@ describe('mob leveling (§6.4)', () => {
 
 describe('tier lookup (§4.4)', () => {
   it('maps renown to the right tier', () => {
+    // Read the thresholds rather than hard-coding them: they were stretched
+    // ~2.2× for endless runs (§4.4) and will move again.
+    const t2 = TIERS[1]!.renown;
+    const t3 = TIERS[2]!.renown;
     expect(tierForRenown(0).tier).toBe(1);
-    expect(tierForRenown(29).tier).toBe(1);
-    expect(tierForRenown(30).tier).toBe(2);
-    expect(tierForRenown(74).tier).toBe(2);
-    expect(tierForRenown(75).tier).toBe(3);
+    expect(tierForRenown(t2 - 1).tier).toBe(1);
+    expect(tierForRenown(t2).tier).toBe(2);
+    expect(tierForRenown(t3 - 1).tier).toBe(2);
+    expect(tierForRenown(t3).tier).toBe(3);
   });
 
   it('respects the prototype tier cap', () => {
@@ -1041,7 +1045,8 @@ describe('Veterans, Retirement and Legends (§15.5)', () => {
       const sim = startRaid(s);
       sim.runToCompletion();
       const r = sim.result;
-      const thrillPart = r.thrill.total * r.escaped * TUNING.renownPerThrill;
+      // Renown pays per storyteller, not per body that left (§19.4).
+      const thrillPart = r.thrill.total * r.tellers * TUNING.renownPerThrill;
       const expected = Math.round(
         thrillPart
         + r.retired.length * TUNING.retireRenownBonus

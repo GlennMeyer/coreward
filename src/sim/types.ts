@@ -549,6 +549,12 @@ export interface RaidResult {
   formation: Formation;
   killed: number;
   escaped: number;
+  /**
+   * Those who walked out under their own power (§19.4) — a subset of `escaped`
+   * that excludes anyone carried out stabilised. Renown is paid per teller, so
+   * this is the number that actually drives reputation.
+   */
+  tellers: number;
   goldFromSales: number;
   goldFromCorpses: number;
   /** Rescue fees (§19.3) — they pay us to drag them out alive. */
