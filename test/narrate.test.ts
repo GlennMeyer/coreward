@@ -387,7 +387,7 @@ describe('narration finds what was distinctive', () => {
 
   it('reports a Core breach as the disaster it is', () => {
     const n = narrateRaid(ctx({
-      events: baseEvents([{ t: 30, type: 'core-breach', heartsLeft: 2 }]),
+      events: baseEvents([{ t: 30, type: 'core-breach', heartsLeft: 2, lootPct: 0.35 }]),
       result: makeResult({ outcome: 'breach', thrill: thrill({ total: 40 }) }),
     }));
     expect(n.beats).toContain('breach');

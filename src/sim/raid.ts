@@ -147,6 +147,7 @@ export class RaidSim {
   private goldFromCorpses = 0;
   private goldFromRescues = 0;
   private goldFromAdmission = 0;
+  private breachLootFraction = 0;
   private goldFromInsurance = 0;
   private insuranceClaims = 0;
   private downedCount = 0;
@@ -184,7 +185,11 @@ export class RaidSim {
    * every existing call site — tests, tools, the UI — keeps working without it.
    * The sim only reads it, except for flipping `retired` on a retiree.
    */
-  constructor(dungeon: Dungeon, tier: TierRow, seed: number, veterans: Veteran[] = []) {
+  constructor(
+    dungeon: Dungeon, tier: TierRow, seed: number, veterans: Veteran[] = [],
+    /** Breaches already suffered this season — loot escalates with them (§5.4). */
+    private readonly priorBreaches = 0,
+  ) {
     this.d = dungeon;
     this.tier = tier;
     this.rng = new Rng(seed);
@@ -1492,7 +1497,15 @@ export class RaidSim {
 
   private breachCore(): void {
     this.d.hearts = Math.max(0, this.d.hearts - 1);
-    this.emit({ t: this.tick, type: 'core-breach', heartsLeft: this.d.hearts });
+    // They are standing in the treasury. Escalates with every previous breach
+    // this season — word gets out that the dungeon can be cracked, and the next
+    // crew arrives knowing where the vault is (§5.4).
+    this.breachLootFraction = Math.min(0.9,
+      TUNING.breachLootPct * (1 + TUNING.breachLootEscalation * this.priorBreaches));
+    this.emit({
+      t: this.tick, type: 'core-breach',
+      heartsLeft: this.d.hearts, lootPct: this.breachLootFraction,
+    });
     // A Heart loss scatters them home alive — a huge Renown spike (§5.4).
     this.finish('breach', 'hp');
   }
@@ -1871,6 +1884,7 @@ export class RaidSim {
       goldFromAdmission: this.goldFromAdmission,
       goldFromInsurance: this.goldFromInsurance,
       insuranceClaims: this.insuranceClaims,
+      breachLootFraction: this.breachLootFraction,
       downedCount: this.downedCount,
       rescuedCount: this.rescuedCount,
       souls,

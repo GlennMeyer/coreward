@@ -46,9 +46,10 @@ export function raidSeed(s: SeasonState): number {
 
 export function startRaid(s: SeasonState): RaidSim {
   healAllMobs(s.dungeon);
+  const priorBreaches = s.log.filter((r) => r.outcome === 'breach').length;
   // The roster goes in by reference: returning faces are drawn from it during
   // party generation, and retirees are struck off it at raid end (§15.5).
-  return new RaidSim(s.dungeon, currentTier(s), raidSeed(s), s.veterans);
+  return new RaidSim(s.dungeon, currentTier(s), raidSeed(s), s.veterans, priorBreaches);
 }
 
 export interface Aftermath {
@@ -195,6 +196,17 @@ export function applyAftermath(s: SeasonState, sim: RaidSim): Aftermath {
 
   s.mana = Math.max(0, s.mana + manaIncome);
   s.souls += result.souls;
+  // They carried the treasury out with them (§5.4). Taken BEFORE this raid's
+  // takings are banked, so a breach cannot be paid for by the gate money of the
+  // very raid that breached you.
+  const looted = { gold: 0, souls: 0 };
+  if (result.breachLootFraction > 0) {
+    looted.gold = Math.round(s.gold * result.breachLootFraction);
+    looted.souls = Math.round(s.souls * result.breachLootFraction);
+    s.gold -= looted.gold;
+    s.souls -= looted.souls;
+  }
+
   s.gold += result.goldFromSales + result.goldFromCorpses
     + result.goldFromRescues + result.goldFromAdmission + result.goldFromInsurance;
   s.renown += result.renown;

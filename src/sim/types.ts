@@ -522,7 +522,7 @@ export type RaidEvent =
   | { t: number; type: 'taunt-offer'; landing: number; reason: RetreatReason }
   | { t: number; type: 'taunt-used'; landing: number }
   | { t: number; type: 'intervention-retreat'; uid: number }
-  | { t: number; type: 'core-breach'; heartsLeft: number }
+  | { t: number; type: 'core-breach'; heartsLeft: number; lootPct: number }
   | { t: number; type: 'raid-end'; outcome: RaidOutcome };
 
 /**
@@ -557,6 +557,12 @@ export interface RaidResult {
   goldFromInsurance: number;
   /** Policies actually paid out — a resurrection on the floor. */
   insuranceClaims: number;
+  /**
+   * Fraction of the treasury carried off in a breach (§5.4). The raid does not
+   * know the season's balances, so it reports the share and the Aftermath
+   * applies it.
+   */
+  breachLootFraction: number;
   /** Dropped to 0 HP at some point, whether or not they survived it. */
   downedCount: number;
   /** Stabilised by their own saves, or bought out. */

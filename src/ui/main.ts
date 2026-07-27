@@ -253,7 +253,11 @@ function describe(e: RaidEvent): { cls: string; text: string } | null {
     case 'intervention-retreat':
       return { cls: 'info', text: `${mobName(e.uid)} is pulled from the fight.` };
     case 'core-breach':
-      return { cls: 'crit', text: `THE CORE IS BREACHED. Hearts left: ${e.heartsLeft}.` };
+      return {
+        cls: 'crit',
+        text: `THE CORE IS BREACHED. They carry off ${Math.round(e.lootPct * 100)}% of the treasury. `
+          + `Hearts left: ${e.heartsLeft}.`,
+      };
     case 'raid-end':
       return { cls: 'info', text: `Raid over: ${e.outcome}.` };
   }

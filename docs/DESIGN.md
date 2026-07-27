@@ -2046,3 +2046,40 @@ Three findings, all uncomfortable:
 
 Best monster level is still **2.0** even at 80% survival — §19.7's mortality problem
 survives every change made since.
+
+
+---
+
+## 24. Breaches have to cost something
+
+**Status: IMPLEMENTED (v0.9).**
+
+A breach cost **one Heart and nothing else**. Hearts are an abstract counter, so losing
+read as a timer expiring rather than as something being taken — and with traps able to
+stall a party forever, "losing" was just heroes strolling past until the counter hit zero.
+
+**They are standing in your treasury.** A breach now carries off `breachLootPct` (35%) of
+Gold and Souls, escalating by `breachLootEscalation` (20%) per previous breach that season:
+word gets out that the dungeon can be cracked, and the next crew arrives knowing where the
+vault is.
+
+Taken **before** the raid's takings are banked, so a breach cannot be paid for with the
+gate money of the very raid that breached you.
+
+Measured, it compounds as intended:
+
+| | Gold lost |
+|---|---|
+| First breach of a season | 8g |
+| Later breaches | **29g** |
+
+That is the death-spiral shape a roguelite run needs: losing makes losing more expensive.
+
+### 24.1 The bigger gap — meta-progression is still missing
+
+Seasons now end overrun **79%** of the time. In a roguelite that is fine *if a lost run
+still advances you*, and here it does not: **§10's Insight and the Codex are designed and
+unbuilt.** Every run starts from exactly the same place, so failure is pure loss.
+
+That is the single most important missing piece for the genre, more than any balance
+number. Until it exists, a hard run is just a wasted one.

@@ -211,6 +211,22 @@ export const TUNING = {
    * pillar 3 — becomes unreachable. Breaches slay every downed monster
    * regardless, so this only governs raids you actually turned back.
    */
+  /**
+   * Share of your Gold and Souls carried off when they reach the Core (§5.4).
+   *
+   * A breach used to cost a Heart and nothing else — an abstract counter, so
+   * losing felt like a timer expiring rather than something being taken. They
+   * are standing in your treasury; they should leave with it.
+   */
+  breachLootPct: 0.35,
+  /**
+   * Extra loot share per previous breach this season.
+   *
+   * Word gets out that the dungeon can be cracked, so the next crew comes
+   * knowing where the vault is. This is the roguelite death-spiral: losing
+   * makes losing more expensive, which is what gives a run a shape.
+   */
+  breachLootEscalation: 0.2,
   slayChance: 0.25,
 
   // ── Formation: the line (§7.2) ──
