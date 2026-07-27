@@ -195,6 +195,28 @@ export interface Dungeon {
 
 // ─── Adventurers ─────────────────────────────────────────────────────────────
 
+/**
+ * How a delve engages a room (§7.2). A progression axis on the Threat Tier
+ * table (§4.4), orthogonal to party size and party level.
+ *
+ * - `single-file` — the baseline, and what everyone does until the dungeon is
+ *   famous. The whole group arrives together, descends together, rests and
+ *   shops and votes on the Descent Decision together (§7.3) — but in a *room*
+ *   they engage one at a time. The lead delver holds the door; when they fall
+ *   or break off, the next steps up. Your monsters therefore fight one target
+ *   at a time, which is a very large defensive advantage: room clears take
+ *   roughly `partySize` times longer for the same total damage output.
+ *
+ * - `party` — an organised company. Every living member engages at once, which
+ *   is the behaviour the sim shipped with. It is the escalation beat of the
+ *   whole table: the same three people who used to file in politely now come at
+ *   you together, and the room falls in a third of the time.
+ *
+ * Formation is a property of the tier, not of the party, so it is a thing the
+ * player *earns* by becoming popular — pillar 1.
+ */
+export type Formation = 'single-file' | 'party';
+
 export type AdventurerClass = 'fighter' | 'rogue' | 'cleric' | 'mage' | 'ranger';
 
 export interface Adventurer {
@@ -387,8 +409,27 @@ export interface RivalNote {
  * renderer a swap rather than a rewrite.
  */
 export type RaidEvent =
-  | { t: number; type: 'raid-start'; tier: number; partySize: number }
+  | {
+      t: number;
+      type: 'raid-start';
+      tier: number;
+      partySize: number;
+      /** How they will engage each room (§7.2). */
+      formation: Formation;
+    }
   | { t: number; type: 'floor-enter'; floor: number }
+  // ── The line (§7.2, single-file). Who is holding the door, and who is next.
+  /**
+   * Someone stepped to the front. Emitted on entering a room and every time the
+   * point changes hands, so a consumer can always answer "who is engaged?"
+   * from the stream alone.
+   */
+  | { t: number; type: 'line-engage'; advId: number; waiting: number }
+  /**
+   * The point man broke off, too hurt to hold the door. `next` is whoever
+   * stepped up, or null — nobody left fit, and the delve is over.
+   */
+  | { t: number; type: 'line-break'; advId: number; hpPct: number; next: number | null }
   | { t: number; type: 'room-enter'; floor: number; room: number }
   | { t: number; type: 'attack'; source: 'mob'; uid: number; targetId: number; dmg: number }
   | { t: number; type: 'attack'; source: 'adv'; advId: number; targetUid: number; dmg: number }
@@ -452,6 +493,8 @@ export type RaidOutcome = 'wiped' | 'retreated' | 'breach';
 
 export interface RaidResult {
   outcome: RaidOutcome;
+  /** How they engaged rooms (§7.2). Read off the tier, recorded for the record. */
+  formation: Formation;
   killed: number;
   escaped: number;
   goldFromSales: number;

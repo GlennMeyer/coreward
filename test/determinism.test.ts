@@ -59,6 +59,22 @@ describe('determinism', () => {
       .not.toBe(JSON.stringify(b.runToCompletion()));
   });
 
+  // Formation (§7.2) adds a second code path through room combat — the line
+  // rotates, monsters retarget, and a withdrawal fires a parting volley. All of
+  // it has to be as reproducible as the rest, or replays break for exactly the
+  // raids that are most worth replaying.
+  for (const formation of ['single-file', 'party'] as const) {
+    it(`is byte-identical under ${formation} engagement`, () => {
+      const runs = [0, 1].map(() => {
+        const s = buildScenario(8080);
+        const tier = { ...TIERS[2]!, formation };
+        return JSON.stringify(new RaidSim(s.dungeon, tier, 313).runToCompletion());
+      });
+      expect(runs[0]).toBe(runs[1]);
+      expect(JSON.parse(runs[0]!).length).toBeGreaterThan(10);
+    });
+  }
+
   it('steps and runToCompletion agree', () => {
     const s1 = buildScenario(31337);
     const sim1 = new RaidSim(s1.dungeon, TIERS[1]!, 555);

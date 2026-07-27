@@ -1609,3 +1609,102 @@ builds become one and pillar 3 stops happening**. Winning numbers, dead design.
 3. **The residual raid-2 spike is a digging artifact**, not a trap problem: the raid after a
    dig is a 10-room dungeon with 6 rooms of defence. Delaying the dig is worse (a floor
    pays 40/raid). If raid 2 should be flatter still, the lever is the dig cost curve.
+
+---
+
+## 18. Formation — how a delve engages
+
+**Status: IMPLEMENTED (v0.5).**
+
+### 18.1 The problem
+
+Every living party member acted every tick, simultaneously, and the tier table sends three
+adventurers at Tier 1. So from the first raid your monsters faced 3-on-1 in every room with
+no ramp. In the owner's words: *"Having an entire group go in against the monsters is very
+much one-sided."*
+
+### 18.2 The rule
+
+**Party sizes are unchanged.** The only thing that changes is engagement order inside a
+room. Formation is a column on the Threat Tier table (§4.4):
+
+| Tier | 1 | 2 | 3 | **4+** |
+|---|---|---|---|---|
+| party size | 3 | 3 | 4 | 4–5 |
+| formation | single-file | single-file | single-file | **party** |
+
+- **Single-file** (the baseline). The whole group arrives, descends, rests, shops, spends
+  Kit and votes on the Descent Decision together — but only the point man fights. When they
+  fall or withdraw, the next fit person steps up.
+- **Party.** Everyone engages at once. This is the old behaviour, now an *escalation*: the
+  same three people who used to file in politely arrive as a coordinated company.
+
+Tier 4 rather than later because `MAX_TIER_PROTOTYPE` is 4 — a milestone the player can
+never reach is a comment, not a milestone. Measured, 46–65% of seasons meet a party.
+
+**Line-break** (`lineBreakHpPct` 0.3): the point man withdraws when badly hurt and the next
+steps up; if nobody is fit, the delve retreats alive. Without it single-file is a meat
+grinder — every early raid ended in a wipe, a wipe pays no Renown (§15.3), and the ratchet
+seized at Tier 1 forever.
+
+**Disengaging under fire** (`linePartingMult` 0.4): everything in the room lands one blow
+on the man turning his back. This is the load-bearing knob. At 0, withdrawal is a teleport,
+nobody ever dies (season kills 11.6 → 2.5), and `peril` is pinned by the *rule* rather than
+set by the dungeon.
+
+### 18.3 Role identity with one target (§6.2)
+
+Single-file collapses "finish the wounded" and "pick the squishiest" into the same choice,
+so roles needed another expression:
+
+- **Caster** — shoots *past* the line at the squishiest person in the room. The one role a
+  queue cannot screen, and single-file's designed counter.
+- **Skirmisher** — chases, with a 1.6× bonus on the parting blow.
+- **Bruiser** — becomes "the thing you cannot safely stop fighting".
+- **Warden / Terror** — already party-level (shared Kit, morale). Formation-blind.
+- **Traps** — deliberately formation-blind: a mechanism fills a room. This is what makes
+  traps the cheap answer to a queue.
+
+### 18.4 Peril — the expected problem that did not happen
+
+The predicted risk was that `peril` (a mean over survivors' low-water HP) would deflate,
+since the point man eats everything while the queue stays pristine. A correction knob was
+built — and then measurement showed **the deflation does not occur**: because the line
+*rotates*, any delve worth scoring feeds every member through the door. `balanced` peril
+went **0.28 → 0.39**.
+
+The only delves where the queue stays pristine are the ones where nothing could hurt
+anyone — the §15.1 family exactly. The knob ships at 0, kept and swept.
+
+`retireThrill` was re-derived 45 → **60** from the new p90 of 56.9; at 45 it qualified one
+delve in four and became an unintended second Renown engine.
+
+### 18.5 Result
+
+| | survive | tier | renown | breach | mobLv | peril |
+|---|---|---|---|---|---|---|
+| balanced **before** | 49% | 2.4 | 81 | 1.6 | 2.2 | 0.28 |
+| balanced **after** | **71%** | **2.9** | 138 | **1.1** | **3.1** | 0.39 |
+
+Breach % by raid: `1 29 31 44 39 25 15 16` → **`0 0 4 9 22 28 30 26`**. Seasons overrun
+**54% → 28%**.
+
+The early game is fair — raids 1–2 breach at 0% — and the late game is not flattened: raids
+5–8 still breach at 22–30%. The player sees *more* content while dying less (Tier 2.9 up
+from 2.4).
+
+### 18.6 Two builds regressed, and the reasons are informative
+
+1. **`traps` 29% → 39% overrun.** Isolated: forcing single-file at every tier gives traps
+   30% survival vs 27% at the Tier-4 flip, so this is **not** the formation change. It is
+   the Renown ratchet carrying a build with zero scaling to Tier 4 faster — §14.5 and
+   §17.6.1 biting a build with no answer to them. Arguably correct (traps start you, they
+   do not finish you), but it is a real cost.
+2. **`swarm` 97% → 42%.** Chip damage can no longer finish anyone before they step back.
+   This is the sharpest new strategic statement in the change: **chaff is now a `party`-
+   formation answer, not an early one.** Under single-file a mob of rats gnawing on one
+   person who can withdraw at will is a nuisance, not a threat.
+
+**New failure mode:** an over-killed room wipes a single-file queue in ~10 ticks for zero
+Renown, because you cannot withdraw from an Ogre alpha strike. `predictThrill`'s "looks
+lethal" warning covers it, but over-building is punished harder than before.

@@ -8,8 +8,9 @@
  */
 import './styles.css';
 import {
-  AMENITIES, GEAR, HIRED_STAFF_COST, MAX_GEAR_SLOTS, MOBS, PRICE_TIERS,
-  SEASON_RAIDS, TRAPS, TUNING, roomCapacity, trapCost, trapRearmCost,
+  AMENITIES, FORMATION_INFO, GEAR, HIRED_STAFF_COST, MAX_GEAR_SLOTS, MOBS,
+  PRICE_TIERS, SEASON_RAIDS, TRAPS, TUNING, roomCapacity, trapCost,
+  trapRearmCost,
 } from '../sim/data';
 import {
   allTraps, assignStaff, buildAmenity, buyMob, buyTrap, demolishAmenity,
@@ -139,9 +140,31 @@ function advName(id: number): string {
 function describe(e: RaidEvent): { cls: string; text: string } | null {
   switch (e.type) {
     case 'raid-start':
-      return { cls: 'info', text: `A party of ${e.partySize} enters (Threat Tier ${e.tier}).` };
+      return {
+        cls: 'info',
+        text: `${e.partySize} enter at Threat Tier ${e.tier} — `
+          + `${FORMATION_INFO[e.formation].label.toLowerCase()}, `
+          + `${FORMATION_INFO[e.formation].short}.`,
+      };
     case 'floor-enter':
       return { cls: 'info', text: `— they descend to Floor ${e.floor + 1} —` };
+    // The line (§7.2). Who is holding the door is the question the player is
+    // actually asking while they watch, so it gets a line of its own.
+    case 'line-engage':
+      return {
+        cls: 'info',
+        text: `${advName(e.advId)} takes the front`
+          + `${e.waiting > 0 ? `, ${e.waiting} waiting behind` : ''}.`,
+      };
+    case 'line-break':
+      return {
+        cls: 'good',
+        text: e.next === null
+          ? `${advName(e.advId)} breaks off at ${Math.round(e.hpPct * 100)}% — `
+            + 'and nobody left is fit to take the door.'
+          : `${advName(e.advId)} falls back at ${Math.round(e.hpPct * 100)}%. `
+            + `${advName(e.next)} steps up.`,
+      };
     case 'room-enter':
       return { cls: '', text: `Room ${e.room + 1} of Floor ${e.floor + 1}.` };
     case 'attack':
@@ -263,6 +286,9 @@ function finishRaid(): void {
   if (!sim || sim.status !== 'complete') return;
   stopTimer();
   const raidNumber = app.season.raidNumber;
+  // Read BEFORE the Aftermath appends this raid to the log: "have we ever seen
+  // this formation before?" must not count the raid we are about to describe.
+  const formationDebut = !app.season.log.some((r) => r.formation === sim.formation);
   app.aftermath = applyAftermath(app.season, sim);
   // Narrated *after* the Aftermath so retirements, Legends and the veterans'
   // delve counts are already folded in — "her fifth descent" needs the count
@@ -274,6 +300,7 @@ function finishRaid(): void {
     dungeon: app.season.dungeon,
     veterans: app.season.veterans,
     raidNumber,
+    formationDebut,
   });
   app.phase = app.season.over ? 'over' : 'aftermath';
   render();
@@ -934,7 +961,7 @@ function buildPanel(): HTMLElement {
 function forecastPanel(): HTMLElement {
   const s = app.season;
   const tier = currentTier(s);
-  const f = forecast(s.dungeon, tier);
+  const f = forecast(s.dungeon, tier, s.renown);
   const p = el('<div class="panel"></div>');
   p.append(el(`<h2>Next Raid — Tier ${f.tier}</h2>`));
 
@@ -944,6 +971,32 @@ function forecastPanel(): HTMLElement {
       <b>${f.partySize} adventurers</b>, level ${f.levelMin}–${f.levelMax}
       ${returning > 0 ? `<span class="fc-ret" title="Survivors who may come back (§15.5)">· ${returning} may return</span>` : ''}
     </div>`));
+
+  // Formation (§7.2). This changes what "ready" means more than any other row
+  // in the panel — the same four people either take turns at your door or come
+  // through it together — so it sits above the power bar, not in the footnotes.
+  const info = FORMATION_INFO[f.formation];
+  p.append(el(`
+    <div class="fc-form ${f.formation}">
+      <span class="fc-form-tag">${info.label}</span>
+      <span class="fc-form-eng">${f.engaged} of ${f.partySize} engaged at a time</span>
+      <div class="sub">${esc(info.blurb)}</div>
+    </div>`));
+
+  // The escalation beat, telegraphed. A player who is surprised by the first
+  // real party was never given the chance to prepare for it.
+  if (f.nextFormation) {
+    const n = f.nextFormation;
+    const label = FORMATION_INFO[n.formation].label;
+    p.append(el(`
+      <div class="fc-form-next ${n.renownAway <= 0 ? 'imminent' : ''}">
+        ${n.renownAway <= 0
+          ? `<b>${label} from the next raid.</b> Tier ${n.tier} is here — `
+            + 'they stop queueing and start coordinating.'
+          : `<b>${n.renownAway} Renown</b> until Tier ${n.tier}, when delves become `
+            + `<b>${label.toLowerCase()}</b> — all ${f.partySize} of them at once.`}
+      </div>`));
+  }
 
   const bar = el(`<div class="fc-bar" title="Dungeon power vs party power"></div>`);
   const pct = Math.max(4, Math.min(96, (f.ratio / 2) * 100));
@@ -965,6 +1018,13 @@ function forecastPanel(): HTMLElement {
   // Kit is why "Them HP" looks inflated — it roughly doubles their health
   // (§14.4), and hiding that would make the comparison lie.
   p.append(el(`<div class="hint">Their HP includes ${f.partyKit} Kit of healing — supplies are most of a party's staying power (§7.3).</div>`));
+  if (f.formation === 'single-file') {
+    p.append(el(`<div class="hint">Damage is what <em>one</em> of them puts out — they queue, so
+      your rooms fight the front of the line and take ${f.partySize}× as long to fall (§7.2).</div>`));
+  } else {
+    p.append(el(`<div class="hint warn-t">All ${f.partySize} swing at once. Rooms that used to hold
+      for a dozen ticks now fall in three.</div>`));
+  }
 
   if (f.staffed > 0) {
     p.append(el(`<div class="hint warn-t">${f.staffed} monster${f.staffed === 1 ? '' : 's'} behind a counter, not fighting (§8.4).</div>`));
@@ -1069,14 +1129,33 @@ function raidPanel(): HTMLElement {
   if (app.error) ctl.append(el(`<div class="err">${esc(app.error)}</div>`));
   wrap.append(ctl);
 
-  // Party
+  // Party. Under single-file the interesting question is not "how is everyone
+  // doing" but "who is in the doorway and who is next", so the list is ordered
+  // by the queue rather than by roster position (§7.2).
+  const info = FORMATION_INFO[sim.formation];
+  const engaged = new Set(sim.engagedIds);
+  const waiting = sim.waitingIds;
+  const order = sim.formation === 'party'
+    ? sim.party.members
+    : [
+      ...sim.engagedIds,
+      ...waiting,
+      ...sim.party.members.filter((m) => !m.alive).map((m) => m.id),
+    ].map((id) => sim.party.members.find((m) => m.id === id)!);
+
   const p = el('<div class="panel"></div>');
-  p.append(el(`<h2>The Party — Tier ${sim.tier.tier}</h2>`));
+  p.append(el(`<h2>The Party — Tier ${sim.tier.tier}
+    <span class="form-tag ${sim.formation}" title="${esc(info.blurb)}">${info.label}</span></h2>`));
   p.append(el(`<div class="meters">
       <span>Kit <b>${sim.party.kit}</b>/${sim.party.maxKit}</span>
       <span>Gold <b>${sim.party.members.reduce((a, m) => a + (m.alive ? m.gold : 0), 0)}</b></span>
+      ${sim.formation === 'single-file'
+        ? `<span title="They descend, rest and decide together — they just fight one at a time (§7.2)">Queued <b>${waiting.length}</b></span>`
+        : ''}
     </div>`));
-  for (const a of sim.party.members) p.append(advRow(a));
+  for (const a of order) {
+    p.append(advRow(a, sim.formation === 'party' ? null : engaged.has(a.id)));
+  }
   wrap.append(p);
 
   // Log
@@ -1092,9 +1171,18 @@ function raidPanel(): HTMLElement {
   return wrap;
 }
 
-function advRow(a: Adventurer): HTMLElement {
+/**
+ * One adventurer. `engaged` is null under `party` formation — everyone is in
+ * the fight, so marking it would be noise.
+ */
+function advRow(a: Adventurer, engaged: boolean | null = null): HTMLElement {
   const hp = Math.max(0, (a.hp / a.maxHp) * 100);
   const res = Math.max(0, (a.resolve / a.maxResolve) * 100);
+  const stance = !a.alive || engaged === null
+    ? ''
+    : engaged
+      ? '<span class="stance in" title="Holding the door — the only one your monsters can reach">▶</span>'
+      : '<span class="stance out" title="Waiting their turn. Still present: still rests, still spends Kit, still votes on the Descent Decision (§7.3)">·</span>';
   // A face the player recognises is the emotional core of §15.5 — a returning
   // veteran should never be indistinguishable from a fresh roll.
   const vet = a.veteranId === null
@@ -1104,8 +1192,9 @@ function advRow(a: Adventurer): HTMLElement {
     ? `<span class="vet" title="Returning — ${vet.delves} previous delve${vet.delves === 1 ? '' : 's'}, best Thrill ${Math.round(vet.bestThrill)}">↩${vet.delves}</span>`
     : '';
   return el(`
-    <div class="adv ${a.alive ? '' : 'dead'} ${a.namedId ? 'named' : ''} ${vet ? 'returning' : ''}">
-      <span class="nm">${mark}${esc(a.name)} <span style="color:var(--dim)">${a.cls} ${a.level}</span></span>
+    <div class="adv ${a.alive ? '' : 'dead'} ${a.namedId ? 'named' : ''} ${vet ? 'returning' : ''}
+                ${engaged === true && a.alive ? 'engaged' : ''} ${engaged === false && a.alive ? 'waiting' : ''}">
+      <span class="nm">${stance}${mark}${esc(a.name)} <span style="color:var(--dim)">${a.cls} ${a.level}</span></span>
       <span class="bar" title="HP"><i style="width:${hp}%"></i></span>
       <span class="bar res" title="Resolve"><i style="width:${res}%"></i></span>
     </div>`);

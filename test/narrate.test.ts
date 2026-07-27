@@ -34,6 +34,7 @@ function thrill(over: Partial<ThrillScore> = {}): ThrillScore {
 function makeResult(over: Partial<RaidResult> = {}): RaidResult {
   const base = {
     outcome: 'retreated',
+    formation: 'single-file',
     killed: 0,
     escaped: 3,
     goldFromSales: 0,
@@ -67,7 +68,7 @@ function makeParty(members: Adventurer[]): Party {
 /** A plausible spine of events. Individual tests splice their own beats in. */
 function baseEvents(over: RaidEvent[] = []): RaidEvent[] {
   return [
-    { t: 0, type: 'raid-start', tier: 2, partySize: 3 },
+    { t: 0, type: 'raid-start', tier: 2, partySize: 3, formation: 'single-file' },
     { t: 0, type: 'floor-enter', floor: 0 },
     { t: 1, type: 'room-enter', floor: 0, room: 0 },
     { t: 2, type: 'attack', source: 'mob', uid: 1, targetId: 0, dmg: 9 },
@@ -220,7 +221,7 @@ describe('narration finds what was distinctive', () => {
   });
 
   it('reads an empty dungeon as boredom', () => {
-    const empty: RaidEvent[] = [{ t: 0, type: 'raid-start', tier: 1, partySize: 3 }];
+    const empty: RaidEvent[] = [{ t: 0, type: 'raid-start', tier: 1, partySize: 3, formation: 'single-file' }];
     for (let r = 0; r < 6; r++) {
       empty.push({ t: r * 2 + 1, type: 'room-enter', floor: Math.floor(r / 3), room: r % 3 });
       empty.push({ t: r * 2 + 2, type: 'room-clear', floor: Math.floor(r / 3), room: r % 3 });
@@ -237,7 +238,7 @@ describe('narration finds what was distinctive', () => {
 
   it('reports the machinery, and reads a trap room as occupied (§5.2)', () => {
     const events: RaidEvent[] = [
-      { t: 0, type: 'raid-start', tier: 1, partySize: 3 },
+      { t: 0, type: 'raid-start', tier: 1, partySize: 3, formation: 'single-file' },
       { t: 1, type: 'room-enter', floor: 0, room: 0 },
       {
         t: 1, type: 'trap-fire', uid: 500, defId: 'gasvent',
@@ -260,7 +261,7 @@ describe('narration finds what was distinctive', () => {
 
   it('gives the Spring intervention its own beat (§7.4)', () => {
     const events: RaidEvent[] = [
-      { t: 0, type: 'raid-start', tier: 2, partySize: 3 },
+      { t: 0, type: 'raid-start', tier: 2, partySize: 3, formation: 'single-file' },
       { t: 1, type: 'room-enter', floor: 0, room: 0 },
       {
         t: 4, type: 'trap-fire', uid: 501, defId: 'snare',
@@ -278,7 +279,7 @@ describe('narration finds what was distinctive', () => {
 
   it('calls out back-to-back identical rooms', () => {
     const same: RaidEvent[] = [
-      { t: 0, type: 'raid-start', tier: 2, partySize: 3 },
+      { t: 0, type: 'raid-start', tier: 2, partySize: 3, formation: 'single-file' },
       { t: 1, type: 'room-enter', floor: 0, room: 0 },
       { t: 2, type: 'attack', source: 'mob', uid: 1, targetId: 0, dmg: 5 },
       { t: 3, type: 'room-clear', floor: 0, room: 0 },
@@ -485,5 +486,93 @@ describe('narration reads the roster defensively', () => {
       grudge: 'nerve',
     } as unknown as Adventurer;
     expect(digestRaid(ctx({ party: makeParty([dead]) })).rivalry.learned).toBeNull();
+  });
+});
+
+// ─── Formation (§7.2) ────────────────────────────────────────────────────────
+
+describe('the narrator reads the marching order', () => {
+  /** A delve where the queue rotated twice under fire. */
+  const queued: RaidEvent[] = [
+    { t: 0, type: 'raid-start', tier: 1, partySize: 3, formation: 'single-file' },
+    { t: 0, type: 'floor-enter', floor: 0 },
+    { t: 1, type: 'room-enter', floor: 0, room: 0 },
+    { t: 1, type: 'line-engage', advId: 0, waiting: 2 },
+    { t: 4, type: 'attack', source: 'mob', uid: 1, targetId: 0, dmg: 14 },
+    { t: 5, type: 'line-break', advId: 0, hpPct: 0.18, next: 1 },
+    { t: 5, type: 'line-engage', advId: 1, waiting: 2 },
+    { t: 9, type: 'line-break', advId: 1, hpPct: 0.27, next: 2 },
+    { t: 9, type: 'line-engage', advId: 2, waiting: 2 },
+    { t: 12, type: 'retreat', reason: 'hp' },
+    { t: 12, type: 'raid-end', outcome: 'retreated' },
+  ];
+
+  const trio = () => makeParty([
+    adv({ id: 0, name: 'Bess the Bold' }),
+    adv({ id: 1, name: 'Corvin Quickhand' }),
+    adv({ id: 2, name: 'Orla Redcloak' }),
+  ]);
+
+  it('digests who held the door and how far they were pushed', () => {
+    const d = digestRaid(ctx({ events: queued, party: trio() }));
+    expect(d.formation).toBe('single-file');
+    expect(d.lineBreaks).toBe(2);
+    expect(d.pointMen).toEqual(['Bess the Bold', 'Corvin Quickhand', 'Orla Redcloak']);
+    expect(d.hardestStand).toEqual({ name: 'Bess the Bold', pct: 18 });
+  });
+
+  it('gives a rotating queue its own beat, naming the hardest stand', () => {
+    const n = narrateRaid(ctx({ events: queued, party: trio() }));
+    expect(n.beats).toContain('line');
+    expect(n.text).toContain('Bess the Bold');
+    expect(n.text).toContain('18%');
+  });
+
+  it('says nothing about the line when nobody was pushed out of it', () => {
+    const d = digestRaid(ctx());
+    expect(d.lineBreaks).toBe(0);
+    expect(narrateRaid(ctx()).beats).not.toContain('line');
+  });
+
+  it('makes the first coordinated party a milestone, headline and all', () => {
+    const together: RaidEvent[] = [
+      { t: 0, type: 'raid-start', tier: 4, partySize: 4, formation: 'party' },
+      { t: 1, type: 'room-enter', floor: 0, room: 0 },
+      { t: 2, type: 'attack', source: 'mob', uid: 1, targetId: 0, dmg: 9 },
+      { t: 6, type: 'raid-end', outcome: 'retreated' },
+    ];
+    const c = ctx({
+      events: together,
+      party: trio(),
+      result: makeResult({ formation: 'party' }),
+      formationDebut: true,
+    });
+    const n = narrateRaid(c);
+    expect(digestRaid(c).formationDebut).toBe(true);
+    expect(n.beats).toContain('formation-debut');
+    expect(n.headline).toMatch(/compan|queue|popular/i);
+
+    // The same raid, once it is no longer news, does not get the beat.
+    const later = narrateRaid({ ...c, formationDebut: false });
+    expect(later.beats).not.toContain('formation-debut');
+  });
+
+  it('opens differently for a queue and for a company', () => {
+    const open = (formation: 'single-file' | 'party') => narrateRaid(ctx({
+      events: [
+        { t: 0, type: 'raid-start', tier: 3, partySize: 3, formation },
+        { t: 1, type: 'room-enter', floor: 0, room: 0 },
+        { t: 5, type: 'raid-end', outcome: 'retreated' },
+      ],
+      party: trio(),
+      result: makeResult({ formation }),
+    })).sentences[0]!;
+    expect(open('single-file')).not.toBe(open('party'));
+  });
+
+  it('still narrates identically for the same raid, formation and all', () => {
+    const c = () => ctx({ events: queued, party: trio() });
+    const first = narrateRaid(c());
+    for (let i = 0; i < 10; i++) expect(narrateRaid(c()).text).toBe(first.text);
   });
 });

@@ -59,6 +59,19 @@ export interface SeasonOutcome {
   /** Nemeses and Patrons killed — the payout side of both tracks. */
   nemesesKilled: number;
   patronsKilled: number;
+
+  // ── Formation (§7.2) ──
+  /**
+   * Raids fought against a coordinated party rather than a queue.
+   *
+   * The escalation beat only means something if seasons actually reach it, so
+   * this is the "does the milestone happen?" column — the same question the
+   * rivalry report asks of the Nemesis and Patron tracks. Zero everywhere would
+   * mean the second half of the formation axis is decoration.
+   */
+  partyRaids: number;
+  /** Seasons that met a coordinated party at least once. */
+  metParty: boolean;
 }
 
 export function runSeason(seed: number, strat: Strategy): SeasonOutcome {
@@ -66,6 +79,7 @@ export function runSeason(seed: number, strat: Strategy): SeasonOutcome {
   const rng = new Rng(seed ^ 0xc0ffee);
 
   let killed = 0, escaped = 0, breaches = 0, mobsLost = 0;
+  let partyRaids = 0;
   let goldFromSales = 0, goldFromCorpses = 0;
   let retirements = 0;
   let nemesesKilled = 0, patronsKilled = 0;
@@ -85,6 +99,7 @@ export function runSeason(seed: number, strat: Strategy): SeasonOutcome {
     }
 
     const r = sim.result;
+    if (r.formation === 'party') partyRaids++;
     killed += r.killed;
     escaped += r.escaped;
     mobsLost += r.mobsLost.length;
@@ -146,6 +161,8 @@ export function runSeason(seed: number, strat: Strategy): SeasonOutcome {
     traitsLearned: s.veterans.reduce((m, v) => m + (v.traits?.length ?? 0), 0),
     nemesesKilled,
     patronsKilled,
+    partyRaids,
+    metParty: partyRaids > 0,
   };
 }
 
@@ -182,6 +199,8 @@ interface Agg {
   avgTraits: number;
   avgNemesesKilled: number;
   avgPatronsKilled: number;
+  avgPartyRaids: number;
+  metPartyRate: number;
 }
 
 function aggregate(runs: SeasonOutcome[]): Agg {
@@ -219,6 +238,8 @@ function aggregate(runs: SeasonOutcome[]): Agg {
     avgTraits: mean((r) => r.traitsLearned),
     avgNemesesKilled: mean((r) => r.nemesesKilled),
     avgPatronsKilled: mean((r) => r.patronsKilled),
+    avgPartyRaids: mean((r) => r.partyRaids),
+    metPartyRate: mean((r) => (r.metParty ? 1 : 0)),
     wipeShare: (() => {
       const k = mean((r) => r.killed);
       const e = mean((r) => r.escaped);
@@ -300,7 +321,39 @@ function strategyReport(n: number): void {
     ].join(''));
   }
 
+  formationReport(aggs);
   rivalryReport(aggs);
+}
+
+/**
+ * Formation (§7.2) — does the escalation beat actually land?
+ *
+ * The Threat Tier table flips from single-file to coordinated parties at Tier
+ * 4, and that flip is supposed to be the moment a dungeon finds out whether it
+ * was any good. If no strategy ever reaches it the flip is a comment; if every
+ * strategy reaches it on raid 2 it is not an escalation, it is the game.
+ */
+function formationReport(aggs: readonly (readonly [Strategy, Agg])[]): void {
+  console.log(`\n─── Formation (§7.2) ───\n`);
+  header([
+    'strategy'.padEnd(11), 'raids'.padStart(8), 'partyRaids'.padStart(12),
+    'party%'.padStart(9), 'seasonsMet'.padStart(12), 'tier'.padStart(7),
+  ]);
+  for (const [strat, a] of aggs) {
+    console.log([
+      strat.name.padEnd(11), f1(a.avgRaids).padStart(8),
+      f2(a.avgPartyRaids).padStart(12),
+      pct(a.avgPartyRaids / Math.max(1, a.avgRaids)).padStart(9),
+      pct(a.metPartyRate).padStart(12), f1(a.avgTier).padStart(7),
+    ].join(''));
+  }
+  const met = aggs.reduce((m, [, a]) => Math.max(m, a.metPartyRate), 0);
+  if (met <= 0) {
+    console.log(
+      '\nFAIL: no season ever faced a coordinated party. The formation flip on '
+      + 'the tier table is unreachable content — check TIERS and the tier cap.',
+    );
+  }
 }
 
 /**
@@ -470,6 +523,27 @@ function main(): void {
     sweep('slayChance', [0.1, 0.25, 0.4, 0.6, 1.0], n);
     sweep('advDmgPerLevel', [0.6, 0.8, 1.0, 1.25, 1.5], n);
     sweep('kitHealPct', [0.15, 0.2, 0.25, 0.3], n);
+
+    // ── Formation: the line (§7.2) ──
+    // The room-level withdrawal threshold. It is the knob that decides whether
+    // single-file is a queue that backs out hurt or a queue that feeds itself
+    // into a grinder — and because every member rotates down to roughly this
+    // value on a hard delve, it also sets the ceiling on `peril` (§15.3). At 0
+    // there is no line-break at all and single-file is pure attrition.
+    sweep('lineBreakHpPct', [0, 0.2, 0.3, 0.4, 0.5], n, 'balanced');
+    sweep('lineBreakHpPct', [0, 0.2, 0.3, 0.4, 0.5], n, 'combat');
+    // How much of the delve's peril the waiting line banks. 0 is the raw
+    // per-head mean, which under single-file measures the formation rather than
+    // the danger; 1 says the whole queue tells the point man's story.
+    sweep('singleFilePerilShare', [0, 0.35, 0.65, 1.0], n, 'balanced');
+    // Disengaging under fire (§7.2). The knob that stops the line-break being a
+    // free exit — at 0 nobody ever dies holding a door and every strategy
+    // converges on the same delve; too high and withdrawal is a death sentence
+    // and nobody ever escapes to tell the tale.
+    sweep('linePartingMult', [0, 0.15, 0.3, 0.5, 1.0], n, 'balanced');
+    // A skirmisher hits hardest at the person turning their back — the role's
+    // single-file expression (§6.2). At 1.0 it has none.
+    sweep('skirmisherPartingBonus', [1.0, 1.6, 2.5], n, 'swarm');
 
     // ── Traps (§5.2) ──
     // The volume dial on the whole roster. Swept against `traps` because that

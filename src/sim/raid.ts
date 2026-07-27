@@ -24,15 +24,24 @@ import {
   aliveMembers, avgHpPct, avgResolvePct, generateParty, partyHasNamed,
 } from './adventurers';
 import type {
-  Adventurer, Dungeon, GrudgeReason, Legend, Mob, MobRole, Party, RaidEvent,
-  RaidOutcome, RaidResult, RetreatReason, RivalNote, ThrillScore, Trap, TrapJob,
-  Veteran,
+  Adventurer, Dungeon, Formation, GrudgeReason, Legend, Mob, MobRole, Party,
+  RaidEvent, RaidOutcome, RaidResult, RetreatReason, RivalNote, ThrillScore,
+  Trap, TrapJob, Veteran,
 } from './types';
 
 export type RaidStatus = 'running' | 'awaiting-taunt' | 'complete';
 
-/** Safety valve: no raid may spin forever. */
-const MAX_TICKS = 3000;
+/**
+ * Safety valve: no raid may spin forever.
+ *
+ * Raised from 3000 with single-file (§7.2): one adventurer swinging instead of
+ * four makes a room take roughly `partySize` times as long to clear, so the
+ * honest tick budget for the same delve is several times larger. Nothing should
+ * ever reach this — the line breaks and the party withdraws long before — but
+ * the backstop has to sit above the legitimate worst case or it becomes a
+ * silent balance change.
+ */
+const MAX_TICKS = 9000;
 
 /** `variety` saturates here — four distinct roles is already a varied dungeon (§15.3). */
 /**
@@ -89,9 +98,24 @@ export function thrillFromParts(p: {
 export class RaidSim {
   readonly party: Party;
   readonly tier: TierRow;
+  /** How this delve engages a room (§7.2). Read off the tier. */
+  readonly formation: Formation;
 
   private readonly d: Dungeon;
   private readonly rng: Rng;
+
+  /**
+   * The queue (§7.2), front first. Only meaningful under `single-file`.
+   *
+   * The whole party is present on every floor — they rest together, shop
+   * together and vote on the Descent Decision together — but in a room only
+   * `line[0]` is engaged. Rotating the array is the entire mechanic: a point
+   * man who breaks off goes to the back, and the first person still fit to
+   * fight comes to the front.
+   */
+  private line: Adventurer[] = [];
+  /** Who is currently holding the door, so a change can be announced once. */
+  private pointId: number | null = null;
 
   private tick = 0;
   private floor = 0;
@@ -158,12 +182,36 @@ export class RaidSim {
     this.rng = new Rng(seed);
     this.veterans = veterans;
     this.party = generateParty(this.rng, tier, veterans);
-    this.emit({ t: 0, type: 'raid-start', tier: tier.tier, partySize: this.party.members.length });
+    this.formation = tier.formation;
+    // Party generation puts the guaranteed fighter in slot 0 and headliners
+    // ahead of everyone else, which is already the order a party would send
+    // people through a door in. No extra roll, so the RNG stream is untouched.
+    this.line = [...this.party.members];
+    this.emit({
+      t: 0, type: 'raid-start', tier: tier.tier,
+      partySize: this.party.members.length, formation: this.formation,
+    });
     this.emit({ t: 0, type: 'floor-enter', floor: 0 });
   }
 
   get status(): RaidStatus {
     return this._status;
+  }
+
+  /**
+   * Adventurer ids currently engaged — everyone alive under `party`, the point
+   * man alone under `single-file`. The UI reads this to show who is fighting
+   * and who is waiting their turn.
+   */
+  get engagedIds(): number[] {
+    return this.engagedMembers().map((a) => a.id);
+  }
+
+  /** Ids waiting their turn in the queue, front of the line first (§7.2). */
+  get waitingIds(): number[] {
+    if (this.formation === 'party') return [];
+    const engaged = new Set(this.engagedIds);
+    return this.line.filter((a) => a.alive && !engaged.has(a.id)).map((a) => a.id);
   }
 
   get charges(): number {
@@ -277,7 +325,9 @@ export class RaidSim {
 
     this.leyCharges--;
     this.fireTrap(trap, true);
-    this.checkPartyState();
+    if (this.checkPartyState()) return true;
+    this.syncPoint();
+    this.checkLine();
     return true;
   }
 
@@ -298,12 +348,143 @@ export class RaidSim {
     return this.drain();
   }
 
+  // ─── The line (§7.2) ───────────────────────────────────────────────────────
+
+  /** Whoever is at the front of the queue and still standing. */
+  private point(): Adventurer | undefined {
+    return this.line.find((a) => a.alive);
+  }
+
+  /**
+   * Who is actually in the fight this tick.
+   *
+   * This is the whole of single-file. Everything else about the delve — rest,
+   * shopping, the Descent Decision, the Kit pool, Resolve on an ally's death —
+   * stays resolutely party-level (§7.3), because those are things the group
+   * does on a landing, not things one person does in a doorway.
+   */
+  private engagedMembers(): Adventurer[] {
+    const alive = aliveMembers(this.party);
+    if (this.formation === 'party') return alive;
+    const p = this.point();
+    return p ? [p] : [];
+  }
+
+  /**
+   * Announce a change of point man. Called after anything that can move the
+   * front of the queue, so a consumer of the stream can always answer "who is
+   * engaged?" without knowing the rotation rules.
+   */
+  private syncPoint(): void {
+    if (this.formation === 'party') return;
+    const p = this.point();
+    const id = p?.id ?? null;
+    if (id === this.pointId) return;
+    this.pointId = id;
+    if (!p) return;
+    this.emit({
+      t: this.tick, type: 'line-engage', advId: p.id,
+      waiting: Math.max(0, aliveMembers(this.party).length - 1),
+    });
+  }
+
+  /**
+   * The point man breaks off when he can no longer hold the door, and the next
+   * person still fit to fight steps into it (§7.2).
+   *
+   * If nobody in the queue is fit, the delve is over — they back out of the
+   * room and go home alive. That is a *retreat*, which under §15 is the
+   * outcome worth the most Renown, and it is the reason single-file is not
+   * simply a slower way to kill everybody.
+   *
+   * No Taunt is offered here. Taunt (§7.4) is "force a retreating party one
+   * floor deeper", and a party that has just been pushed out of a room is not
+   * in a position to be goaded into the next one — the offer stays where it has
+   * always been, at the Landing, where the party is intact and deciding.
+   *
+   * Returns true if the raid ended.
+   */
+  private checkLine(): boolean {
+    if (this.formation === 'party') return false;
+    const p = this.point();
+    if (!p) return false;
+    if (p.hp / p.maxHp >= TUNING.lineBreakHpPct) return false;
+
+    // Disengaging under fire. Everything still standing in the room gets one
+    // blow at the man turning his back, which is what makes stepping out of a
+    // doorway a decision rather than a teleport — and what gives every role a
+    // single-file identity: a bruiser is the thing you cannot safely stop
+    // fighting, and a skirmisher is the thing that chases. See TUNING.
+    this.partingVolley(p);
+    // Chased down on the way out. They did not withdraw, so there is no
+    // `line-break` to report — the queue simply lost its front man, and the
+    // next one is in the doorway whether they wanted to be or not.
+    if (!p.alive) {
+      if (this.checkPartyState()) return true;
+      this.syncPoint();
+      return false;
+    }
+
+    const fit = (a: Adventurer): boolean =>
+      a.alive && a !== p && a.hp / a.maxHp >= TUNING.lineBreakHpPct;
+    const relief = this.line.find(fit);
+
+    // To the back either way — the ordering is the record of who has already
+    // taken a turn at the door.
+    this.line = [...this.line.filter((a) => a !== p), p];
+    this.emit({
+      t: this.tick, type: 'line-break', advId: p.id,
+      hpPct: Math.max(0, p.hp / p.maxHp), next: relief?.id ?? null,
+    });
+
+    if (!relief) {
+      this.finish('retreated', 'hp');
+      return true;
+    }
+    this.line = [relief, ...this.line.filter((a) => a !== relief)];
+    this.syncPoint();
+    return false;
+  }
+
+  /**
+   * One free blow from everything in the room at a withdrawing point man
+   * (§7.2). Terrors take the opportunity to work on his nerve instead, which is
+   * the same trade they make in an ordinary exchange.
+   */
+  private partingVolley(p: Adventurer): void {
+    if (TUNING.linePartingMult <= 0) return;
+    const mobs = mobsInRoom(this.d, this.floor, this.room);
+    for (const mob of mobs) {
+      if (!p.alive) return;
+      const role = MOBS[mob.defId]!.role;
+      const bonus = role === 'skirmisher' ? TUNING.skirmisherPartingBonus : 1;
+      const raw = mobEffectiveDmg(mob) * packMultiplier(mob, mobs.length)
+        * this.densityMult() * TUNING.linePartingMult * bonus;
+      if (role === 'terror') {
+        const amount = this.applyResolveDamage(p, Math.max(1, Math.round(raw)));
+        if (amount > 0) {
+          this.emit({
+            t: this.tick, type: 'resolve-hit', advId: p.id,
+            amount, resolveLeft: p.resolve,
+          });
+        }
+        continue;
+      }
+      this.strikeAdventurer(mob, p, raw);
+    }
+  }
+
   // ─── Room combat ───────────────────────────────────────────────────────────
 
   private stepRoom(): void {
     if (!this.roomEntered) {
       this.roomEntered = true;
       this.emit({ t: this.tick, type: 'room-enter', floor: this.floor, room: this.room });
+      // Every room is a fresh doorway, so somebody steps into it — announced
+      // even when it is the same person, because "who is in front" is the
+      // question the player is asking while they watch.
+      this.pointId = null;
+      this.syncPoint();
       // Sampled before anything fires, so a trap that is about to spend its
       // last charge still counts as content the party walked into (§15.3).
       this.noteRoomTraversed();
@@ -316,6 +497,10 @@ export class RaidSim {
       this.initRoomCombatants();
       this.ambushRound();
       if (this.checkPartyState()) return;
+      // Traps and the ambush round can both take the point man off his feet
+      // before he has swung once.
+      this.syncPoint();
+      if (this.checkLine()) return;
     }
 
     const mobs = mobsInRoom(this.d, this.floor, this.room);
@@ -338,11 +523,16 @@ export class RaidSim {
     }
 
     // Held by a Snare: the monsters got their turn above, the party does not
-    // get theirs. One tick of the net is spent per tick of the fight.
+    // get theirs. One tick of the net is spent per tick of the fight. The net
+    // holds the whole delve, not just the point man — it is a room-sized
+    // mechanism, and it costs the queue its turn either way.
     if (this.stunTicks > 0) {
       this.stunTicks--;
     } else {
-      for (const adv of aliveMembers(this.party)) {
+      // Only the engaged act. Under single-file that is one person, so the room
+      // takes roughly partySize times longer to clear for the same total
+      // damage output — which is the entire defensive value of the formation.
+      for (const adv of this.engagedMembers()) {
         let acc = (this.advAtb.get(adv.id) ?? 0) + 1;
         while (acc >= 1) {
           acc -= 1;
@@ -352,7 +542,9 @@ export class RaidSim {
       }
     }
 
-    this.checkPartyState();
+    if (this.checkPartyState()) return;
+    this.syncPoint();
+    this.checkLine();
   }
 
   /**
@@ -436,13 +628,25 @@ export class RaidSim {
         // Every member, armour ignored. Deliberately spread: it is the trap
         // that makes a room *survivable to enter and expensive to leave*,
         // rather than the trap that picks a victim.
+        //
+        // NOTE this ignores formation, and that is the point. A trap is a
+        // mechanism filling a room, not a swordsman choosing an opponent — the
+        // whole delve walks over the threshold whatever order they intend to
+        // fight in. It makes traps the one defence single-file cannot screen
+        // (§7.2), which is a useful thing for the cheapest layer in the game to
+        // be, and it is why an early dungeon's honest answer to a queue is a
+        // Dart Battery rather than a bigger monster.
         for (const adv of [...alive]) this.trapDamage(trap, adv, power);
         break;
 
       case 'burst': {
-        // The healthiest body — which in practice is the one that has not been
-        // hit yet, i.e. the tank walking point.
-        const target = alive.reduce((a, b) => (b.hp > a.hp ? b : a));
+        // The healthiest *engaged* body — which is the one walking point, hurt
+        // or not. Under single-file that is deliberately not "the healthiest
+        // person present": a ceiling comes down on whoever is under it, and
+        // whoever is under it is the one who opened the door.
+        const front = this.engagedMembers();
+        const pool = front.length > 0 ? front : alive;
+        const target = pool.reduce((a, b) => (b.hp > a.hp ? b : a));
         this.trapDamage(trap, target, power);
         break;
       }
@@ -558,10 +762,10 @@ export class RaidSim {
   }
 
   private mobAct(mob: Mob): void {
-    const alive = aliveMembers(this.party);
-    if (alive.length === 0) return;
     const role = MOBS[mob.defId]!.role;
-    const target = this.pickTarget(role, alive);
+    const pool = this.targetPool(role);
+    if (pool.length === 0) return;
+    const target = this.pickTarget(role, pool);
     if (!target) return;
 
     // Pack Tactics scales with how many allies are still standing, so a swarm
@@ -581,6 +785,29 @@ export class RaidSim {
       return;
     }
 
+    this.strikeAdventurer(mob, target, raw);
+
+    if (mobStripsKit(mob) && this.party.kit > 0) {
+      this.party.kit -= 1;
+      this.party.kitStripped++;
+      this.emit({ t: this.tick, type: 'kit-strip', uid: mob.uid, amount: 1, kitLeft: this.party.kit });
+    }
+  }
+
+  /**
+   * One monster's blow landing on one adventurer, with all the bookkeeping the
+   * rest of the design hangs off: the grudge ledger (§9.3), the low-water mark
+   * that becomes `peril` (§15.3), the Patron's caution floor (§9.4) and the
+   * monster's XP (§6.4).
+   *
+   * Extracted because a skirmisher's parting shot at a withdrawing point man
+   * (§7.2) is the same event as an ordinary attack — it should teach the same
+   * grudge, feed the same peril and pay the same XP. A second copy of this
+   * arithmetic would drift, and the first thing to drift would be `peril`.
+   */
+  private strikeAdventurer(mob: Mob, target: Adventurer, raw: number): void {
+    if (!target.alive) return;
+    const role = MOBS[mob.defId]!.role;
     const dmg = Math.max(1, Math.round(raw - target.armor));
     target.hp = Math.max(0, target.hp - dmg);
     // Who is doing the hurting, so a returning adventurer can adapt to *this*
@@ -599,12 +826,6 @@ export class RaidSim {
       uid: mob.uid, targetId: target.id, dmg,
     });
 
-    if (mobStripsKit(mob) && this.party.kit > 0) {
-      this.party.kit -= 1;
-      this.party.kitStripped++;
-      this.emit({ t: this.tick, type: 'kit-strip', uid: mob.uid, amount: 1, kitLeft: this.party.kit });
-    }
-
     if (target.hp <= 0) {
       this.killAdventurer(target);
       if (grantXp(mob, XP_PER_KILL)) {
@@ -615,19 +836,46 @@ export class RaidSim {
     }
   }
 
-  private pickTarget(role: string, alive: Adventurer[]): Adventurer | undefined {
+  /**
+   * Who a monster of this role may swing at, given the formation (§6.2, §7.2).
+   *
+   * Under `party` this is everybody and the role preferences below do the work
+   * they always did. Under `single-file` it is the point man — one legal
+   * target, so "finish the wounded", "pick the squishiest" and "hit the
+   * healthiest" all resolve to the same person and three roles read as one.
+   *
+   * Rather than let that happen, each role keeps its preference *expressed
+   * against the line* instead of against the party:
+   *
+   * - **Caster** — ranged, and therefore the one role a queue cannot screen. It
+   *   shoots past the front and picks the squishiest person in the room, which
+   *   is exactly §6.2's preference applied to the whole party. Casters are the
+   *   formation's dedicated counter, and the reason single-file is a defensive
+   *   advantage rather than a defensive answer.
+   * - **Skirmisher** — chases whoever turns their back, in `checkLine`.
+   * - **Warden** — takes from the shared Kit pool, which was never a targeting
+   *   decision: the pack belongs to the party, not to whoever is in the door.
+   * - Everything else fights whoever is in front of it, which is what a bruiser
+   *   was always for.
+   */
+  private targetPool(role: MobRole): Adventurer[] {
+    if (role === 'caster') return aliveMembers(this.party);
+    return this.engagedMembers();
+  }
+
+  private pickTarget(role: string, pool: Adventurer[]): Adventurer | undefined {
     switch (role) {
       case 'skirmisher':
         // Finish the wounded.
-        return alive.reduce((a, b) => (b.hp < a.hp ? b : a));
+        return pool.reduce((a, b) => (b.hp < a.hp ? b : a));
       case 'caster':
         // Go for the squishiest.
-        return alive.reduce((a, b) => (b.maxHp < a.maxHp ? b : a));
+        return pool.reduce((a, b) => (b.maxHp < a.maxHp ? b : a));
       case 'warden':
         // Whoever is carrying the most, abstractly: the healthiest.
-        return alive.reduce((a, b) => (b.hp > a.hp ? b : a));
+        return pool.reduce((a, b) => (b.hp > a.hp ? b : a));
       default:
-        return this.rng.pick(alive);
+        return this.rng.pick(pool);
     }
   }
 
@@ -1019,8 +1267,21 @@ export class RaidSim {
     let perilSum = 0;
     let thrillSum = 0;
 
+    // §15.3's peril is a mean over survivors' low-water HP, and that mean
+    // quietly assumes everybody was in the room. Under single-file only one of
+    // them ever is, so the raw mean measures the *formation* rather than the
+    // danger — a delve where the point man came out at 8% would score the same
+    // peril as a stroll, purely because three people were queued behind him.
+    // See TUNING.singleFilePerilShare for the full argument; the short version
+    // is that this is a measurement artifact and correcting it is not a buff.
+    const worstPeril = survivors.reduce(
+      (w, a) => Math.max(w, clamp01(1 - a.lowestHpPct)), 0,
+    );
+    const share = this.formation === 'party' ? 0 : TUNING.singleFilePerilShare;
+
     for (const adv of survivors) {
-      const peril = clamp01(1 - adv.lowestHpPct);
+      const own = clamp01(1 - adv.lowestHpPct);
+      const peril = clamp01(own + (worstPeril - own) * share);
       perilSum += peril;
       // Gated per adventurer, not per party: the one who nearly died banks the
       // full length of the walk, the three who strolled behind them do not.
@@ -1251,6 +1512,7 @@ export class RaidSim {
 
     return {
       outcome,
+      formation: this.formation,
       killed: this.killed,
       escaped,
       goldFromSales: this.goldFromSales,

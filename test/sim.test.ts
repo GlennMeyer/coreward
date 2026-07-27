@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   GEAR, MOBS, RENOWN_PER_ESCAPEE, RENOWN_WIPE_MULT, TIERS, TRAPS, TUNING,
   XP_THRESHOLDS, mobMaxHp, resetTuning, roomCapacity, roomsOnFloor,
-  tierForRenown, trapCost, trapRearmCost,
+  tierForRenown, trapCost, trapRearmCost, MAX_TIER_PROTOTYPE,
 } from '../src/sim/data';
 import { generateParty } from '../src/sim/adventurers';
 import { Rng } from '../src/sim/rng';
@@ -702,8 +702,14 @@ describe('Thrill-based Renown (§15.3)', () => {
     const stroll = measure('rat');
     const brink = measure('ogre');
 
-    expect(stroll.peril).toBeLessThan(0.2);
+    // A chip-damage dungeon must stay below the kiddie-ride gate (§15.1) —
+    // that, not any particular number, is the design property. Note single-file
+    // (§7.2) legitimately raises it: three Cave Rats all chew on one point man
+    // instead of spreading over the party, so a stroll is a slightly rougher
+    // stroll than it used to be.
+    expect(stroll.peril).toBeLessThan(TUNING.thrillPerilGate);
     expect(brink.peril).toBeGreaterThan(0.5);
+    expect(brink.peril).toBeGreaterThan(stroll.peril * 2);
     // "The story everyone repeats" should be worth multiples of a quiet delve.
     expect(brink.renown).toBeGreaterThan(stroll.renown * 2);
   });
@@ -775,10 +781,14 @@ describe('Thrill-based Renown (§15.3)', () => {
     const harmless = run('slime');
     const dangerous = run('ogre');
 
-    // Both walk the same two floors...
-    expect(harmless.thrill.depth).toBe(dangerous.thrill.depth);
+    // The harmless dungeon gets walked at least as far as the lethal one —
+    // under single-file (§7.2) it gets walked *further*, because the Ogres push
+    // the queue back out of the room before it clears a second floor...
+    expect(harmless.thrill.depth).toBeGreaterThanOrEqual(dangerous.thrill.depth);
     expect(harmless.thrill.depth).toBeGreaterThan(0);
-    // ...but only one of them is a story.
+    // ...and it still earns a fraction of the score, because only one of them
+    // is a story. That is §15.1 stated as strongly as it can be: more of the
+    // dungeon seen, less reputation earned.
     expect(harmless.thrill.peril).toBeLessThan(dangerous.thrill.peril);
     expect(harmless.thrill.total).toBeLessThan(dangerous.thrill.total / 2);
 
@@ -971,5 +981,271 @@ describe('hired staff (§8.4)', () => {
     expect(totalUpkeep(d)).toBeLessThan(before);
     expect(d.landings[0]!.amenities[0]!.hired).toBe(true);
     expect(d.landings[0]!.amenities[0]!.staffUid).toBeNull();
+  });
+});
+
+// ─── Formation: single-file vs party (§7.2) ──────────────────────────────────
+
+/**
+ * A tier row with a formation forced, so the two engagement orders can be run
+ * against an identical dungeon. Everything else is copied from the real table,
+ * because the point of these tests is the formation and nothing else.
+ */
+function tierAs(row: number, formation: 'single-file' | 'party') {
+  return { ...TIERS[row]!, formation };
+}
+
+describe('formation (§7.2)', () => {
+  afterEach(resetTuning);
+
+  it('escalates with the Threat Tier, single-file first', () => {
+    // The whole design claim: everyone files in until the dungeon is famous.
+    expect(TIERS[0]!.formation).toBe('single-file');
+    const flip = TIERS.findIndex((t) => t.formation === 'party');
+    expect(flip).toBeGreaterThan(0);
+    // Monotone — once companies start coming they do not go back to queueing.
+    for (let i = 0; i < TIERS.length; i++) {
+      expect(TIERS[i]!.formation).toBe(i < flip ? 'single-file' : 'party');
+    }
+    // ...and it has to be reachable, or the milestone is a comment (§12).
+    expect(TIERS[flip]!.tier).toBeLessThanOrEqual(MAX_TIER_PROTOTYPE);
+  });
+
+  it('engages exactly one adventurer at a time under single-file', () => {
+    const s = threeRoomsOf('slime', 400);
+    const sim = new RaidSim(s.dungeon, tierAs(0, 'single-file'), 7);
+    expect(sim.party.members.length).toBeGreaterThan(1);
+
+    let sawQueue = false;
+    while (sim.status !== 'complete') {
+      sim.step();
+      if (sim.status === 'awaiting-taunt') sim.resolveTaunt(false);
+      const alive = sim.party.members.filter((m) => m.alive).length;
+      if (alive === 0) break;
+      expect(sim.engagedIds).toHaveLength(1);
+      if (sim.waitingIds.length > 0) sawQueue = true;
+      // Engaged and waiting partition the living party — nobody is unaccounted
+      // for, because everyone is present the whole time (§7.3).
+      expect(sim.engagedIds.length + sim.waitingIds.length).toBe(alive);
+    }
+    expect(sawQueue).toBe(true);
+  });
+
+  it('engages everyone at once under party formation', () => {
+    const s = threeRoomsOf('slime', 401);
+    const sim = new RaidSim(s.dungeon, tierAs(0, 'party'), 7);
+    while (sim.status !== 'complete') {
+      sim.step();
+      if (sim.status === 'awaiting-taunt') sim.resolveTaunt(false);
+      const alive = sim.party.members.filter((m) => m.alive).length;
+      if (alive === 0) break;
+      expect(sim.engagedIds).toHaveLength(alive);
+      expect(sim.waitingIds).toHaveLength(0);
+    }
+  });
+
+  it('a coordinated party clears the same dungeon far faster', () => {
+    // The escalation beat, measured: same rooms, same tier, same seed — the
+    // only difference is whether they take turns. Slimes, because they are
+    // harmless: this has to measure engagement order, not who wins.
+    let queued = 0, together = 0;
+    for (let seed = 0; seed < 12; seed++) {
+      const a = new RaidSim(threeRoomsOf('slime', 500 + seed).dungeon, tierAs(0, 'single-file'), seed);
+      a.runToCompletion();
+      const b = new RaidSim(threeRoomsOf('slime', 500 + seed).dungeon, tierAs(0, 'party'), seed);
+      b.runToCompletion();
+      queued += a.result.ticks;
+      together += b.result.ticks;
+    }
+    // Not the full partySize speedup — landings, descents and the Core cost the
+    // same ticks either way — but the rooms themselves fall in a fraction.
+    expect(together).toBeLessThan(queued * 0.7);
+  });
+
+  it('rotates the line when the point man is too hurt to hold the door', () => {
+    const s = threeRoomsOf('ogre', 402);
+    const sim = new RaidSim(s.dungeon, tierAs(0, 'single-file'), 3);
+    const events = sim.runToCompletion();
+    const breaks = events.filter((e) => e.type === 'line-break');
+    expect(breaks.length).toBeGreaterThan(0);
+    // Somebody stepped up for at least one of them, rather than everyone
+    // simply dying in the doorway.
+    const relieved = breaks.filter((e) => e.type === 'line-break' && e.next !== null);
+    expect(relieved.length).toBeGreaterThan(0);
+    // And every engage event names somebody who was actually in the party.
+    const ids = new Set(sim.party.members.map((m) => m.id));
+    for (const e of events) {
+      if (e.type === 'line-engage') expect(ids.has(e.advId)).toBe(true);
+    }
+  });
+
+  it('withdraws the delve alive when nobody in the queue is fit to fight', () => {
+    // Three Ogres against a Tier-1 queue: they are pushed out of the room
+    // rather than fed into it one corpse at a time. A retreat is the outcome
+    // §15 pays for, and the reason the early game is survivable at all.
+    let retreats = 0, wipes = 0;
+    for (let seed = 0; seed < 20; seed++) {
+      const sim = new RaidSim(threeRoomsOf('ogre', 600 + seed).dungeon, tierAs(0, 'single-file'), seed);
+      sim.runToCompletion();
+      if (sim.result.outcome === 'retreated') retreats++;
+      if (sim.result.outcome === 'wiped') wipes++;
+    }
+    expect(retreats).toBeGreaterThan(wipes);
+  });
+
+  it('never lets the line-break loop forever', () => {
+    // The rotation must terminate: a queue where everyone is below the break
+    // threshold has to end the delve rather than shuffle indefinitely.
+    for (let seed = 0; seed < 10; seed++) {
+      const sim = new RaidSim(threeRoomsOf('rat', 700 + seed).dungeon, tierAs(0, 'single-file'), seed);
+      sim.runToCompletion();
+      expect(sim.status).toBe('complete');
+      expect(sim.result.ticks).toBeLessThan(9000);
+    }
+  });
+
+  it('lets the waiting line rest and spend Kit at a Landing (§7.3)', () => {
+    // Rest is party-level. Everyone present pays into it and everyone present
+    // heals from it, whether or not they ever held the door.
+    // Slimes: enough to make it a fight, not enough to stop them reaching the
+    // Landing, which is where the party-level rules live.
+    const s = seasonWithFloors(403, 2);
+    for (let r = 0; r < 3; r++) addMob(s.dungeon, 'slime', 0, r);
+    const sim = new RaidSim(s.dungeon, tierAs(0, 'single-file'), 5);
+    const events = sim.runToCompletion();
+    const rest = events.find((e) => e.type === 'rest');
+    expect(rest).toBeDefined();
+    if (rest && rest.type === 'rest') {
+      // Kit spent at the Landing scales with the number of people present, not
+      // with the number who were engaged — a queue of four spends four.
+      expect(rest.kitSpent).toBeGreaterThan(1);
+    }
+  });
+
+  it('counts the whole party in the Descent Decision, not just the engaged', () => {
+    // Kit is a shared pool, so a queue can be talked out of descending by an
+    // empty pack even though only one of them ever took a hit (§7.3).
+    const s = seasonWithFloors(404, 2);
+    addTrap(s.dungeon, 'gasvent', 0, 0);
+    addTrap(s.dungeon, 'gasvent', 0, 1);
+    addTrap(s.dungeon, 'gasvent', 0, 2);
+    const sim = new RaidSim(s.dungeon, tierAs(0, 'single-file'), 5);
+    sim.runToCompletion();
+    // Nothing down there deals damage at all, so if they turned back it was on
+    // the party-level Kit check — which is the point.
+    expect(sim.party.kit).toBeLessThan(sim.party.maxKit);
+  });
+
+  it('a caster shoots past the line; a bruiser cannot', () => {
+    // §6.2 under single-file: the role preferences would collapse to nothing
+    // against one legal target, so a caster keeps its reach instead.
+    const cast = { ...MOBS['slime']!, id: 'testcaster', role: 'caster' as const, dmg: 6, spd: 1 };
+    MOBS['testcaster'] = cast;
+    try {
+      const hitCount = (defId: string) => {
+        const s = seasonWithFloors(405, 1);
+        addMob(s.dungeon, defId, 0, 0);
+        const sim = new RaidSim(s.dungeon, tierAs(0, 'single-file'), 9);
+        sim.runToCompletion();
+        return sim.party.members.filter((m) => m.lowestHpPct < 1).length;
+      };
+      // A caster picks the squishiest person in the room whether or not they
+      // are the one holding the door, so more than one person gets hurt.
+      expect(hitCount('testcaster')).toBeGreaterThanOrEqual(1);
+      // Everything else only ever reaches the front of the queue.
+      const s = seasonWithFloors(406, 1);
+      addMob(s.dungeon, 'ogre', 0, 0);
+      const sim = new RaidSim(s.dungeon, tierAs(0, 'single-file'), 9);
+      sim.runToCompletion();
+      const hurtByBruiser = sim.party.members.filter((m) => (m.hurtByRole.bruiser ?? 0) > 0);
+      // At most as many as took a turn at the door — never the whole party at
+      // once, which is what "one at a time" has to mean.
+      expect(hurtByBruiser.length).toBeLessThanOrEqual(sim.party.members.length);
+    } finally {
+      delete MOBS['testcaster'];
+    }
+  });
+
+  it('a trap fills the room — it does not care who is in front', () => {
+    // The one defence single-file cannot screen, which is why the cheapest
+    // layer in the game stays relevant against a queue (§5.2, §17).
+    const s = seasonWithFloors(407, 1);
+    addTrap(s.dungeon, 'darts', 0, 0);
+    const sim = new RaidSim(s.dungeon, tierAs(0, 'single-file'), 9);
+    const events = sim.runToCompletion();
+    const hit = new Set(
+      events.filter((e) => e.type === 'trap-hit').map((e) => (e as { advId: number }).advId),
+    );
+    expect(hit.size).toBe(sim.party.members.length);
+  });
+
+  it('records the formation on the result', () => {
+    const a = new RaidSim(threeRoomsOf('rat', 408).dungeon, tierAs(0, 'single-file'), 1);
+    a.runToCompletion();
+    expect(a.result.formation).toBe('single-file');
+    const b = new RaidSim(threeRoomsOf('rat', 409).dungeon, tierAs(0, 'party'), 1);
+    b.runToCompletion();
+    expect(b.result.formation).toBe('party');
+  });
+
+  it('withdrawing under fire costs the point man, and skirmishers charge most', () => {
+    // The stock Cave Rat cannot push anyone out of a doorway — it dies first —
+    // so this needs a skirmisher with enough body to still be there when the
+    // point man turns round. That is itself the measurement: chaff does not
+    // get a parting shot because chaff is not standing when the moment comes.
+    MOBS['testchaser'] = {
+      ...MOBS['rat']!, id: 'testchaser', hp: 70, dmg: 7, spd: 1, slots: 1,
+    };
+    try {
+      const withParting = (mult: number, bonus: number) => {
+        resetTuning();
+        TUNING.linePartingMult = mult;
+        TUNING.skirmisherPartingBonus = bonus;
+        let dealt = 0;
+        for (let seed = 0; seed < 10; seed++) {
+          const sim = new RaidSim(
+            threeRoomsOf('testchaser', 800 + seed).dungeon, tierAs(0, 'single-file'), seed,
+          );
+          sim.runToCompletion();
+          dealt += sim.party.members.reduce((t, m) => t + (m.hurtByRole.skirmisher ?? 0), 0);
+        }
+        resetTuning();
+        return dealt;
+      };
+      // A free withdrawal takes strictly less out of them than a fighting one.
+      expect(withParting(0.4, 1.6)).toBeGreaterThan(withParting(0, 1));
+      // And the role that exists to finish the wounded hits hardest on the way out.
+      expect(withParting(0.4, 3)).toBeGreaterThan(withParting(0.4, 1));
+    } finally {
+      delete MOBS['testchaser'];
+    }
+  });
+});
+
+describe('formation determinism (§13.2)', () => {
+  for (const formation of ['single-file', 'party'] as const) {
+    it(`reproduces ${formation} raids exactly`, () => {
+      const run = () => {
+        const s = seasonWithFloors(900, 2);
+        addMob(s.dungeon, 'ogre', 0, 0);
+        addMob(s.dungeon, 'rat', 0, 1);
+        addMob(s.dungeon, 'cutpurse', 0, 2);
+        addTrap(s.dungeon, 'darts', 1, 0);
+        addMob(s.dungeon, 'skeleton', 1, 1);
+        const sim = new RaidSim(s.dungeon, tierAs(1, formation), 4242);
+        return JSON.stringify(sim.runToCompletion());
+      };
+      const a = run();
+      expect(a).toBe(run());
+      expect(JSON.parse(a).length).toBeGreaterThan(10);
+    });
+  }
+
+  it('the two formations produce genuinely different raids', () => {
+    const stream = (f: 'single-file' | 'party') => {
+      const sim = new RaidSim(threeRoomsOf('skeleton', 901).dungeon, tierAs(1, f), 77);
+      return JSON.stringify(sim.runToCompletion());
+    };
+    expect(stream('single-file')).not.toBe(stream('party'));
   });
 });

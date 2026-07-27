@@ -26,7 +26,7 @@
 import { AMENITIES, MOBS, TRAPS } from './data';
 import { Rng } from './rng';
 import type {
-  Dungeon, Party, RaidEvent, RaidResult, RetreatReason, Veteran,
+  Dungeon, Formation, Party, RaidEvent, RaidResult, RetreatReason, Veteran,
 } from './types';
 
 // ─── Public surface ──────────────────────────────────────────────────────────
@@ -46,6 +46,13 @@ export interface NarrationContext {
   /** The season roster (§15.5), for recognising returning faces. */
   veterans?: readonly Veteran[] | null;
   raidNumber?: number;
+  /**
+   * True when this raid's formation (§7.2) is one the dungeon has never faced
+   * before — the first coordinated party is a milestone and should read like
+   * one. The caller owns this because only the caller has the season log; the
+   * narrator degrades to an ordinary arrival without it.
+   */
+  formationDebut?: boolean;
   /**
    * Override the phrasing seed. Omitted, it is fingerprinted from the raid,
    * which is what makes a given raid narrate identically forever.
@@ -109,7 +116,9 @@ export function narrateRaid(ctx: NarrationContext): Narration {
  */
 function middleCount(d: RaidDigest): number {
   const eventful =
-    (d.deaths.length ? 1 : 0)
+    (d.formationDebut ? 1 : 0)
+    + (d.lineBreaks >= 2 ? 1 : 0)
+    + (d.deaths.length ? 1 : 0)
     + (d.slain.length ? 1 : 0)
     + (d.tauntUsed ? 1 : 0)
     + (d.breachHearts !== null ? 1 : 0)
@@ -153,6 +162,16 @@ export interface RaidDigest {
   outcome: RaidResult['outcome'];
   tier: number;
   partySize: number;
+  /** How they engaged rooms (§7.2). */
+  formation: Formation;
+  /** First time this dungeon has seen this formation. Only the caller knows. */
+  formationDebut: boolean;
+  /** Times the point man broke off and somebody else took the door. */
+  lineBreaks: number;
+  /** Everyone who held the door at some point, in the order they did it. */
+  pointMen: string[];
+  /** The point man who was pushed furthest before stepping back. */
+  hardestStand: { name: string; pct: number } | null;
   raidNumber: number | null;
   ticks: number;
   thrill: number;
@@ -274,6 +293,12 @@ export function digestRaid(ctx: NarrationContext): RaidDigest {
 
   let tier = 0;
   let partySize = party?.members.length ?? 0;
+  let formation: Formation = result.formation ?? 'single-file';
+  let lineBreaks = 0;
+  const pointMen: string[] = [];
+  let hardestStand: { name: string; pct: number } | null = null;
+  const advName = (id: number): string =>
+    party?.members.find((m) => m.id === id)?.name ?? `#${id}`;
   let kitStripped = 0;
   let resolveHits = 0;
   let dryRest = false;
@@ -300,8 +325,25 @@ export function digestRaid(ctx: NarrationContext): RaidDigest {
     switch (e.type) {
       case 'raid-start':
         tier = e.tier;
+        formation = e.formation;
         if (!partySize) partySize = e.partySize;
         break;
+
+      // ── The line (§7.2) ──
+      case 'line-engage': {
+        const nm = advName(e.advId);
+        if (pointMen[pointMen.length - 1] !== nm) pointMen.push(nm);
+        break;
+      }
+
+      case 'line-break': {
+        lineBreaks++;
+        const pct = Math.round(e.hpPct * 100);
+        if (!hardestStand || pct < hardestStand.pct) {
+          hardestStand = { name: advName(e.advId), pct };
+        }
+        break;
+      }
 
       case 'room-enter':
         cur = {
@@ -478,6 +520,11 @@ export function digestRaid(ctx: NarrationContext): RaidDigest {
     outcome: result.outcome,
     tier,
     partySize,
+    formation,
+    formationDebut: ctx.formationDebut ?? false,
+    lineBreaks,
+    pointMen,
+    hardestStand,
     raidNumber: ctx.raidNumber ?? null,
     ticks: result.ticks,
     thrill: Math.round(result.thrill.total),
@@ -629,7 +676,8 @@ function readRivalry(party: Party | null): Rivalry {
  */
 function fingerprint(d: RaidDigest): number {
   const parts = [
-    d.outcome, d.tier, d.partySize, d.ticks, d.thrill, d.renown, d.souls,
+    d.outcome, d.tier, d.partySize, d.formation, d.lineBreaks,
+    d.formationDebut ? 'F' : '-', d.ticks, d.thrill, d.renown, d.souls,
     d.deepestFloor, d.rooms.length, d.emptyRooms, d.kitStripped, d.resolveHits,
     d.purchaseGold, d.slain.length, d.downed.length, d.deaths.length,
     d.trapDmg, d.trapKit, d.trapHeld, d.sprung ? 'S' : '-',
@@ -675,6 +723,22 @@ function buildBeats(d: RaidDigest, rng: Rng): Beat[] {
   };
 
   add('arrival', 'open', 0, 100, arrivalBeat(d, rng));
+
+  // The first coordinated party is the biggest single change in what the
+  // dungeon is up against (§7.2), so it outranks everything except a breach.
+  // Rolled before the other middles so its phrasing draw is stable.
+  if (d.formationDebut) {
+    add('formation-debut', 'mid', 2, 118, formationDebutBeat(d, rng));
+  } else if (d.formation === 'single-file' && d.lineBreaks >= 1) {
+    // The queue actually rotated — somebody was pushed out of the doorway and
+    // somebody else took it. That is the shape of an early delve and it is
+    // worth saying out loud, but it is texture, not headline.
+    // Weighted on how hard the door was held, not on how often it changed
+    // hands: a queue that rotated because somebody was carried out at 12% is a
+    // story, and one that rotated on a scratch is bookkeeping.
+    const stand = d.hardestStand ? Math.max(0, 40 - d.hardestStand.pct) : 0;
+    add('line', 'mid', 3, 42 + Math.min(24, d.lineBreaks * 8) + stand, lineBeat(d, rng));
+  }
 
   // Weights are "how much does this tell the player about their dungeon".
   // The near-miss tops the scale on purpose: a party at 8% *is* the product
@@ -774,6 +838,15 @@ function buildBeats(d: RaidDigest, rng: Rng): Beat[] {
 // and nothing is described as "writhing".
 
 function headlinePool(d: RaidDigest): readonly string[] {
+  // The formation changing outranks everything except losing a Heart to it.
+  if (d.formationDebut && d.formation === 'party' && d.breachHearts === null) {
+    return [
+      'They have started coming as a company.',
+      'No more queueing.',
+      'The first organised party. It will not be the last.',
+      'We are popular now. This is what that looks like.',
+    ];
+  }
   if (d.breachHearts !== null) {
     return [
       'They got all the way down.',
@@ -869,14 +942,79 @@ function arrivalBeat(d: RaidDigest, rng: Rng): string {
     ]);
   }
 
+  // A queue and a company are different things arriving, so they get different
+  // openings (§7.2). The party pool is deliberately the more alarming of the
+  // two — that contrast is most of what makes the escalation land.
+  if (d.formation === 'party') {
+    return fill(rng, [
+      `${N} came down at Tier ${tier} in proper order — a company, not a queue, and they went into the first room together.`,
+      `Tier ${tier}: ${n} of them, roped, briefed, and quite uninterested in taking turns.`,
+      `A company of ${n} arrived at Tier ${tier}. Somebody out there is organising these now.`,
+      `${N} at Tier ${tier}, moving as one unit. The polite single file we used to get has stopped happening.`,
+      `The stair delivered a coordinated ${n} at Tier ${tier} — everyone through the door at once, which is a very different afternoon.`,
+    ]);
+  }
+
   return fill(rng, [
-    `${N} came down the stair at Threat Tier ${tier}, carrying the usual optimism.`,
-    `${N} adventurers signed themselves in at Tier ${tier}. None of them asked what the tier meant.`,
-    `Tier ${tier}. ${N} of them, roped together and pretending the dark was fine.`,
-    `Business as usual: ${n} at Tier ${tier}, in through the front, torches high and plans vague.`,
-    `The stair delivered ${n} more at Tier ${tier} — fresh boots, fresh debt, firm opinions about ventilation.`,
-    `${N} arrived at Tier ${tier}, priced accordingly, and confident in a way the ledger did not support.`,
-    `A party of ${n} arrived at Tier ${tier} and spent their first minute admiring the stonework.`,
+    `${N} came down the stair at Threat Tier ${tier}, filing in one behind another and carrying the usual optimism.`,
+    `${N} adventurers signed themselves in at Tier ${tier} and went in single file. None of them asked what the tier meant.`,
+    `Tier ${tier}. ${N} of them, roped together, taking the rooms one at a time because the corridors give them no choice.`,
+    `Business as usual: ${n} at Tier ${tier}, in through the front in a line, torches high and plans vague.`,
+    `The stair delivered ${n} more at Tier ${tier} — fresh boots, fresh debt, and an orderly queue at every doorway.`,
+    `${N} arrived at Tier ${tier}, priced accordingly, and confident in a way the marching order did not support.`,
+    `A party of ${n} arrived at Tier ${tier}, formed up nose to tail, and spent their first minute admiring the stonework.`,
+  ]);
+}
+
+/**
+ * The escalation beat (§7.2): the first delve where they stop queueing.
+ *
+ * Written as a business observation rather than a threat, because that is the
+ * house voice — the dungeon has been *promoted* into a different market, and
+ * the invoice for that arrives later.
+ */
+function formationDebutBeat(d: RaidDigest, rng: Rng): string {
+  const n = countWord(d.partySize);
+  if (d.formation === 'party') {
+    return fill(rng, [
+      `This is the first lot who did not take turns. All ${n} of them came through the first doorway together, which is not how any of the previous ones did it, and the rooms went down in a third of the time.`,
+      `Something has changed out there. They arrived as a company — ${n} abreast, covering each other, nobody waiting politely in the corridor for their go. The dungeon has a reputation now, and this is what a reputation costs.`,
+      `Word has evidently got round: this one came organised. ${cap(n)} engaging at once instead of one at a time, and every room we built for a queue found out what it was actually worth.`,
+      `The single file is over. They came in as a unit, all ${n} of them swinging, and the floor plan that has held for weeks stopped holding this afternoon.`,
+    ]);
+  }
+  return fill(rng, [
+    `They came down one behind another this time, which is not how the last lot did it.`,
+  ]);
+}
+
+/**
+ * The queue rotated (§7.2). The point man was pushed out of the doorway and
+ * somebody else stepped into it.
+ */
+function lineBeat(d: RaidDigest, rng: Rng): string {
+  const n = countWord(d.lineBreaks);
+  const stand = d.hardestStand;
+  const first = d.pointMen[0];
+
+  if (stand && stand.pct <= 20) {
+    return fill(rng, [
+      `${stand.name} held the door until there was ${stand.pct}% of them left, then stepped back and let the next one have it. That is the whole shape of a delve down here: one at a time, until nobody wants the front.`,
+      `The doorway changed hands ${n} time${d.lineBreaks === 1 ? '' : 's'} — ${stand.name} the last to give it up, at ${stand.pct}%, on legs that were plainly finished.`,
+      `${stand.name} came out of the front at ${stand.pct}%. The one behind took over without discussion, which is either discipline or arithmetic.`,
+    ]);
+  }
+  if (d.lineBreaks >= 3) {
+    return fill(rng, [
+      `They rotated the front ${n} times, swapping whoever was in the doorway the moment they started losing. Tidy of them, and slow — every swap is another round our side gets for free.`,
+      `${cap(n)} changes of the guard in the corridors. They only ever put one person in front of us at a time, which is polite, and fatal.`,
+      `The queue shuffled ${n} times. Nobody down here ever had to fight more than one of them at once, which is the only reason the roster is still intact.`,
+    ]);
+  }
+  return fill(rng, [
+    `${first ?? 'Whoever was in front'} took the first door and did not keep it — they swap out when the front man wears thin, and they wear thin quickly.`,
+    `The front man stepped back and the next one stepped up, without a word. It is an efficient way to lose slowly.`,
+    `They changed who was in the doorway partway through. One at a time is a decision, and it is not obviously a good one.`,
   ]);
 }
 

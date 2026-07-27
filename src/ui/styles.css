@@ -352,6 +352,44 @@ body.dragging .mob { cursor: grabbing; }
 .fc-table .fc-them { color: var(--adv); }
 .fc-table .fc-us-h { color: var(--mob); }
 
+/* ─── Formation (§7.2) ───────────────────────────────────────────────────── */
+/*
+ * The engagement-order axis of the Threat Tier table. Single-file is the
+ * baseline and reads calm; a coordinated party is the escalation beat and is
+ * deliberately the loudest thing in the panel.
+ */
+.fc-form {
+  margin: 0 0 8px; padding: 6px 8px; border-radius: 3px;
+  border-left: 3px solid var(--dim); background: var(--panel-2); font-size: 11px;
+}
+.fc-form.single-file { border-left-color: var(--adv); }
+.fc-form.party { border-left-color: var(--danger); background: #2b1d1e; }
+.fc-form-tag { font-weight: 700; letter-spacing: .04em; text-transform: uppercase; font-size: 10px; }
+.fc-form.single-file .fc-form-tag { color: var(--adv); }
+.fc-form.party .fc-form-tag { color: var(--danger); }
+.fc-form-eng { float: right; color: var(--dim); font-size: 10px; }
+.fc-form .sub { color: var(--dim); margin-top: 3px; line-height: 1.35; }
+
+.fc-form-next {
+  margin: -4px 0 8px; padding: 5px 8px; border-radius: 3px; font-size: 11px;
+  background: #241f18; color: var(--warn); line-height: 1.35;
+}
+.fc-form-next.imminent { background: #2b1d1e; color: var(--danger); }
+
+/* The same tag, in the raid panel's heading. */
+.form-tag {
+  float: right; padding: 0 4px; border-radius: 2px; font-size: 9px;
+  background: var(--panel-2); color: var(--adv); letter-spacing: .04em;
+}
+.form-tag.party { color: var(--danger); background: #2b1d1e; }
+
+/* Who is in the doorway, and who is queued behind it. */
+.adv .stance { display: inline-block; width: 9px; font-size: 9px; }
+.adv .stance.in { color: var(--danger); }
+.adv .stance.out { color: var(--dim); }
+.adv.waiting { opacity: .55; }
+.adv.engaged .nm { font-weight: 600; }
+
 .hint.warn-t { color: var(--warn); }
 button.sell { width: 100%; margin-top: 8px; }
 

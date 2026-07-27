@@ -3,7 +3,7 @@
  * one, change the doc too, or the doc becomes a lie.
  */
 import type {
-  AdventurerClass, AmenityDef, AmenityId, MobDef, PriceTier, TrapDef,
+  AdventurerClass, AmenityDef, AmenityId, Formation, MobDef, PriceTier, TrapDef,
 } from './types';
 
 // ─── Monsters (§6.3, prototype subset of 6) ──────────────────────────────────
@@ -162,6 +162,99 @@ export const TUNING = {
    */
   slayChance: 0.25,
 
+  // ── Formation: the line (§7.2) ──
+  /**
+   * HP fraction at which the point man breaks off and the next in line steps up.
+   *
+   * Single-file only — a coordinated party fights to the Descent Decision like
+   * it always did. This is the *room-level* mirror of `DESCEND_HP_THRESHOLD`
+   * (0.35) and is set just below it on purpose: an individual holding a door
+   * alone gives up at roughly the health at which the whole party would turn
+   * back, because the calculation is the same one and they are making it by
+   * themselves.
+   *
+   * It is also what stops single-file being a meat grinder. Without it the
+   * queue feeds people into a room one corpse at a time — every early raid ends
+   * in a wipe, a wipe pays no Renown at all (§15.3), and the ratchet seizes.
+   * With it, the delve *withdraws*, which is the outcome the whole economy is
+   * built to reward.
+   *
+   * Set to 0 to get the meat grinder back and measure the difference.
+   */
+  lineBreakHpPct: 0.3,
+  /**
+   * Damage multiplier on the parting blow every monster in the room lands on a
+   * withdrawing point man (§7.2).
+   *
+   * **Disengaging under fire is the whole reason `lineBreakHpPct` is a decision
+   * rather than a free exit.** Without this, breaking off is a teleport: the
+   * queue trades its front man out at exactly `lineBreakHpPct` every time,
+   * nobody ever dies, and `peril` is pinned to a constant by the rule rather
+   * than set by the dungeon. Measured, that is what happens — deaths per season
+   * fall from 11.6 to 2.5 and every strategy converges on the same delve.
+   *
+   * With it, the cost of stepping back scales with what you are stepping back
+   * *from*. Breaking off in front of a Cave Rat is a scratch; breaking off in
+   * front of an Ogre at 30% HP kills you. That is a real answer to §6.2 under
+   * single-file: a **bruiser**'s role identity becomes "the thing you cannot
+   * safely stop fighting", which is a much better bruiser than "the thing that
+   * happens to be in the doorway".
+   *
+   * Set to 0 to make withdrawal free and measure the difference.
+   */
+  linePartingMult: 0.4,
+  /**
+   * Extra multiplier on a **skirmisher**'s parting blow (§6.2), on top of
+   * `linePartingMult`.
+   *
+   * Single-file collapses monster targeting: with one legal target, "finish the
+   * wounded", "pick the squishiest" and "hit the healthiest" all choose the
+   * same person, and three roles read as one. Each therefore keeps its
+   * preference expressed against the *line* instead of against the party, and a
+   * skirmisher's is this — they chase. "Targets the party's weakest member"
+   * applied to the only moment single-file offers a choice is "hits hardest at
+   * the person turning their back".
+   *
+   * At 1.0 a skirmisher is no different from anything else on the way out, and
+   * the role has no single-file identity at all.
+   */
+  skirmisherPartingBonus: 1.6,
+  /**
+   * How much of the delve's peril the waiting line banks (§15.3).
+   *
+   *     peril = own + (worst_surviving_peril − own) × singleFilePerilShare
+   *
+   * **Ships at 0, and the reason is the whole point of having a balance runner.**
+   *
+   * The worry was structural and looked obvious at the desk: `peril` is a mean
+   * over survivors' low-water HP, which quietly assumes everyone was in the
+   * room. Under single-file only one person ever is, so a delve where the point
+   * man was carried out at 8% would score the same peril as a stroll, purely
+   * because three people were queued behind him — a measurement artifact of the
+   * formation, deflating Renown for a change the player did not make. This knob
+   * was built to correct it.
+   *
+   * **Measured, the artifact does not happen.** Because the line *rotates*, any
+   * delve long enough to matter feeds every member through the door in turn and
+   * chews each of them down to `lineBreakHpPct`. Across 300 seasons per
+   * strategy, `balanced` peril rose from 0.28 (party-formation baseline) to
+   * **0.39 at share 0** — single-file makes delves more frightening on its own,
+   * not less.
+   *
+   * The only delves where the queue does stay pristine are the ones where
+   * nothing in the dungeon can hurt anybody — which is §15.1's degenerate
+   * family, exactly. So every point of share is a subsidy to the builds the
+   * Thrill reframe exists to demote. Raising it to 0.5 costs the trap build 35
+   * points of season survival (62% → 27%) and walks `wardens` from Tier 3.2 to
+   * Tier 3.6 on 17 more Renown, while doing almost nothing for a dungeon that
+   * actually fights.
+   *
+   * Kept, swept and set to 0 rather than deleted, because "why doesn't the rest
+   * of the queue share the story?" is a question worth having an answer to.
+   * Ignored entirely for `party` formation, where the mean was always honest.
+   */
+  singleFilePerilShare: 0,
+
   // ── Traps (§5.2) ──
   /**
    * Global multiplier on every trap's magnitude.
@@ -282,12 +375,22 @@ export const TUNING = {
   /**
    * Thrill a delve must reach for a regular to retire on it (§15.5).
    *
-   * Set from the measured distribution, not picked: across 2783 raids with
-   * survivors, p50 is 11.6 and p90 is 44.2, so 45 makes retirement a genuine
-   * top-decile delve. The original 75 qualified 0.04% of raids, which made
-   * Legends unreachable content — the system never fired once in 600 seasons.
+   * Set from the measured distribution, not picked, and **re-derived when
+   * single-file landed** (§7.2) because the distribution moved under it: the
+   * line rotates every member through the door, so far more delves now finish
+   * with a genuinely frightened survivor in them. Across 36,745 scored
+   * survivors at the current tuning, p50 is 12.2 and **p90 is 56.9** — so 60 is
+   * the top-decile delve §15.7.4 asked for.
+   *
+   * Left at the old 45 it qualified roughly one delve in four: `balanced` made
+   * 2.0 Legends a season against the 0.4 the design targets, and the
+   * `retireRenownBonus` those Legends pay became a second, unintended Renown
+   * engine driving the difficulty ratchet. The original 75 qualified 0.04% of
+   * raids and made Legends unreachable content. The rule — "genuine top decile"
+   * — is what is stable here; the number is downstream of it and has to be
+   * re-measured whenever combat changes shape.
    */
-  retireThrill: 45,
+  retireThrill: 60,
   /**
    * Delves survived before a regular can retire (§15.5).
    *
@@ -557,23 +660,71 @@ export interface TierRow {
   levelMax: number;
   gold: number;
   manaBonus: number;
+  /**
+   * How this tier's delves engage a room (§7.2).
+   *
+   * The second escalation axis on the table, and the one that is about
+   * *organisation* rather than stats. Everyone files in one at a time until the
+   * dungeon is famous enough to be worth mounting a real expedition against.
+   */
+  formation: Formation;
 }
 
-/** Prototype runs tiers 1-4 (§12), but the full table is here for the balance runner. */
+/**
+ * Prototype runs tiers 1-4 (§12), but the full table is here for the balance runner.
+ *
+ * **`formation` flips at Tier 4.** Below it, a delve is a queue: three or four
+ * people arrive together and take turns holding the door, so a starting dungeon
+ * fights one adventurer at a time and a room that would fall in four ticks
+ * takes twelve. At Tier 4 — 140 Renown, which is a dungeon with a reputation —
+ * organised companies start coming, and the same party size hits all at once.
+ * That is deliberately the single largest step change on the table: it is the
+ * moment the player finds out whether the dungeon they built was actually good
+ * or merely arithmetic-proof.
+ *
+ * Tier 4 rather than later because the prototype caps at Tier 4
+ * (`MAX_TIER_PROTOTYPE`) — a milestone the player can never reach is not a
+ * milestone, it is a comment.
+ */
 export const TIERS: TierRow[] = [
-  { tier: 1, renown: 0, partySize: 3, levelMin: 1, levelMax: 2, gold: 25, manaBonus: 0 },
-  { tier: 2, renown: 30, partySize: 3, levelMin: 3, levelMax: 4, gold: 45, manaBonus: 25 },
-  { tier: 3, renown: 75, partySize: 4, levelMin: 5, levelMax: 6, gold: 65, manaBonus: 55 },
-  { tier: 4, renown: 140, partySize: 4, levelMin: 7, levelMax: 8, gold: 85, manaBonus: 95 },
-  { tier: 5, renown: 230, partySize: 4, levelMin: 9, levelMax: 11, gold: 105, manaBonus: 140 },
-  { tier: 6, renown: 350, partySize: 5, levelMin: 12, levelMax: 14, gold: 125, manaBonus: 195 },
-  { tier: 7, renown: 500, partySize: 5, levelMin: 15, levelMax: 17, gold: 145, manaBonus: 255 },
-  { tier: 8, renown: 700, partySize: 5, levelMin: 18, levelMax: 21, gold: 165, manaBonus: 325 },
-  { tier: 9, renown: 950, partySize: 5, levelMin: 22, levelMax: 25, gold: 185, manaBonus: 405 },
-  { tier: 10, renown: 1250, partySize: 5, levelMin: 26, levelMax: 30, gold: 205, manaBonus: 495 },
+  { tier: 1, renown: 0, partySize: 3, levelMin: 1, levelMax: 2, gold: 25, manaBonus: 0, formation: 'single-file' },
+  { tier: 2, renown: 30, partySize: 3, levelMin: 3, levelMax: 4, gold: 45, manaBonus: 25, formation: 'single-file' },
+  { tier: 3, renown: 75, partySize: 4, levelMin: 5, levelMax: 6, gold: 65, manaBonus: 55, formation: 'single-file' },
+  { tier: 4, renown: 140, partySize: 4, levelMin: 7, levelMax: 8, gold: 85, manaBonus: 95, formation: 'party' },
+  { tier: 5, renown: 230, partySize: 4, levelMin: 9, levelMax: 11, gold: 105, manaBonus: 140, formation: 'party' },
+  { tier: 6, renown: 350, partySize: 5, levelMin: 12, levelMax: 14, gold: 125, manaBonus: 195, formation: 'party' },
+  { tier: 7, renown: 500, partySize: 5, levelMin: 15, levelMax: 17, gold: 145, manaBonus: 255, formation: 'party' },
+  { tier: 8, renown: 700, partySize: 5, levelMin: 18, levelMax: 21, gold: 165, manaBonus: 325, formation: 'party' },
+  { tier: 9, renown: 950, partySize: 5, levelMin: 22, levelMax: 25, gold: 185, manaBonus: 405, formation: 'party' },
+  { tier: 10, renown: 1250, partySize: 5, levelMin: 26, levelMax: 30, gold: 205, manaBonus: 495, formation: 'party' },
 ];
 
 export const MAX_TIER_PROTOTYPE = 4;
+
+/** Player-facing copy for each formation, shared by the UI and the forecast. */
+export const FORMATION_INFO: Record<Formation, {
+  label: string;
+  short: string;
+  blurb: string;
+}> = {
+  'single-file': {
+    label: 'Single file',
+    short: 'one at a time',
+    blurb: 'They arrive, descend and rest together, but only one of them '
+      + 'fights at a time. Your monsters face the front of a queue.',
+  },
+  party: {
+    label: 'Coordinated party',
+    short: 'all at once',
+    blurb: 'An organised company. Every one of them engages at once — the same '
+      + 'people, three times the damage into your rooms.',
+  },
+};
+
+/** The first tier that fields a given formation, or undefined if none does. */
+export function firstTierWithFormation(f: Formation): TierRow | undefined {
+  return TIERS.find((t) => t.formation === f);
+}
 
 export function tierForRenown(renown: number, cap = MAX_TIER_PROTOTYPE): TierRow {
   let row = TIERS[0]!;

@@ -370,6 +370,48 @@ describe('UI — returning faces and Legends', () => {
   });
 });
 
+// ─── Formation (§7.2) ────────────────────────────────────────────────────────
+
+describe('UI — formation', () => {
+  beforeEach(async () => {
+    document.body.innerHTML = '<div id="app"></div>';
+    vi.resetModules();
+    await import('../src/ui/main');
+  });
+
+  it('names the incoming formation in the Next Raid panel', () => {
+    const tag = document.querySelector('.fc-form.single-file .fc-form-tag');
+    expect(tag?.textContent?.trim()).toBe('Single file');
+    expect(document.querySelector('.fc-form-eng')?.textContent).toContain('1 of 3');
+  });
+
+  it('telegraphs the coming formation change so the player can prepare', () => {
+    const next = document.querySelector('.fc-form-next');
+    // Tier 1 with 0 Renown: the whole gap to the first party tier is owed.
+    const flip = TIERS.find((t) => t.formation === 'party')!;
+    expect(next?.textContent).toContain(String(flip.renown));
+    expect(next?.textContent).toContain(`Tier ${flip.tier}`);
+  });
+
+  it('shows who is engaged and who is queued during a raid', () => {
+    click(button('Begin Raid'));
+    click(button('Instant'));
+    // The heading carries the formation, and the meters carry the queue depth.
+    const panel = [...document.querySelectorAll('.panel')]
+      .find((p) => p.querySelector('h2')?.textContent?.includes('The Party'))!;
+    expect(panel.querySelector('.form-tag')?.textContent).toContain('Single file');
+    expect(panel.textContent).toContain('Queued');
+  });
+
+  it('logs the line changing hands', () => {
+    click(button('Begin Raid'));
+    click(button('Instant'));
+    const log = document.querySelector('.log')?.textContent ?? '';
+    expect(log).toContain('takes the front');
+    expect(log).toContain('single file');
+  });
+});
+
 // ─── The estimator itself (src/ui/predict.ts) ────────────────────────────────
 
 describe('predicted Thrill', () => {

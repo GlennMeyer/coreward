@@ -19,15 +19,26 @@
  */
 import {
   ADV_ARMOR_PER_LEVEL, ADV_BASE_DMG, ADV_BASE_HP, ADV_KIT_BASE, CLASS_MODS,
-  CLASS_WEIGHTS, DESCEND_HP_THRESHOLD, MOBS, NAMED, PRICE_TIERS, TRAPS, TUNING,
-  trapPower, type TierRow,
+  CLASS_WEIGHTS, DESCEND_HP_THRESHOLD, MOBS, NAMED, PRICE_TIERS, TIERS, TRAPS,
+  TUNING, trapPower, type TierRow,
 } from '../sim/data';
 import {
   armedTrapsInRoom, getMob, isOpen, mobEffectiveDmg, mobEffectiveHp,
   packMultiplier,
 } from '../sim/dungeon';
 import { perilGate as perilGateFraction, thrillFromParts } from '../sim/raid';
-import type { Dungeon, Mob, ThrillScore, Veteran } from '../sim/types';
+import type { Dungeon, Formation, Mob, ThrillScore, Veteran } from '../sim/types';
+
+/**
+ * How many of the party are swinging at any one moment (§7.2).
+ *
+ * Single-file is one, whatever the party size — which is the single biggest
+ * term in any honest "are we ready?" comparison, and the reason the forecast
+ * cannot just multiply by headcount any more.
+ */
+function engagedCount(tier: TierRow): number {
+  return tier.formation === 'party' ? tier.partySize : 1;
+}
 
 export interface ThrillWarning {
   /** 'bad' is a design problem worth fixing; 'warn' is a cost worth knowing. */
@@ -139,7 +150,12 @@ export function predictThrill(d: Dungeon, tier: TierRow): ThrillPrediction {
   // One pooled adventurer standing in for the party. Coarse, but peril is a
   // party-level question anyway — the sim's real peril is a mean over members.
   const poolHp = size * (ADV_BASE_HP + TUNING.advHpPerLevel * level) * AVG.hp;
-  const poolDps = size * (ADV_BASE_DMG + TUNING.advDmgPerLevel * level) * AVG.dmg;
+  // ...but only the *engaged* swing (§7.2). Under single-file that is one
+  // person however many arrived, so the room takes `size` times longer to
+  // clear and the party absorbs `size` times the damage doing it. Nothing else
+  // in this model moves as much as this line does.
+  const poolDps = engagedCount(tier)
+    * (ADV_BASE_DMG + TUNING.advDmgPerLevel * level) * AVG.dmg;
   const armor = level * ADV_ARMOR_PER_LEVEL;
 
   let hp = 1;             // fraction of the pool still standing
@@ -337,6 +353,23 @@ export function predictThrill(d: Dungeon, tier: TierRow): ThrillPrediction {
 export interface Forecast {
   tier: number;
   partySize: number;
+  /** How they engage a room (§7.2) — the other half of "what is coming". */
+  formation: Formation;
+  /** How many of them swing at once. 1 under single-file, whatever arrives. */
+  engaged: number;
+  /**
+   * The formation-change ahead of the player, if there is one: the tier that
+   * first fields it and the Renown that unlocks it. The player must be able to
+   * see an organised company coming *before* it arrives, because "ready" means
+   * something entirely different against one.
+   */
+  nextFormation: {
+    formation: Formation;
+    tier: number;
+    renown: number;
+    /** Renown still to earn. 0 means the very next raid could be it. */
+    renownAway: number;
+  } | null;
   levelMin: number;
   levelMax: number;
   /** Total HP the party brings, including Kit sustain — see below. */
@@ -373,12 +406,22 @@ const VERDICTS: readonly (readonly [number, Forecast['verdict']])[] = [
  * which a single number can capture. This tells the player whether they are in
  * the right weight class, not what will happen.
  */
-export function forecast(d: Dungeon, tier: TierRow): Forecast {
+/**
+ * `renown` is the player's current total, used only to say how far away the
+ * next formation change is. Omitted, the countdown is reported as the full
+ * threshold.
+ */
+export function forecast(d: Dungeon, tier: TierRow, renown = 0): Forecast {
   const size = tier.partySize;
   const level = (tier.levelMin + tier.levelMax) / 2;
+  const engaged = engagedCount(tier);
 
   const partyHp = size * (ADV_BASE_HP + TUNING.advHpPerLevel * level) * AVG.hp;
-  const partyDmg = size * (ADV_BASE_DMG + TUNING.advDmgPerLevel * level) * AVG.dmg;
+  // Only the engaged swing (§7.2). A single-file queue of four brings a
+  // quarter of the damage into any given room, and telling the player
+  // otherwise would make the whole readout a lie in the direction that gets
+  // dungeons overbuilt.
+  const partyDmg = engaged * (ADV_BASE_DMG + TUNING.advDmgPerLevel * level) * AVG.dmg;
   const partyKit = (ADV_KIT_BASE + tier.tier) * size;
   // Each Kit is a heal worth kitHealPct of one member's max HP (§7.3, §14.4).
   const perMemberHp = partyHp / size;
@@ -412,9 +455,26 @@ export function forecast(d: Dungeon, tier: TierRow): Forecast {
     .filter((n) => tier.tier >= n.minTier)
     .map((n) => n.name);
 
+  // The next tier on the table that engages differently. Deliberately the next
+  // *change*, not the next tier: "they will be level 9 instead of 7" is a
+  // gradient the player can absorb, and "they will all attack at once" is not.
+  const ahead = TIERS.find(
+    (t) => t.tier > tier.tier && t.formation !== tier.formation,
+  );
+
   return {
     tier: tier.tier,
     partySize: size,
+    formation: tier.formation,
+    engaged,
+    nextFormation: ahead
+      ? {
+        formation: ahead.formation,
+        tier: ahead.tier,
+        renown: ahead.renown,
+        renownAway: Math.max(0, ahead.renown - renown),
+      }
+      : null,
     levelMin: tier.levelMin,
     levelMax: tier.levelMax,
     partyHp: Math.round(partyHp),
