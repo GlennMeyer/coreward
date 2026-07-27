@@ -64,6 +64,12 @@ export interface Mob {
   downed: boolean;
   /** Equipped gear ids, bought with Gold (§6.5). Survives its wearer's death. */
   gear: string[];
+  /**
+   * Ranks bought per upgrade track (§6.6), keyed by track id: 'bite', 'hide',
+   * 'vigor'. Bought with Mana and named per species, so spending is a choice
+   * about what this creature becomes rather than an abstract level-up.
+   */
+  upgrades: Record<string, number>;
   /** Placement: a room, an amenity, or unassigned. */
   placement: Placement;
 }

@@ -37,6 +37,49 @@ export const MOBS: Record<string, MobDef> = {
 
 export const MOB_IDS = Object.keys(MOBS);
 
+// ─── Monster upgrades (§6.6) ─────────────────────────────────────────────────
+
+/** The three things any creature can get better at. */
+export type UpgradeTrack = 'bite' | 'hide' | 'vigor';
+
+export const UPGRADE_EFFECT: Record<UpgradeTrack, { dmg: number; armor: number; hp: number }> = {
+  bite: { dmg: 0.18, armor: 0, hp: 0 },
+  hide: { dmg: 0, armor: 1.2, hp: 0 },
+  vigor: { dmg: 0, armor: 0, hp: 0.22 },
+};
+
+export const MAX_UPGRADE_RANK = 4;
+
+/**
+ * Mana per rank. Rises steeply so a single monster cannot absorb the whole
+ * dungeon budget, and so breadth stays competitive with depth.
+ */
+export function upgradeRankCost(defId: string, rank: number): number {
+  const tier = MOBS[defId]?.tier ?? 1;
+  return Math.round(18 * tier * 1.6 ** rank);
+}
+
+/**
+ * Per-species names for the same three tracks.
+ *
+ * "Train to level 5" is an abstraction; "Sharper Teeth" is a decision about
+ * what this creature becomes. Same maths, and it costs nothing to make the
+ * spending legible.
+ */
+export const UPGRADE_NAMES: Record<string, Record<UpgradeTrack, string>> = {
+  rat:      { bite: 'Sharper Teeth',   hide: 'Thicker Hide',      vigor: 'Higher Metabolism' },
+  slime:    { bite: 'Caustic Coat',    hide: 'Dense Nucleus',     vigor: 'Greater Mass' },
+  cutpurse: { bite: 'Notched Blades',  hide: 'Scavenged Mail',    vigor: 'Hard Living' },
+  skeleton: { bite: 'Honed Edge',      hide: 'Fused Ribs',        vigor: 'Deeper Binding' },
+  ogre:     { bite: 'Studded Club',    hide: 'Callused Plate',    vigor: 'Brute Constitution' },
+  ooze:     { bite: 'Corrosive Bloom', hide: 'Mineral Crust',     vigor: 'Swollen Body' },
+};
+
+export function upgradeName(defId: string, track: UpgradeTrack): string {
+  return UPGRADE_NAMES[defId]?.[track]
+    ?? { bite: 'Sharper', hide: 'Tougher', vigor: 'Hardier' }[track];
+}
+
 // ─── Traps (§5.2, §10 Engineering) ───────────────────────────────────────────
 
 /**

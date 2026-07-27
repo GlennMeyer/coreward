@@ -1991,3 +1991,58 @@ the time it buys everything else.
 `balanced` season survival **46% → 61%**, Renown 228 → 294, best monster level steady.
 Kills fall (4.1 → 1.9) and escapes rise (22.6 → 27.0): rooms now wear parties down and turn
 them back rather than failing to threaten them at all.
+
+
+---
+
+## 23. Named upgrades, and what a machine found
+
+### 23.1 Upgrade tracks (§6.6)
+
+Monsters buy ranks on three named tracks with Mana, four ranks each:
+
+| Track | Effect | Cave Rat | Ogre |
+|---|---|---|---|
+| **bite** | +18% damage/rank | Sharper Teeth | Studded Club |
+| **hide** | −1.2 damage taken/rank (flat) | Thicker Hide | Callused Plate |
+| **vigor** | +22% HP/rank | Higher Metabolism | Brute Constitution |
+
+`18 × tier × 1.6^rank` Mana. Same arithmetic a level would have been, but "Sharper Teeth"
+is a decision about what a creature becomes and "train to level 3" is a number going up.
+Hide is deliberately **flat** damage reduction, so it is worth most on whatever holds the
+front against many small blows — which is exactly the screening role §22 created.
+
+### 23.2 `tools/evolve.ts` — letting a machine look for exploits
+
+The scripted strategies encode *my* assumptions about how to play, which makes them
+useless for the only question worth asking: **is there a degenerate build nobody thought
+of?** A genetic search does not share those assumptions.
+
+It evolves a build *policy* — monster and trap weights, budget shares, price tiers, taunt
+rate — scored on mean Renown across whole seasons. Determinism (§13.2) is what makes it
+work: the same genome on the same seeds scores identically, so selection is signal rather
+than noise. 10 generations × 20 genomes × 5 seasons runs in **under a second**.
+
+### 23.3 What it found immediately
+
+```
+fittest: mobs=cutpurse/rat  traps=deadfall/darts  trap%=22  upg%=0
+         shop=apothecary@gouge  adm=standard  ins=modest  taunt=100%
+renown=505  survival=80%  tier=8.0  gold=1024  bestMobLevel=2.0
+```
+
+Three findings, all uncomfortable:
+
+1. **`upg%=0` — it spends nothing on upgrades.** Every generation converged on skipping
+   them. §23.1 shipped hours earlier and the machine says do not buy it: Mana in a fourth
+   Cave Rat beats Mana in a better one. Either the effects are too small or the curve is
+   too steep. **Unresolved, and it invalidates a feature as written.**
+2. **`taunt=100%` — always accept.** Taunt is supposed to be the tensest decision in the
+   game (§7.4) and it is simply always correct. That is prototype question 2 answered, and
+   the answer is no.
+3. **505 Renown against the best hand-written strategy's ~294.** My strategies are not
+   near the frontier, so every balance conclusion drawn from them alone understates what a
+   real player will find.
+
+Best monster level is still **2.0** even at 80% survival — §19.7's mortality problem
+survives every change made since.

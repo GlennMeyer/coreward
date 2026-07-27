@@ -19,7 +19,7 @@ import {
 } from './data';
 import {
   armedTrapsInRoom, downMob, getMob, getTrap, grantCommerceXp, grantXp, isOpen,
-  mobEffectiveDmg, mobStripsKit, mobsInRoom, packMultiplier, slayMob,
+  mobArmor, mobEffectiveDmg, mobStripsKit, mobsInRoom, packMultiplier, slayMob,
 } from './dungeon';
 import { Rng } from './rng';
 import {
@@ -991,7 +991,10 @@ export class RaidSim {
     const mobs = mobsInRoom(this.d, this.floor, this.room);
     if (mobs.length === 0) return;
     const target = this.frontMonster(mobs);
-    const dmg = Math.max(1, Math.round(adv.dmg));
+    // Hide soaks a flat amount per hit (§6.6). Flat, not a percentage, so it is
+    // worth most on a creature being chipped by many small blows — which is
+    // exactly the chaff-screening role the front line created.
+    const dmg = Math.max(1, Math.round(adv.dmg - mobArmor(target)));
     target.hp = Math.max(0, target.hp - dmg);
     this.emit({
       t: this.tick, type: 'attack', source: 'adv',

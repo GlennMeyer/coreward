@@ -272,6 +272,33 @@ describe('UI smoke', () => {
     expect(document.querySelector('.fc-verdict')!.className).not.toContain('outmatched');
   });
 
+  it('offers named upgrade tracks for the selected monster', () => {
+    const buy = [...document.querySelectorAll('.buy')]
+      .find((b) => b.textContent?.includes('Cave Rat'));
+    click(buy);
+    click(document.querySelectorAll('.room')[0]);
+    click(document.querySelector('.room .mob'));
+
+    const dock = document.querySelector('.panel.dock')!;
+    expect(dock).toBeTruthy();
+    // Species-specific names, not "train to level N" (§6.6).
+    expect(dock.textContent).toContain('Sharper Teeth');
+    expect(dock.textContent).toContain('Thicker Hide');
+    expect(dock.textContent).toContain('Higher Metabolism');
+    expect(dock.textContent).toContain('mana');
+  });
+
+  it('the selection panel does not sit above the monster shop', () => {
+    const buy = [...document.querySelectorAll('.buy')]
+      .find((b) => b.textContent?.includes('Cave Rat'));
+    click(buy);
+    click(document.querySelectorAll('.room')[0]);
+    click(document.querySelector('.room .mob'));
+    // Docked beside the map, so the build column keeps its order.
+    expect(document.querySelector('.col-left .panel.dock')).toBeTruthy();
+    expect(document.querySelector('.col-right .panel.dock')).toBeFalsy();
+  });
+
   it('sells a monster back for half its base cost', () => {
     const before = app().mana;
     const buy = [...document.querySelectorAll('.buy')]

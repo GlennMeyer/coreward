@@ -7,6 +7,7 @@
 import {
   AMENITIES, AMENITY_SLOTS_PER_LANDING, COMMERCE_XP_THRESHOLDS, DIG_COSTS,
   GEAR, HIRED_STAFF_COST, MAX_COMMERCE_LEVEL, MAX_FLOORS, MAX_GEAR_SLOTS,
+  MAX_UPGRADE_RANK, UPGRADE_EFFECT, upgradeRankCost, type UpgradeTrack,
   MAX_LEVEL, MOBS, STARTING_HEARTS, TRAPS, XP_THRESHOLDS, mobDmg, mobMaxHp,
   roomCapacity, roomsOnFloor, trapCost, trapRearmCost,
 } from './data';
@@ -81,6 +82,7 @@ export function buyMob(d: Dungeon, defId: string): Mob | string {
     alive: true,
     downed: false,
     gear: [],
+    upgrades: {},
     placement: { kind: 'unassigned' },
   };
   d.mobs.push(mob);
@@ -394,12 +396,42 @@ export function isOpen(a: Amenity): boolean {
 export function mobEffectiveHp(mob: Mob): number {
   let hp = mobMaxHp(mob.defId, mob.level);
   for (const g of mob.gear) hp *= GEAR[g]?.hpMult ?? 1;
+  hp *= 1 + UPGRADE_EFFECT.vigor.hp * (mob.upgrades?.['vigor'] ?? 0);
   return Math.round(hp);
+}
+
+/** Damage soaked per hit, from the hide track (§6.6). */
+export function mobArmor(mob: Mob): number {
+  return UPGRADE_EFFECT.hide.armor * (mob.upgrades?.['hide'] ?? 0);
+}
+
+/** Ranks bought on a track, and what the next one costs. */
+export function upgradeRank(mob: Mob, track: UpgradeTrack): number {
+  return mob.upgrades?.[track] ?? 0;
+}
+
+export function nextUpgradeCost(mob: Mob, track: UpgradeTrack): number | null {
+  const rank = upgradeRank(mob, track);
+  if (rank >= MAX_UPGRADE_RANK) return null;
+  return upgradeRankCost(mob.defId, rank);
+}
+
+/** Buy one rank. Cost is the caller's to deduct (see every other mutator here). */
+export function buyUpgrade(d: Dungeon, uid: number, track: UpgradeTrack): BuildError {
+  const mob = getMob(d, uid);
+  if (!mob || !mob.alive) return 'That monster is not available.';
+  mob.upgrades ??= {};
+  const rank = upgradeRank(mob, track);
+  if (rank >= MAX_UPGRADE_RANK) return 'Already at the top of that track.';
+  mob.upgrades[track] = rank + 1;
+  mob.hp = mobEffectiveHp(mob);
+  return null;
 }
 
 export function mobEffectiveDmg(mob: Mob): number {
   let dmg = mobDmg(mob.defId, mob.level);
   for (const g of mob.gear) dmg *= GEAR[g]?.dmgMult ?? 1;
+  dmg *= 1 + UPGRADE_EFFECT.bite.dmg * (mob.upgrades?.['bite'] ?? 0);
   return dmg;
 }
 

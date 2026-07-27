@@ -450,3 +450,4 @@ h2 .chev { float: right; color: var(--dim); }
 .panel.dock h2 { color: var(--ink); }
 .panel.dock .chev.close { cursor: pointer; }
 .panel.dock .chev.close:hover { color: var(--danger); }
+.buy.up .meta { color: var(--gold); letter-spacing: 2px; font-size: 11px; }

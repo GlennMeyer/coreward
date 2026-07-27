@@ -8,8 +8,8 @@
  */
 import './styles.css';
 import {
-  AMENITIES, FORMATION_INFO, GEAR, HIRED_STAFF_COST, MAX_GEAR_SLOTS, MAX_LEVEL,
-  MOBS, upgradeCost,
+  AMENITIES, FORMATION_INFO, GEAR, HIRED_STAFF_COST, MAX_GEAR_SLOTS,
+  MAX_UPGRADE_RANK, MOBS, upgradeName, type UpgradeTrack,
   INSURANCE_BASE, STAFFED_REVENUE_MULT,
   admissionPrice,
   PRICE_TIERS, SEASON_RAIDS, TRAPS, TUNING, roomCapacity, trapCost,
@@ -17,7 +17,8 @@ import {
 } from '../sim/data';
 import {
   allTraps, assignStaff, buildAmenity, buyMob, buyTrap, demolishAmenity,
-  digCost, digFloor, dismissMob, dismissValue, equipGear, getMob, getTrap, trainMob,
+  buyUpgrade, digCost, digFloor, dismissMob, dismissValue, equipGear, getMob,
+  getTrap, nextUpgradeCost, upgradeRank,
   hireStaff, isOpen, mobEffectiveHp, placeMobInRoom, placeTrapInRoom, rearmAll,
   rearmAllPrice, removeTrap, roomSlotsUsed, setPrice, totalUpkeep, trapsInRoom,
   trapSalvageValue,
@@ -546,6 +547,12 @@ function topbar(): HTMLElement {
   return bar;
 }
 
+const UPGRADE_BLURB: Record<string, string> = {
+  bite: 'More damage per swing.',
+  hide: 'Soaks a flat amount off every hit — best on whatever holds the front.',
+  vigor: 'More hit points; it stays standing longer.',
+};
+
 const VERDICT_TEXT: Record<string, string> = {
   outmatched: 'Outmatched — they will walk to the Core.',
   thin: 'Thin — expect a breach unless the upper floors slow them.',
@@ -1026,19 +1033,28 @@ function selectionPanel(): HTMLElement | null {
   });
   p.append(head);
 
-  // Mana upgrade: the dungeon's own currency raises its own creatures.
-  const upCost = upgradeCost(mob.level);
-  const capped = mob.level >= MAX_LEVEL;
-  const up = el(`<button class="primary" ${capped || s.mana < upCost ? 'disabled' : ''}
-    >${capped ? 'Fully grown' : `Train to lv ${mob.level + 1} — ${upCost} mana`}</button>`);
-  up.onclick = () => {
-    const err = trainMob(d, mob.uid);
-    if (!err) s.mana -= upCost;
-    fail(err);
-  };
-  const upRow = el('<div class="row"></div>');
-  upRow.append(up);
-  p.append(upRow);
+  // Named upgrade tracks (§6.6). Same maths as a level, but you are choosing
+  // what this creature becomes rather than watching a number go up.
+  for (const track of ['bite', 'hide', 'vigor'] as UpgradeTrack[]) {
+    const rank = upgradeRank(mob, track);
+    const cost = nextUpgradeCost(mob, track);
+    const maxed = cost === null;
+    const off = maxed || s.mana < cost!;
+    const pips = '●'.repeat(rank) + '○'.repeat(MAX_UPGRADE_RANK - rank);
+    const b = el(`<div class="buy up ${off ? 'off' : ''}"
+        title="${UPGRADE_BLURB[track]}">
+        <span>${esc(upgradeName(mob.defId, track))}<div class="meta">${pips}</div></span>
+        <span class="cost">${maxed ? 'max' : `${cost} mana`}</span>
+      </div>`);
+    if (!off) {
+      b.onclick = () => {
+        const err = buyUpgrade(d, mob.uid, track);
+        if (!err) s.mana -= cost!;
+        fail(err);
+      };
+    }
+    p.append(b);
+  }
   p.append(el('<div class="hint">Mana raises the monster; Gold equips it.</div>'));
 
   for (const g of Object.values(GEAR)) {
