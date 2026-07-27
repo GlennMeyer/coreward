@@ -288,6 +288,28 @@ describe('UI smoke', () => {
     expect(dock.textContent).toContain('mana');
   });
 
+  it('nothing pushes the Monsters menu down when you buy things', () => {
+    const heads = () => [...document.querySelectorAll('.col-right .panel h2')]
+      .map((h) => h.textContent ?? '');
+    const monstersAt = () => heads().findIndex((h) => h.includes('Monsters'));
+    const before = monstersAt();
+
+    // Buy a monster: it becomes selected AND unassigned — the two things that
+    // used to insert panels above the shop.
+    const buy = [...document.querySelectorAll('.buy')]
+      .find((b) => b.textContent?.includes('Cave Rat'));
+    click(buy);
+    expect(monstersAt()).toBe(before);
+
+    // And with a trap selected.
+    const trapBuy = [...document.querySelectorAll('.buy')]
+      .find((b) => b.textContent?.includes('Dart Battery'));
+    if (trapBuy) {
+      click(trapBuy);
+      expect(monstersAt()).toBe(before);
+    }
+  });
+
   it('the selection panel does not sit above the monster shop', () => {
     const buy = [...document.querySelectorAll('.buy')]
       .find((b) => b.textContent?.includes('Cave Rat'));

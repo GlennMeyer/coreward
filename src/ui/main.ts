@@ -918,44 +918,6 @@ function buildPanel(): HTMLElement {
   }
   wrap.append(actions);
 
-  // Roster
-  const idle = d.mobs.filter((m) => m.alive && m.placement.kind === 'unassigned');
-  const idleTraps = allTraps(d).filter((t) => t.placement.kind === 'unassigned');
-  if (idle.length || idleTraps.length) {
-    const p = el('<div class="panel"></div>');
-    p.append(el(`<h2>Unassigned (${idle.length + idleTraps.length}) — no upkeep, no defence</h2>`));
-    for (const m of idle) p.append(mobChip(m));
-    for (const t of idleTraps) p.append(trapChip(t));
-    wrap.append(p);
-  }
-
-  // Selected trap: what it does, and how to get rid of it.
-  if (app.selectedTrap !== null) {
-    const trap = getTrap(d, app.selectedTrap);
-    if (trap) {
-      const def = TRAPS[trap.defId]!;
-      const p = el('<div class="panel"></div>');
-      p.append(el(`<h2>${esc(def.name)} — ${trap.charges}/${def.charges} armed</h2>`));
-      p.append(el(`<div class="hint">${esc(def.blurb)}</div>`));
-      p.append(el(
-        `<div class="hint">${trapRearmCost(trap.defId)} mana per charge to re-arm. No upkeep, ever — and it cannot be killed.</div>`,
-      ));
-      const refund = trapSalvageValue(trap.defId);
-      const rip = el(`<button class="danger sell">Rip out — refund ${refund} mana</button>`);
-      rip.onclick = () => {
-        const res = removeTrap(d, trap.uid);
-        if (typeof res === 'string') return fail(res);
-        s.mana += res;
-        app.selectedTrap = null;
-        return fail(null);
-      };
-      const row = el('<div class="row"></div>');
-      row.append(rip);
-      p.append(row);
-      wrap.append(p);
-    }
-  }
-
   // Monster shop
   const shop = el('<div class="panel"></div>');
   shop.append(el('<h2>Monsters</h2>'));
@@ -1007,6 +969,20 @@ function buildPanel(): HTMLElement {
     '<div class="hint">A trap fires once on the threshold, before anything swings — then it needs re-arming. It softens; the monster behind it finishes.</div>',
   ));
   wrap.append(traps);
+
+  // Roster sits BELOW the shops. Buying anything makes something unassigned,
+  // so putting this above the menus meant every purchase shoved the next one
+  // down the page.
+  const idle = d.mobs.filter((m) => m.alive && m.placement.kind === 'unassigned');
+  const idleTraps = allTraps(d).filter((t) => t.placement.kind === 'unassigned');
+  if (idle.length || idleTraps.length) {
+    const rp = el('<div class="panel"></div>');
+    rp.append(el(`<h2>Unassigned (${idle.length + idleTraps.length}) — no upkeep, no defence</h2>`));
+    for (const m of idle) rp.append(mobChip(m));
+    for (const t of idleTraps) rp.append(trapChip(t));
+    wrap.append(rp);
+  }
+
   const replay = lastLogPanel();
   if (replay) wrap.append(replay);
   wrap.append(legendsPanel());
@@ -1020,9 +996,42 @@ function buildPanel(): HTMLElement {
  * game of chase-the-button.
  */
 function selectionPanel(): HTMLElement | null {
-  if (app.phase !== 'build' || app.selectedMob === null) return null;
+  if (app.phase !== 'build') return null;
   const d = app.season.dungeon;
   const s = app.season;
+
+  // Traps dock in the same place monsters do — the inline version had exactly
+  // the problem the monster card had, and one place to look is better than two.
+  if (app.selectedTrap !== null) {
+    const trap = getTrap(d, app.selectedTrap);
+    if (!trap) return null;
+    const tdef = TRAPS[trap.defId]!;
+    const tp = el('<div class="panel dock"></div>');
+    const th = el(`<h2>${esc(tdef.name)} — ${trap.charges}/${tdef.charges} armed
+      <span class="chev close">×</span></h2>`);
+    th.querySelector('.close')!.addEventListener('click', () => {
+      app.selectedTrap = null;
+      render();
+    });
+    tp.append(th);
+    tp.append(el(`<div class="hint">${esc(tdef.blurb)}</div>`));
+    tp.append(el(
+      `<div class="hint">${trapRearmCost(trap.defId)}g per charge to re-arm. No upkeep, ever — and it cannot be killed.</div>`,
+    ));
+    const refund = trapSalvageValue(trap.defId);
+    const rip = el(`<button class="danger sell">Rip out — refund ${refund}g</button>`);
+    rip.onclick = () => {
+      const res = removeTrap(d, trap.uid);
+      if (typeof res === 'string') return fail(res);
+      s.gold += res;
+      app.selectedTrap = null;
+      return fail(null);
+    };
+    tp.append(rip);
+    return tp;
+  }
+
+  if (app.selectedMob === null) return null;
   const mob = getMob(d, app.selectedMob);
   if (!mob) return null;
 
