@@ -122,6 +122,20 @@ export const TUNING = {
    * shipped with, combat never left Tier 1.1 and the ratchet was inert.
    */
   renownPerThrill: 0.3,
+  /**
+   * Mana per point of Thrill (§4.1).
+   *
+   * Without this, Mana came only from kills and floors while §15 pays Renown
+   * for letting people LEAVE — so the two halves of the design pulled against
+   * each other and a player who ran a good, survivable dungeon earned 83 mana
+   * a raid and starved. The dungeon feeds on the experience, not just the
+   * corpses.
+   *
+   * Scaled on the raid's Thrill score, deliberately NOT multiplied by survivor
+   * count: per-head would hand the volume-farming wardens build a second
+   * income stream and reopen §15.1.
+   */
+  manaPerThrill: 1.8,
 
   // ── Retirement and Legends (§15.5) ──
   /**

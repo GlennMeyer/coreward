@@ -53,6 +53,8 @@ export interface Aftermath {
     base: number;
     floors: number;
     kills: number;
+    /** Mana drawn from the quality of the delve itself (§15.3). */
+    thrill: number;
     tierBonus: number;
     upkeep: number;
   };
@@ -117,9 +119,10 @@ export function applyAftermath(s: SeasonState, sim: RaidSim): Aftermath {
   const base = TUNING.manaBaseIncome;
   const floors = s.dungeon.floors.length * TUNING.manaPerFloor;
   const kills = sim.manaFromKills;
+  const thrill = Math.round(result.thrill.total * TUNING.manaPerThrill);
   const tierBonus = currentTier(s).manaBonus;
   const upkeep = totalUpkeep(s.dungeon);
-  const manaIncome = base + floors + kills + tierBonus - upkeep;
+  const manaIncome = base + floors + kills + thrill + tierBonus - upkeep;
 
   // Legends already on the wall pay out before this raid's retirees join them —
   // you do not get the trickle on the same raid you earned the Legend (§15.5).
@@ -149,7 +152,7 @@ export function applyAftermath(s: SeasonState, sim: RaidSim): Aftermath {
   return {
     result,
     manaIncome,
-    manaBreakdown: { base, floors, kills, tierBonus, upkeep },
+    manaBreakdown: { base, floors, kills, thrill, tierBonus, upkeep },
     tierBefore,
     tierAfter,
     seasonOver: s.over,

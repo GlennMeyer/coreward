@@ -106,12 +106,21 @@ Primary build currency. Income is calculated at Aftermath:
 mana_income = 55                             # ✅ was 20
             + 40 × floors_built              # ✅ was 10
             + 12 × adventurers_killed        # ✅ was 3 — see below
+            + 1.8 × raid_thrill              # ✅ a good show draws power
             + tier_bonus[threat_tier]        # ✅ 0, 25, 55, 95, 140, 195, 255, 325, 405, 495
             - total_upkeep                   # mobs + amenity operating costs
 ```
 
 Starting Mana: **300**. ✅ It must buy a Floor 1 that can actually threaten Tier 1 —
 at 260 or below the opening is a guaranteed Heart loss.
+
+**The two halves of the design were fighting.** Mana came only from kills and floors,
+while §15 pays Renown for letting adventurers *leave*. A player who ran a good, survivable
+dungeon — exactly what the Tycoon reframe asks for — earned 83 mana a raid (1 floor, no
+kills, 12 upkeep) and starved. Thrill now feeds Mana directly: the dungeon draws power
+from the experience, not just the corpses. Scaled on the raid's Thrill score and
+deliberately **not** per-survivor, since per-head would hand the volume-farming wardens
+build a second income stream and reopen §15.1.
 
 **Measured problem, fixed:** at 3 mana/kill and a tier-3 bonus of 12, income was 129–147
 per raid against a 282-mana opening build, and `base + floors` was over 90% of it. Kills
