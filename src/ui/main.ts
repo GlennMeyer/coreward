@@ -769,12 +769,18 @@ function render(): void {
   root.append(topbar());
 
   const cols = el('<div class="cols"></div>');
+  const info = el('<div class="col-info"></div>');
   const left = el('<div class="col-left"></div>');
   const right = el('<div class="col-right"></div>');
 
+  // Next Raid and Predicted Thrill sit left of the map: they are what you read
+  // while looking at the floor plan, so they belong next to it rather than
+  // across the page in the build column.
+  info.append(forecastPanel());
+  info.append(predictionPanel());
   left.append(dungeonPanel());
   right.append(app.phase === 'raid' ? raidPanel() : buildPanel());
-  cols.append(left, right);
+  cols.append(info, left, right);
   root.append(cols);
 
   if (app.phase === 'aftermath' && app.aftermath) root.append(aftermathModal(app.aftermath));
@@ -790,6 +796,10 @@ function topbar(): HTMLElement {
   const bar = el(`
     <div class="topbar">
       <h1>Coreward</h1>
+      <span class="stat incoming" title="Adventurers expected next raid, at levels ${tier.levelMin}–${tier.levelMax}">
+        <span class="lbl">incoming</span><b>${tier.partySize}</b>
+        <span class="lvl">lv ${tier.levelMin}–${tier.levelMax}</span>
+      </span>
       <span class="stat"><span class="lbl">raid</span><b>${s.raidNumber}/${SEASON_RAIDS}</b></span>
       <span class="stat"><span class="lbl">tier</span><b>${tier.tier}</b></span>
       <div class="stats">
@@ -1037,11 +1047,6 @@ function buildPanel(): HTMLElement {
   actions.append(el(`<div class="hint">Drag monsters into rooms, or onto a shop to staff it. Clicking works too: select, then click a target.</div>`));
   wrap.append(actions);
 
-  // Order requested: Build Phase, then what's coming, then Monsters, then
-  // Predicted Thrill, then Legends. Forecast sits high because it is what the
-  // player acts on while spending; Thrill and Legends are review, not input.
-  wrap.append(forecastPanel());
-
   // Roster
   const idle = d.mobs.filter((m) => m.alive && m.placement.kind === 'unassigned');
   if (idle.length) {
@@ -1122,7 +1127,6 @@ function buildPanel(): HTMLElement {
     shop.append(b);
   }
   wrap.append(shop);
-  wrap.append(predictionPanel());
   wrap.append(legendsPanel());
   return wrap;
 }

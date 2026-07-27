@@ -291,15 +291,15 @@ export interface TierRow {
 /** Prototype runs tiers 1-4 (§12), but the full table is here for the balance runner. */
 export const TIERS: TierRow[] = [
   { tier: 1, renown: 0, partySize: 3, levelMin: 1, levelMax: 2, gold: 25, manaBonus: 0 },
-  { tier: 2, renown: 30, partySize: 3, levelMin: 3, levelMax: 4, gold: 45, manaBonus: 5 },
-  { tier: 3, renown: 75, partySize: 4, levelMin: 5, levelMax: 6, gold: 65, manaBonus: 12 },
-  { tier: 4, renown: 140, partySize: 4, levelMin: 7, levelMax: 8, gold: 85, manaBonus: 20 },
-  { tier: 5, renown: 230, partySize: 4, levelMin: 9, levelMax: 11, gold: 105, manaBonus: 30 },
-  { tier: 6, renown: 350, partySize: 5, levelMin: 12, levelMax: 14, gold: 125, manaBonus: 42 },
-  { tier: 7, renown: 500, partySize: 5, levelMin: 15, levelMax: 17, gold: 145, manaBonus: 56 },
-  { tier: 8, renown: 700, partySize: 5, levelMin: 18, levelMax: 21, gold: 165, manaBonus: 72 },
-  { tier: 9, renown: 950, partySize: 5, levelMin: 22, levelMax: 25, gold: 185, manaBonus: 90 },
-  { tier: 10, renown: 1250, partySize: 5, levelMin: 26, levelMax: 30, gold: 205, manaBonus: 110 },
+  { tier: 2, renown: 30, partySize: 3, levelMin: 3, levelMax: 4, gold: 45, manaBonus: 25 },
+  { tier: 3, renown: 75, partySize: 4, levelMin: 5, levelMax: 6, gold: 65, manaBonus: 55 },
+  { tier: 4, renown: 140, partySize: 4, levelMin: 7, levelMax: 8, gold: 85, manaBonus: 95 },
+  { tier: 5, renown: 230, partySize: 4, levelMin: 9, levelMax: 11, gold: 105, manaBonus: 140 },
+  { tier: 6, renown: 350, partySize: 5, levelMin: 12, levelMax: 14, gold: 125, manaBonus: 195 },
+  { tier: 7, renown: 500, partySize: 5, levelMin: 15, levelMax: 17, gold: 145, manaBonus: 255 },
+  { tier: 8, renown: 700, partySize: 5, levelMin: 18, levelMax: 21, gold: 165, manaBonus: 325 },
+  { tier: 9, renown: 950, partySize: 5, levelMin: 22, levelMax: 25, gold: 185, manaBonus: 405 },
+  { tier: 10, renown: 1250, partySize: 5, levelMin: 26, levelMax: 30, gold: 205, manaBonus: 495 },
 ];
 
 export const MAX_TIER_PROTOTYPE = 4;
@@ -314,7 +314,14 @@ export function tierForRenown(renown: number, cap = MAX_TIER_PROTOTYPE): TierRow
 
 // ─── Economy (§4) ────────────────────────────────────────────────────────────
 
-export const MANA_PER_KILL = 3;
+/**
+ * Mana per adventurer killed.
+ *
+ * Was 3, which made kills 7% of income — a full season of them paid less than
+ * half an Ogre while the dungeon bled 1–8 monsters a raid. Predation has to
+ * fund the predator or the whole build phase runs a deficit.
+ */
+export const MANA_PER_KILL = 12;
 export const SOULS_PER_KILL = 2;
 export const SOULS_PER_NAMED = 15;
 export const RENOWN_PER_ESCAPEE = 6;

@@ -51,8 +51,7 @@ h2 { font-size: 12px; margin: 0 0 8px; color: var(--dim); text-transform: upperc
 .renown b { color: var(--renown); }
 .hearts b { color: var(--danger); }
 
-.cols { display: grid; grid-template-columns: 1fr 330px; gap: 12px; align-items: start; }
-@media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
+.cols { display: grid; gap: 12px; align-items: start; }
 
 .panel {
   background: var(--panel); border: 1px solid var(--line);
@@ -311,3 +310,22 @@ body.dragging .mob { cursor: grabbing; }
 
 .hint.warn-t { color: var(--warn); }
 button.sell { width: 100%; margin-top: 8px; }
+
+/* ─── Three-column layout ────────────────────────────────────────────────── */
+
+.cols { grid-template-columns: 235px minmax(0, 1fr) 320px; }
+
+/* Below 1180px the info column has nowhere useful to go; stack it above the
+   map rather than squeezing the floor plan, which is the thing being read. */
+@media (max-width: 1180px) {
+  .cols { grid-template-columns: minmax(0, 1fr) 320px; }
+  .col-info { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .col-info .panel { margin-bottom: 0; }
+}
+@media (max-width: 900px) {
+  .cols { grid-template-columns: minmax(0, 1fr); }
+  .col-info { grid-template-columns: 1fr; }
+}
+
+.stat.incoming b { color: var(--adv); }
+.stat.incoming .lvl { color: var(--dim); margin-left: 5px; font-size: 11px; }

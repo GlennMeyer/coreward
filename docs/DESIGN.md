@@ -105,13 +105,21 @@ Primary build currency. Income is calculated at Aftermath:
 ```
 mana_income = 55                             # ✅ was 20
             + 40 × floors_built              # ✅ was 10
-            + 3  × adventurers_killed
-            + tier_bonus[threat_tier]        # 0, 5, 12, 20, 30, 42, 56, 72, 90, 110
+            + 12 × adventurers_killed        # ✅ was 3 — see below
+            + tier_bonus[threat_tier]        # ✅ 0, 25, 55, 95, 140, 195, 255, 325, 405, 495
             - total_upkeep                   # mobs + amenity operating costs
 ```
 
 Starting Mana: **300**. ✅ It must buy a Floor 1 that can actually threaten Tier 1 —
 at 260 or below the opening is a guaranteed Heart loss.
+
+**Measured problem, fixed:** at 3 mana/kill and a tier-3 bonus of 12, income was 129–147
+per raid against a 282-mana opening build, and `base + floors` was over 90% of it. Kills
+paid 9. A season of them bought less than half an Ogre while the dungeon lost 1–8 monsters
+a raid to permadeath, so **every raid ran a structural deficit** and seasons ended overrun
+around raid 6. Killing now funds the killer, and the ratchet is worth riding: escalating a
+tier used to add 5–12 mana, which was noise against the cost of the monsters needed to
+survive it.
 
 **Upkeep is the pressure valve.** Every placed mob and every open amenity costs mana per
 raid. Overbuilding starves you. Mobs can be dismissed for 50% refund of base cost (losing

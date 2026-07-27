@@ -155,15 +155,33 @@ describe('UI smoke', () => {
     expect(document.querySelector('.log')).toBeTruthy();
   });
 
-  it('orders the right column: build, next raid, monsters, thrill, legends', () => {
+  it('puts Next Raid and Predicted Thrill left of the dungeon map', () => {
+    const info = [...document.querySelectorAll('.col-info .panel h2')]
+      .map((h) => h.textContent ?? '');
+    expect(info[0]).toContain('Next Raid');
+    expect(info[1]).toContain('Predicted Thrill');
+    // The map sits in its own column between info and the build controls.
+    expect(document.querySelector('.col-left .panel h2')?.textContent).toContain('The Dungeon');
+  });
+
+  it('orders the build column: build phase, monsters, legends', () => {
     const heads = [...document.querySelectorAll('.col-right .panel h2')]
       .map((h) => h.textContent ?? '');
     const at = (frag: string) => heads.findIndex((h) => h.includes(frag));
     expect(at('Build Phase')).toBe(0);
-    expect(at('Next Raid')).toBeGreaterThan(at('Build Phase'));
-    expect(at('Monsters')).toBeGreaterThan(at('Next Raid'));
-    expect(at('Predicted Thrill')).toBeGreaterThan(at('Monsters'));
-    expect(at('Legends')).toBeGreaterThan(at('Predicted Thrill'));
+    expect(at('Monsters')).toBeGreaterThan(at('Build Phase'));
+    expect(at('Legends')).toBeGreaterThan(at('Monsters'));
+  });
+
+  it('shows the expected adventurer count top-left', () => {
+    const inc = document.querySelector('.topbar .stat.incoming');
+    expect(inc).toBeTruthy();
+    // Tier 1 is 3 adventurers at levels 1-2 (§4.4).
+    expect(inc!.textContent).toContain('3');
+    expect(inc!.textContent).toContain('lv 1–2');
+    // Ahead of raid/tier in the bar.
+    const stats = [...document.querySelectorAll('.topbar .stat')];
+    expect(stats.indexOf(inc as Element)).toBe(0);
   });
 
   it('forecasts party size and level for the coming raid', () => {
