@@ -461,3 +461,20 @@ h2 .chev { float: right; color: var(--dim); }
 .insight-won b { color: var(--souls); font-size: 20px; }
 .insight-won .sub { display: block; color: var(--dim); font-size: 11px; margin-top: 3px; }
 .cost.i { color: var(--souls); }
+
+/* ─── Main menu ──────────────────────────────────────────────────────────── */
+.menu {
+  max-width: 420px; margin: 12vh auto; display: flex; flex-direction: column;
+  gap: 10px; text-align: center;
+}
+.menu .title {
+  font-size: 34px; letter-spacing: 0.3em; margin: 0; color: var(--danger);
+}
+.menu .tagline { color: var(--dim); font-size: 12px; margin-bottom: 14px; }
+.menu .record {
+  color: var(--dim); font-size: 12px; padding: 8px;
+  border: 1px solid var(--line); border-radius: 6px; margin-bottom: 6px;
+}
+.menu .record b { color: var(--souls); }
+button.big { padding: 12px; font-size: 14px; }
+.menu .opts { justify-content: center; margin-top: 10px; }

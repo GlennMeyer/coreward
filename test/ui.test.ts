@@ -53,7 +53,14 @@ describe('UI smoke', () => {
   beforeEach(async () => {
     document.body.innerHTML = '<div id="app"></div>';
     vi.resetModules();
+    // A clean profile per test, so Codex ranks cannot bleed between them.
+    // jsdom does not always expose localStorage; the app tolerates that (see
+    // src/ui/storage.ts) and so should this.
+    globalThis.localStorage?.clear();
     await import('../src/ui/main');
+    // The app opens on the title screen now; every test below wants a delve.
+    const begin = button('Begin a Delve');
+    begin?.click();
   });
 
   it('renders the build phase without throwing', () => {
@@ -206,6 +213,18 @@ describe('UI smoke', () => {
     // Tier 1 is single-file: exactly one delver on the stage, rest at the door.
     expect(stage!.querySelectorAll('.delver')).toHaveLength(1);
     expect(stage!.querySelector('.queued')?.textContent).toMatch(/\+\d+ at the door/);
+  });
+
+  it('opens on a title screen, not straight into a delve', async () => {
+    document.body.innerHTML = '<div id="app"></div>';
+    vi.resetModules();
+    globalThis.localStorage?.clear();
+    await import('../src/ui/main');
+    expect(document.querySelector('.menu')).toBeTruthy();
+    expect(document.querySelector('.topbar')).toBeFalsy();
+    // ...and starting actually starts.
+    button('Begin a Delve')!.click();
+    expect(document.querySelector('.topbar')).toBeTruthy();
   });
 
   it('a finished run banks Insight and offers the Codex', () => {
@@ -492,8 +511,8 @@ describe('UI — returning faces and Legends', () => {
       const actual = await vi.importActual<typeof import('../src/sim/season')>('../src/sim/season');
       return {
         ...actual,
-        createSeason: (seed: number): SeasonState => {
-          const s = actual.createSeason(seed);
+        createSeason: (seed: number, endless?: boolean): SeasonState => {
+          const s = actual.createSeason(seed, endless);
           s.veterans.push({
             id: 7, name: 'Wren Threefingers', cls: 'rogue',
             delves: 4, bestThrill: 68, retired: false,
@@ -510,6 +529,9 @@ describe('UI — returning faces and Legends', () => {
       };
     });
     await import('../src/ui/main');
+    // Past the title screen (§ main menu) — this suite inspects the raid view.
+    [...document.querySelectorAll('button')]
+      .find((b) => b.textContent?.includes('Begin a Delve'))?.click();
   });
 
   afterEach(() => { vi.doUnmock('../src/sim/season'); });
@@ -547,7 +569,14 @@ describe('UI — formation', () => {
   beforeEach(async () => {
     document.body.innerHTML = '<div id="app"></div>';
     vi.resetModules();
+    // A clean profile per test, so Codex ranks cannot bleed between them.
+    // jsdom does not always expose localStorage; the app tolerates that (see
+    // src/ui/storage.ts) and so should this.
+    globalThis.localStorage?.clear();
     await import('../src/ui/main');
+    // The app opens on the title screen now; every test below wants a delve.
+    const begin = button('Begin a Delve');
+    begin?.click();
   });
 
   it('names the incoming formation in the Next Raid panel', () => {

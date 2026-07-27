@@ -1,6 +1,12 @@
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+  /**
+   * GitHub Pages serves a project site from /<repo>/, so assets need that
+   * prefix — without it the built page 404s on every script. Left as '/' for
+   * local dev and any root-hosted deploy.
+   */
+  base: process.env['GITHUB_ACTIONS'] ? '/coreward/' : '/',
   server: {
     port: 5199,
     watch: {

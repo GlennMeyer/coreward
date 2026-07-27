@@ -42,7 +42,7 @@ import type { Aftermath as AftermathType } from '../sim/season';
 
 // ─── App state ───────────────────────────────────────────────────────────────
 
-type Phase = 'build' | 'raid' | 'aftermath' | 'over';
+type Phase = 'menu' | 'build' | 'raid' | 'aftermath' | 'over';
 
 const SPEEDS = [
   { label: 'II', ms: 0 },
@@ -100,7 +100,7 @@ const app: App = {
   lastInsight: null,
   endless: true,
   season: bootSeason,
-  phase: 'build',
+  phase: 'menu',
   sim: null,
   speedIdx: 1,
   log: [],
@@ -534,12 +534,51 @@ function applyDrop(target: HTMLElement, uid: number): string | null {
 
 // ─── Render ──────────────────────────────────────────────────────────────────
 
+/**
+ * Title screen. Exists because the game now has state that outlives a run —
+ * a Codex to spend in, a best-run record, and options — and none of that had
+ * anywhere to live except a modal you could only reach by dying.
+ */
+function menuScreen(): HTMLElement {
+  const p = app.profile;
+  const wrap = el('<div class="menu"></div>');
+  wrap.append(el(`<h1 class="title">Coreward</h1>`));
+  wrap.append(el('<div class="tagline">You are the thing at the bottom of the stairs.</div>'));
+
+  if (p.runs > 0) {
+    wrap.append(el(`<div class="record">${p.runs} run${p.runs === 1 ? '' : 's'}
+      · best ${p.bestRaids} raids, Tier ${p.bestTier}
+      · <b>${p.insight}</b> Insight</div>`));
+  }
+
+  const start = el('<button class="primary big">Begin a Delve</button>');
+  start.onclick = () => { restart(); };
+  wrap.append(start);
+
+  const codex = el(`<button class="big" ${p.insight <= 0 && p.runs === 0 ? 'disabled' : ''}>The Codex${p.insight > 0 ? ` — ${p.insight} Insight` : ''}</button>`);
+  codex.onclick = () => { app.phase = 'over'; render(); };
+  wrap.append(codex);
+
+  const opts = el('<div class="row opts"></div>');
+  const endlessBtn = el(`<button class="${app.endless ? 'on' : ''}">Endless: ${app.endless ? 'on' : 'off'}</button>`);
+  endlessBtn.onclick = () => { app.endless = !app.endless; render(); };
+  opts.append(endlessBtn);
+  wrap.append(opts);
+  wrap.append(el('<div class="hint">Endless runs until the Core falls. Off gives a fixed 8-raid season.</div>'));
+
+  return wrap;
+}
+
 function render(): void {
   // Read-only debug handle onto the live season, refreshed each frame so it
   // survives a restart. The sim is the source of truth (§13.2); nothing in the
   // app ever reads this back.
   (globalThis as unknown as { __coreward: SeasonState }).__coreward = app.season;
   root.innerHTML = '';
+  if (app.phase === 'menu') {
+    root.append(menuScreen());
+    return;
+  }
   root.append(topbar());
 
   const cols = el('<div class="cols"></div>');
