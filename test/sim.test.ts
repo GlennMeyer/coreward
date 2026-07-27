@@ -10,7 +10,7 @@ import type { Veteran } from '../src/sim/types';
 import {
   assignStaff, buyMob, createDungeon, digFloor, equipGear, grantXp, hireStaff,
   mobEffectiveDmg, mobEffectiveHp, mobStripsKit, mobsInRoom, packMultiplier,
-  placeMobInRoom, totalUpkeep, unplace,
+  placeMobInRoom, roomSlotsUsed, totalUpkeep, unplace,
 } from '../src/sim/dungeon';
 import { RaidSim } from '../src/sim/raid';
 import { applyAftermath, createSeason, startRaid } from '../src/sim/season';
@@ -552,14 +552,52 @@ describe('Thrill-based Renown (§15.3)', () => {
   });
 
   it('tedium is what makes an empty corridor cost Renown', () => {
+    // Two floors: the lower one defended, the upper one three empty rooms of
+    // walking. The delve has to be worth *something* before Tedium can be
+    // measured as a deduction from it — an undefended dungeon now scores zero
+    // either way, because peril gates the rest of the score (§15.1).
     const paid = () => {
-      const sim = startRaid(seasonWithFloors(304, 1));
+      const s = seasonWithFloors(304, 2);
+      addMob(s.dungeon, 'ogre', 1, 0);
+      addMob(s.dungeon, 'ooze', 1, 1);
+      addMob(s.dungeon, 'rat', 1, 2);
+      const sim = new RaidSim(s.dungeon, TIERS[0]!, 9);
       sim.runToCompletion();
       return sim.result.renown;
     };
     const withTedium = paid();
     TUNING.tediumPerEmptyRoom = 0;
     expect(paid()).toBeGreaterThan(withTedium);
+  });
+
+  it('a long harmless dungeon is a kiddie ride, not a thrill (§15.1)', () => {
+    // The wardens exploit in miniature: same depth, same variety, same walk —
+    // one dungeon frightens them and the other does not. Depth must not pay
+    // out on its own, or "let everyone stroll to the bottom" is optimal again.
+    const run = (defId: string) => {
+      const s = seasonWithFloors(320, 2);
+      for (let r = 0; r < 3; r++) addMob(s.dungeon, defId, 1, r);
+      const sim = new RaidSim(s.dungeon, TIERS[0]!, 11);
+      sim.runToCompletion();
+      return sim.result;
+    };
+    const harmless = run('slime');
+    const dangerous = run('ogre');
+
+    // Both walk the same two floors...
+    expect(harmless.thrill.depth).toBe(dangerous.thrill.depth);
+    expect(harmless.thrill.depth).toBeGreaterThan(0);
+    // ...but only one of them is a story.
+    expect(harmless.thrill.peril).toBeLessThan(dangerous.thrill.peril);
+    expect(harmless.thrill.total).toBeLessThan(dangerous.thrill.total / 2);
+
+    // And depth is not a completion ratio: clearing a one-floor dungeon is not
+    // the same achievement as clearing a three-floor one.
+    const shallow = seasonWithFloors(321, 1);
+    for (let r = 0; r < 3; r++) addMob(shallow.dungeon, 'ogre', 0, r);
+    const shallowSim = new RaidSim(shallow.dungeon, TIERS[0]!, 11);
+    shallowSim.runToCompletion();
+    expect(shallowSim.result.thrill.depth).toBeLessThan(dangerous.thrill.depth);
   });
 
   it('the thrillRenown flag falls back to the flat 6 × escapees formula', () => {
@@ -577,6 +615,40 @@ describe('Thrill-based Renown (§15.3)', () => {
       .toBe(Math.round(wiped.result.killed * 2 * RENOWN_WIPE_MULT));
   });
 });
+
+/**
+ * A two-floor dungeon with something in every room, restocked between raids.
+ *
+ * The retirement tests used to run a single Cave Rat on a single floor for a
+ * whole season, and it worked only because `depth` was a completion ratio:
+ * clearing a one-floor dungeon scored depth 1.00 and paid a flat 25 Thrill
+ * every raid no matter what was alive down there. With depth measured against
+ * an absolute reference and gated on peril, that fixture correctly scores
+ * nothing — so retirement needs a dungeon that is actually worth delving.
+ *
+ * `restock` stands in for the Build Phase these tests never had: without it
+ * the dungeon is stripped by raid three and every later delve scores zero.
+ */
+const RESTOCK_PLAN = ['rat', 'slime', 'cutpurse', 'ooze', 'skeleton', 'rat'];
+
+function restock(s: ReturnType<typeof createSeason>): void {
+  let i = 0;
+  for (let f = 0; f < s.dungeon.floors.length; f++) {
+    for (let r = 0; r < s.dungeon.floors[f]!.rooms.length; r++, i++) {
+      const defId = RESTOCK_PLAN[i % RESTOCK_PLAN.length]!;
+      if (mobsInRoom(s.dungeon, f, r).length > 0) continue;
+      if (roomSlotsUsed(s.dungeon, f, r) + MOBS[defId]!.slots > roomCapacity(f)) continue;
+      addMob(s.dungeon, defId, f, r);
+    }
+  }
+}
+
+function runnableSeason(seed: number): ReturnType<typeof createSeason> {
+  const s = seasonWithFloors(seed, 2);
+  s.dungeon.hearts = 99;   // the season must run its full length, not end early
+  restock(s);
+  return s;
+}
 
 describe('Veterans, Retirement and Legends (§15.5)', () => {
   afterEach(resetTuning);
@@ -635,21 +707,20 @@ describe('Veterans, Retirement and Legends (§15.5)', () => {
   it('retires a high-thrill regular and hangs them on the wall', () => {
     // The mechanism is what is under test, not the threshold — at prototype
     // tuning `retireThrill` 75 is barely reachable (see the balance notes).
-    TUNING.retireThrill = 10;
+    TUNING.retireThrill = 8;
     TUNING.retireMinDelves = 2;
 
-    const s = seasonWithFloors(311, 1);
-    addMob(s.dungeon, 'rat', 0, 0);
-    s.dungeon.hearts = 99;
+    const s = runnableSeason(311);
 
     let bonusRaids = 0;
     while (!s.over) {
+      restock(s);
       const sim = startRaid(s);
       sim.runToCompletion();
       const r = sim.result;
       if (r.retired.length > 0) {
         bonusRaids++;
-        for (const l of r.retired) expect(l.thrill).toBeGreaterThanOrEqual(10);
+        for (const l of r.retired) expect(l.thrill).toBeGreaterThanOrEqual(8);
       }
       applyAftermath(s, sim);
       for (const l of r.retired) expect(l.retiredOnRaid).toBeGreaterThan(0);
@@ -663,16 +734,15 @@ describe('Veterans, Retirement and Legends (§15.5)', () => {
   });
 
   it('pays the retirement bonus and the Legend trickle on top of Thrill', () => {
-    TUNING.retireThrill = 10;
+    TUNING.retireThrill = 8;
     TUNING.retireMinDelves = 2;
 
-    const s = seasonWithFloors(312, 1);
-    addMob(s.dungeon, 'rat', 0, 0);
-    s.dungeon.hearts = 99;
+    const s = runnableSeason(312);
 
     let sawBonus = false, sawTrickle = false;
     while (!s.over) {
       const legendsBefore = s.legends.length;
+      restock(s);
       const sim = startRaid(s);
       sim.runToCompletion();
       const r = sim.result;

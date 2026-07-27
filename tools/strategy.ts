@@ -57,23 +57,73 @@ export const STRATEGY_LIST: Record<StrategyName, Strategy> = {
    */
   showman: {
     name: 'showman', commerceShare: 0.35, tauntRate: 0.1, showmanship: true,
-    buyOrder: ['ogre', 'ooze', 'rat', 'skeleton', 'cutpurse', 'slime'],
+    // One body per role — bruiser, warden, skirmisher — and the *strongest* of
+    // each. The original six-mob rotation reached down to Slime and Cutpurse,
+    // which bought bodies rather than threat: `variety` saturates at three
+    // roles (the prototype bestiary has no more), so the fourth, fifth and
+    // sixth entries added no Thrill and cost the mana that peril is made of.
+    buyOrder: ['ogre', 'ooze', 'rat'],
   },
 };
 
 /** Strongest first — the AI always buys the best thing it can afford. */
 const DEFAULT_BUY_ORDER = ['ogre', 'ooze', 'skeleton', 'cutpurse', 'slime', 'rat'];
 
-/** Mana a showman keeps back for monsters before opening a shop — an Ogre plus a screen. */
-const SHOWMAN_DEFENCE_RESERVE = 150;
+/**
+ * Build-order constants for the scripted AI.
+ *
+ * Mutable for the same reason `TUNING` is (src/sim/data.ts): several of the
+ * balance questions in §14/§15 turned out to be "is the AI playing this badly,
+ * or is the strategy bad?", and you cannot answer that without sweeping the
+ * AI's own numbers. These are *not* game tuning — nothing in src/sim reads
+ * them — so they live here rather than in TUNING.
+ */
+export const AI = {
+  /** Mana a showman keeps back for monsters before opening a shop. */
+  showmanDefenceReserve: 150,
+  /** Mana left over a dig, so a new floor is never opened completely naked. */
+  digReserve: 90,
+  /**
+   * Stop digging past this raid. A floor bought on raid 7 cannot be staffed
+   * before the season ends — strictly worse than another monster.
+   */
+  digUntilRaid: 5,
+  /** placeForVariety weights — see the function for what they trade off. */
+  placeDepth: 15,
+  placeEmpty: 45,
+  /**
+   * placeAnywhere: fill every room once before stacking any of them.
+   *
+   * Off, and the measurement is why. It reads like a free win — the same
+   * monsters, no empty corridors, less Tedium — and it does raise combat's
+   * Renown from 53 to 71. But it also takes combat's season survival from 49%
+   * to 20% and its best monster level from 2.1 to 0.7: one Ogre per room loses
+   * every room, so nothing survives to level and pillar 3 stops existing.
+   * Concentration is not a placement bug, it is what makes a room winnable.
+   */
+  fillEmptyFirst: false,
+};
+
+const AI_DEFAULTS = { ...AI };
+
+export function resetAi(): void {
+  Object.assign(AI, AI_DEFAULTS);
+}
 
 export function buildPhaseFor(s: SeasonState, strat: Strategy, rng: Rng): void {
   const d = s.dungeon;
 
-  // 1. Dig once the existing floors are defended and mana allows.
+  // 1. Dig.
+  //
+  // The old gate — `mana >= cost + 120` from raid 2 — meant *no strategy ever
+  // dug a second floor* in an 8-raid season, because the AI spends down to ~30
+  // mana every Build Phase and income is ~85. Every measured dungeon was one
+  // floor deep, which made `depth` untestable and the Descent Decision (§7.3)
+  // unreachable. A floor costs 60 and pays TUNING.manaPerFloor (+40) every raid
+  // thereafter: it repays itself in under two raids, so the right rule is
+  // "dig as early as you can still afford to defend it".
   const cost = digCost(d);
-  // Digging pays for itself: deeper dungeons earn more mana AND buy more time.
-  if (cost !== null && s.mana >= cost + 120 && s.raidNumber >= 2) {
+  if (cost !== null && s.mana >= cost + AI.digReserve && s.raidNumber <= AI.digUntilRaid) {
     if (digFloor(d) === null) s.mana -= cost;
   }
 
@@ -84,13 +134,22 @@ export function buildPhaseFor(s: SeasonState, strat: Strategy, rng: Rng): void {
     // amenity's build cost, so `comfort` — the term that is supposed to make
     // commerce pay for itself (§15.4) — would stay at zero all season.
     const budget = strat.showmanship
-      ? Math.max(0, s.mana - SHOWMAN_DEFENCE_RESERVE)
+      ? Math.max(0, s.mana - AI.showmanDefenceReserve)
       : s.mana * strat.commerceShare;
     let spent = 0;
     for (let l = 0; l < d.landings.length; l++) {
       const landing = d.landings[l]!;
       if (landing.amenities.some((a) => a !== null)) continue;
-      const pick: AmenityId = l % 2 === 0 ? 'provisioner' : 'hotspring';
+      // Hot Spring shallow, Provisioner deep — not the other way round.
+      //
+      // The Provisioner only sells when the party is short of Kit
+      // (`party.kit >= need` breaks out of the shopping loop), and a party
+      // arrives at the first Landing with a full pack. A Provisioner on
+      // Landing 0 therefore never makes a single sale: it was costing 82 mana
+      // and returning zero gold and zero `comfort` all season. The Hot Spring
+      // wants `hp < 85%`, which is true of everyone who has just fought a
+      // floor, so it is the amenity that pays on the way in.
+      const pick: AmenityId = l === 0 ? 'hotspring' : 'provisioner';
       const def = AMENITIES[pick];
       if (spent + def.buildCost + MOBS['rat']!.cost > budget) break;
       if (buildAmenity(d, l, 0, pick) !== null) continue;
@@ -156,12 +215,25 @@ function nextInRotation(order: string[], cursor: number, budget: number): string
   return null;
 }
 
-/** Deepest-first, so the strongest monsters end up guarding the Core. */
+/**
+ * Deepest-first, so the strongest monsters end up guarding the Core — but in
+ * two passes, so no room is left empty while another is stacked three deep.
+ *
+ * The single-pass version filled the deepest floor's rooms to capacity before
+ * touching anything shallower, which on a two-floor dungeon meant Floor 1 was
+ * three empty rooms every single raid: 12 Tedium a raid, and three rooms of
+ * free walking on the way in. Filling breadth-first first costs nothing — the
+ * same monsters are still deepest-first within each pass.
+ */
 export function placeAnywhere(s: SeasonState, mob: Mob): boolean {
   const d = s.dungeon;
-  for (let f = d.floors.length - 1; f >= 0; f--) {
-    for (let r = 0; r < d.floors[f]!.rooms.length; r++) {
-      if (roomSlotsUsed(d, f, r) + MOBS[mob.defId]!.slots <= roomCapacity(f)) {
+  const slots = MOBS[mob.defId]!.slots;
+  const passes = AI.fillEmptyFirst ? [true, false] : [false];
+  for (const emptyOnly of passes) {
+    for (let f = d.floors.length - 1; f >= 0; f--) {
+      for (let r = 0; r < d.floors[f]!.rooms.length; r++) {
+        if (roomSlotsUsed(d, f, r) + slots > roomCapacity(f)) continue;
+        if (emptyOnly && mobsInRoom(d, f, r).length > 0) continue;
         return placeMobInRoom(d, mob.uid, f, r) === null;
       }
     }
@@ -170,13 +242,20 @@ export function placeAnywhere(s: SeasonState, mob: Mob): boolean {
 }
 
 /**
- * Placement for Thrill instead of for defence (§15.3).
+ * Placement for Thrill — but defence first (§15.3).
  *
- * Three things score, in order: an empty room is pure Tedium so filling one
- * beats everything; a room that already holds this role, or that follows one,
- * is a "repeated room" and costs 8 Tedium each; and only then does depth
- * matter. Depth is kept as a weak tiebreak rather than dropped — a showman
- * still loses a Heart if nothing guards the Core approach.
+ * The original weights had this exactly inverted: an empty room scored +40 and
+ * depth scored `f × 3`, so the placer spread one cheap monster into every room
+ * it could find and left the Core approach guarded by a Cave Rat. It was
+ * trading a Heart for 4 points of Tedium, and it breached on 3 raids out of
+ * every season and survived 0% of them.
+ *
+ * The corrected order is: depth dominates, because a monster that is not
+ * between the party and the Core is not doing anything; then role spread,
+ * because two rooms of the same thing back to back is 8 Tedium and dead
+ * `variety`; and only then filling an empty room, which is worth exactly the
+ * 4 Tedium it saves. A showman still runs a varied dungeon — it just stacks
+ * that variety from the bottom up instead of smearing it across the map.
  */
 export function placeForVariety(s: SeasonState, mob: Mob): boolean {
   const d = s.dungeon;
@@ -191,10 +270,15 @@ export function placeForVariety(s: SeasonState, mob: Mob): boolean {
       const here = mobsInRoom(d, f, r);
       const prev = r > 0 ? mobsInRoom(d, f, r - 1) : [];
 
-      let score = here.length === 0 ? 40 : 0;
-      if (here.some((m) => roleOf(m) === role)) score -= 25;
-      if (prev.length > 0 && prev.every((m) => roleOf(m) === role)) score -= 15;
-      score += f * 3;
+      // Depth first: the deepest rooms are the ones that decide the season.
+      let score = f * AI.placeDepth;
+      // Then spread: never double up a role in a room or against its neighbour.
+      if (here.some((m) => roleOf(m) === role)) score -= 30;
+      if (prev.length > 0 && prev.every((m) => roleOf(m) === role)) score -= 20;
+      // Then padding. Weighted so an empty room *anywhere* outranks stacking a
+      // second monster one floor deeper: every room gets something before any
+      // room gets seconds, and only then does the dungeon thicken downward.
+      if (here.length === 0) score += AI.placeEmpty;
 
       if (score > bestScore) {
         bestScore = score;

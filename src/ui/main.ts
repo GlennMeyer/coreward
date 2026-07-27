@@ -79,6 +79,13 @@ const el = (html: string): HTMLElement => {
   t.innerHTML = html.trim();
   return t.content.firstElementChild as HTMLElement;
 };
+/** 1st, 2nd, 3rd, 4th — the suffix was hardcoded 'rd', which read as "2rd". */
+function ordinal(n: number): string {
+  const rem100 = n % 100;
+  if (rem100 >= 11 && rem100 <= 13) return `${n}th`;
+  return `${n}${['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`;
+}
+
 const esc = (s: string): string =>
   s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
@@ -1210,7 +1217,7 @@ function legendsPanel(): HTMLElement {
 
   if (!s.legends.length) {
     p.append(el(`<div class="hint">Nobody has retired here yet. Send an adventurer home from
-      their ${TUNING.retireMinDelves}rd delve at Thrill ${TUNING.retireThrill}+ and they hang up
+      their ${ordinal(TUNING.retireMinDelves)} delve at Thrill ${TUNING.retireThrill}+ and they hang up
       their sword — a permanent Renown trickle you never have to defend.</div>`));
   } else {
     for (const l of s.legends) p.append(legendRow(l));

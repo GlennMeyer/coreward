@@ -6,7 +6,7 @@
  * Runs in jsdom — see environmentMatchGlobs in vite.config.ts.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MOBS, TIERS } from '../src/sim/data';
+import { MOBS, TIERS, TUNING } from '../src/sim/data';
 import { buildAmenity, buyMob, createDungeon, hireStaff, placeMobInRoom } from '../src/sim/dungeon';
 import { predictThrill, thrillRating } from '../src/ui/predict';
 import type { SeasonState } from '../src/sim/types';
@@ -256,7 +256,7 @@ describe('UI smoke', () => {
     expect(panel).toBeTruthy();
     // Empty state still has to teach the mechanic.
     expect(panel.querySelector('h2')?.textContent).toContain('Legends (0)');
-    expect(panel.textContent).toContain('Thrill 75+');
+    expect(panel.textContent).toContain(`Thrill ${TUNING.retireThrill}+`);
   });
 });
 

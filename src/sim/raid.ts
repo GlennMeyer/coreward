@@ -34,11 +34,56 @@ export type RaidStatus = 'running' | 'awaiting-taunt' | 'complete';
 const MAX_TICKS = 3000;
 
 /** `variety` saturates here — four distinct roles is already a varied dungeon (§15.3). */
-const VARIETY_ROLE_CAP = 4;
+/**
+ * Roles that count toward full variety marks.
+ *
+ * The prototype bestiary fields exactly three (skirmisher, bruiser, warden), so
+ * a cap of 4 made `variety` unreachable above 0.75 — a component permanently
+ * short of full marks reads as a bug to the player and silently deflates every
+ * Thrill score. Raise this when caster/terror/ambusher monsters ship (§6.3).
+ */
+const VARIETY_ROLE_CAP = 3;
 
 const ZERO_THRILL: ThrillScore = {
   total: 0, peril: 0, depth: 0, variety: 0, comfort: 0, tedium: 0,
 };
+
+/**
+ * How much of the non-peril score a delve at this peril is allowed to bank
+ * (§15.1). Excitement without intensity is a kiddie ride: a dungeon that is
+ * long, varied and comfortable but never frightening should not out-earn one
+ * that put people in genuine danger.
+ *
+ * Returns 1 when the gate is disabled, which restores the flat §15.3 sum.
+ */
+export function perilGate(peril: number): number {
+  const k = TUNING.thrillPerilGate;
+  if (k <= 0) return 1;
+  return clamp01(peril / k);
+}
+
+/**
+ * The Thrill formula itself (§15.3), pulled out of the sim so the Build-Phase
+ * estimator can score a hypothetical dungeon with exactly the same arithmetic
+ * the raid will use. Duplicating it was how the two drifted apart.
+ */
+export function thrillFromParts(p: {
+  peril: number; depth: number; variety: number; comfort: number; tedium: number;
+}): number {
+  const gate = perilGate(p.peril);
+  const raw =
+    100 * (
+      TUNING.thrillPerilWeight * p.peril
+      + gate * (
+        TUNING.thrillDepthWeight * p.depth
+        + TUNING.thrillVarietyWeight * p.variety
+        + TUNING.thrillComfortWeight * p.comfort
+      )
+    ) - p.tedium;
+  // Floored at zero: Renown is a ratchet that only goes up (§4.4), so a tedious
+  // delve pays nothing rather than costing you reputation.
+  return Math.max(0, raw);
+}
 
 export class RaidSim {
   readonly party: Party;
@@ -643,7 +688,9 @@ export class RaidSim {
       return;
     }
 
-    const depth = clamp01(this.deepestFloor / this.d.floors.length);
+    // Absolute floors cleared, not the fraction of *this* dungeon cleared —
+    // see TUNING.thrillDepthFloors for why the §15.3 ratio was backwards.
+    const depth = clamp01(this.deepestFloor / TUNING.thrillDepthFloors);
     const variety = Math.min(this.rolesFaced.size, VARIETY_ROLE_CAP) / VARIETY_ROLE_CAP;
     const open = this.openAmenityCount();
     const comfort = open > 0 ? clamp01(this.amenitiesUsed.size / open) : 0;
@@ -655,16 +702,9 @@ export class RaidSim {
     for (const adv of survivors) {
       const peril = clamp01(1 - adv.lowestHpPct);
       perilSum += peril;
-      const raw =
-        100 * (
-          TUNING.thrillPerilWeight * peril
-          + TUNING.thrillDepthWeight * depth
-          + TUNING.thrillVarietyWeight * variety
-          + TUNING.thrillComfortWeight * comfort
-        ) - tedium;
-      // Floored at zero: Renown is a ratchet that only goes up (§4.4), so a
-      // tedious delve pays nothing rather than costing you reputation.
-      const thrill = Math.max(0, raw);
+      // Gated per adventurer, not per party: the one who nearly died banks the
+      // full length of the walk, the three who strolled behind them do not.
+      const thrill = thrillFromParts({ peril, depth, variety, comfort, tedium });
       thrillSum += thrill;
       scored.push({ adv, thrill });
       this.perAdvThrill.set(adv.id, thrill);

@@ -79,20 +79,80 @@ export const TUNING = {
   thrillDepthWeight: 0.25,
   thrillVarietyWeight: 0.2,
   thrillComfortWeight: 0.1,
+  /**
+   * Peril required before depth/variety/comfort pay in full — the "kiddie ride"
+   * gate (§15.1).
+   *
+   * A long, varied, well-appointed dungeon that never threatens anybody is a
+   * scenic walk, not a delve. The three non-peril terms are multiplied by
+   * `min(1, peril / thrillPerilGate)`, so length only converts into reputation
+   * once the ride is actually frightening. At 0.6 a party has to have been down
+   * around 40% health at some point to bank the full value of the walk.
+   *
+   * Set to 0 to disable the gate and get the flat §15.3 sum back — which is
+   * also the measurement that justifies it. With the gate off, `wardens` — the
+   * §15.1 degenerate build, which kills nobody and threatens nobody — tops the
+   * Renown table at 120 against `showman`'s 108. At 0.6 it is second at 66
+   * against 84, and the ordering does not flip back at any higher value.
+   */
+  thrillPerilGate: 0.6,
+  /**
+   * Floors that count as a full-`depth` delve.
+   *
+   * §15.3 wrote `depth = floors_cleared / floors_in_dungeon`, which is a
+   * *completion ratio* — and a completion ratio is maximised by owning the
+   * smallest dungeon possible. Every strategy in the balance runner scored
+   * depth 1.00 on a single undug floor, so the term paid a flat 25 Thrill to
+   * everybody and rewarded never digging. Measuring against a fixed reference
+   * instead makes depth mean depth: one floor is a third of a delve, and
+   * digging buys Thrill as well as mana. Kept in TUNING (rather than reading
+   * MAX_FLOORS) so it can be swept, and so raising the floor cap later is not
+   * silently a Renown nerf.
+   */
+  thrillDepthFloors: 3,
   tediumPerEmptyRoom: 4,
   tediumPerRepeatedRoom: 8,
-  /** Renown per point of Thrill, per surviving adventurer. */
-  renownPerThrill: 0.1,
+  /**
+   * Renown per point of Thrill, per surviving adventurer.
+   *
+   * This is the gear ratio of the whole difficulty ratchet, so it is set by
+   * matching the pre-Thrill baseline rather than picked: at 0.3 the scripted
+   * combat AI finishes around Tier 2.0 with ~50% season survival, which is
+   * what the flat `6 × escapees` formula produced (§14.6). At the 0.1 it
+   * shipped with, combat never left Tier 1.1 and the ratchet was inert.
+   */
+  renownPerThrill: 0.3,
 
   // ── Retirement and Legends (§15.5) ──
-  retireThrill: 75,
-  retireMinDelves: 3,
+  /**
+   * Thrill a delve must reach for a regular to retire on it (§15.5).
+   *
+   * Set from the measured distribution, not picked: across 2783 raids with
+   * survivors, p50 is 11.6 and p90 is 44.2, so 45 makes retirement a genuine
+   * top-decile delve. The original 75 qualified 0.04% of raids, which made
+   * Legends unreachable content — the system never fired once in 600 seasons.
+   */
+  retireThrill: 45,
+  /**
+   * Delves survived before a regular can retire (§15.5).
+   *
+   * 2, not the doc's 3, because a prototype season is only 8 raids: measured,
+   * 3 delves cuts Legends by ~15× (showman 0.47/season → 0.03) and the system
+   * effectively never fires. Revisit at the full design's 12 raids, where 3 is
+   * reachable.
+   */
+  retireMinDelves: 2,
   /** Renown paid once when an adventurer retires. */
   retireRenownBonus: 25,
   /** Passive Renown per raid, per Legend on the wall. */
   legendRenownTrickle: 2,
   /** Chance a party slot is filled by a returning veteran rather than a fresh roll. */
-  veteranReturnChance: 0.35,
+  /**
+   * Chance a party slot is filled by a returning face rather than a fresh roll.
+   * Raised from 0.35: recurring adventurers are the emotional payload of §15.5,
+   * and at 0.35 a veteran rarely survived long enough to become one.
+   */
+  veteranReturnChance: 0.55,
 };
 
 export type Tuning = typeof TUNING;

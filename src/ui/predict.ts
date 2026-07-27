@@ -25,6 +25,7 @@ import {
 import {
   getMob, isOpen, mobEffectiveDmg, mobEffectiveHp, packMultiplier,
 } from '../sim/dungeon';
+import { perilGate as perilGateFraction, thrillFromParts } from '../sim/raid';
 import type { Dungeon, Mob, ThrillScore, Veteran } from '../sim/types';
 
 export interface ThrillWarning {
@@ -82,6 +83,13 @@ const ATTRITION = 0.55;
  * wipe pays no Renown at all (§15.3) — over-killing is a real failure mode.
  */
 const WIPE_RISK = 0.35;
+
+/**
+ * Roles the variety component counts against. Must track the sim's own cap.
+ * The prototype bestiary only fields three (skirmisher, bruiser, warden), so a
+ * cap of four would make full marks unreachable — see the note in §15.3.
+ */
+const VARIETY_ROLES = 3;
 
 const RATINGS: readonly (readonly [number, string])[] = [
   [0, 'Dull'],
@@ -202,18 +210,17 @@ export function predictThrill(d: Dungeon, tier: TierRow): ThrillPrediction {
   const builtAmenities = d.landings.flatMap((l) => l.amenities).filter(Boolean).length;
 
   const peril = 1 - lowest;
-  const depth = d.floors.length ? floorsReached / d.floors.length : 0;
-  const variety = Math.min(1, roles.size / 4);
+  // Absolute, not a completion ratio: floors_cleared / floors_in_dungeon is
+  // maximised by owning the smallest dungeon, which made digging a penalty.
+  const depth = Math.min(1, floorsReached / TUNING.thrillDepthFloors);
+  const variety = Math.min(1, roles.size / VARIETY_ROLES);
   const comfort = Math.min(1, comfortRaw / Math.max(1, d.landings.length));
   const tedium = TUNING.tediumPerEmptyRoom * emptyRooms
     + TUNING.tediumPerRepeatedRoom * repeatedRooms;
 
-  const total = Math.max(0, 100 * (
-    TUNING.thrillPerilWeight * peril
-    + TUNING.thrillDepthWeight * depth
-    + TUNING.thrillVarietyWeight * variety
-    + TUNING.thrillComfortWeight * comfort
-  ) - tedium);
+  // Call the sim's own formula rather than restating it — keeping two copies
+  // of the arithmetic in sync is exactly how this estimator went stale before.
+  const total = thrillFromParts({ peril, depth, variety, comfort, tedium });
 
   const warnings: ThrillWarning[] = [];
   const placed = d.mobs.filter((m) => m.alive && m.placement.kind === 'room').length;
@@ -226,10 +233,13 @@ export function predictThrill(d: Dungeon, tier: TierRow): ThrillPrediction {
       level: 'bad',
       text: 'Looks lethal — they probably die here. Dead adventurers carry no story, and a wipe pays no Renown.',
     });
-  } else if (peril < 0.25 && placed > 0) {
+  } else if (peril < TUNING.thrillPerilGate && placed > 0) {
+    const gate = Math.round(perilGateFraction(peril) * 100);
     warnings.push({
       level: 'bad',
-      text: 'They stroll out barely scratched. Peril is where Renown comes from — threaten harder.',
+      text: `They stroll out barely scratched — depth, variety and comfort are `
+        + `only paying ${gate}% until peril reaches ${TUNING.thrillPerilGate.toFixed(2)}. `
+        + `A long safe dungeon is a kiddie ride.`,
     });
   }
   if (emptyRooms > 0) {

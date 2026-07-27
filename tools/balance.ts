@@ -297,6 +297,7 @@ function headToHeadReport(n: number): void {
       row.flat.avgRenown.toFixed(0).padStart(11), `#${flatRank(row)}`.padStart(6),
       row.thrill.avgRenown.toFixed(0).padStart(12), `#${thrillRank(row)}`.padStart(6),
       f1(row.thrill.avgThrill).padStart(8), f2(row.thrill.avgPeril).padStart(7),
+      f1(row.thrill.avgEscaped).padStart(8),
       pct(row.flat.survivalRate).padStart(9), pct(row.thrill.survivalRate).padStart(9),
       f1(row.flat.avgTier).padStart(9), f1(row.thrill.avgTier).padStart(9),
     ].join(''));
@@ -308,12 +309,29 @@ function headToHeadReport(n: number): void {
       `\nwardens — the §15.1 degenerate case — ranks #${flatRank(wardens)} of ${rows.length} `
       + `on the flat formula and #${thrillRank(wardens)} on Thrill.`,
     );
-    console.log(
-      wardens.thrill.avgThrill === 0
-        ? 'NOTE: all Thrill components are 0 — the §15.3 implementation has not landed yet, '
-          + 'so the THRL columns are a floor, not a measurement.'
-        : 'Verdict: the reframe demotes the boring optimum.',
-    );
+    if (wardens.thrill.avgThrill === 0) {
+      console.log(
+        'NOTE: all Thrill components are 0 — the §15.3 implementation has not landed yet, '
+        + 'so the THRL columns are a floor, not a measurement.',
+      );
+    } else if (thrillRank(wardens) === 1) {
+      // The whole point of §15. If this line ever prints, the loophole is open
+      // again and no other number in this file matters.
+      const top = [...rows].sort((a, b) => b.thrill.avgRenown - a.thrill.avgRenown)[0]!;
+      console.log(
+        `FAIL: wardens still tops the Renown table (${top.thrill.avgRenown.toFixed(0)}). `
+        + 'A dungeon that threatens nobody is out-earning every dungeon that does — '
+        + 'check TUNING.thrillPerilGate and TUNING.thrillDepthFloors.',
+      );
+    } else {
+      const best = [...rows].sort((a, b) => b.thrill.avgRenown - a.thrill.avgRenown)[0]!;
+      console.log(
+        `Verdict: the reframe demotes the boring optimum — ${best.strat.name} now leads at `
+        + `${best.thrill.avgRenown.toFixed(0)} Renown (thrill ${best.thrill.avgThrill.toFixed(1)}) `
+        + `against wardens' ${wardens.thrill.avgRenown.toFixed(0)} `
+        + `(thrill ${wardens.thrill.avgThrill.toFixed(1)}).`,
+      );
+    }
   }
 }
 
@@ -370,7 +388,17 @@ function main(): void {
     // threatens rather than kills, because that is where the weight bites.
     sweep('thrillPerilWeight', [0.2, 0.35, 0.45, 0.6, 0.8], n, 'showman');
     // The Renown exchange rate — how fast the ratchet turns (§15.6 Q1).
-    sweep('renownPerThrill', [0.05, 0.1, 0.15, 0.25, 0.4], n, 'showman');
+    // Set by matching the pre-Thrill baseline: combat should land near Tier 2.1
+    // at ~50% season survival (§14.6).
+    sweep('renownPerThrill', [0.1, 0.2, 0.3, 0.45, 0.6], n, 'combat');
+    // The kiddie-ride gate (§15.1). Swept against wardens because wardens is
+    // the build it exists to demote — but note a single-strategy sweep cannot
+    // show the *ordering*, which is the actual criterion. Use
+    // `npx tsx tools/sweepall.ts thrillPerilGate 0 0.3 0.6 1.0` for that.
+    sweep('thrillPerilGate', [0, 0.3, 0.6, 1.0, 1.5], n, 'wardens');
+    // Depth reference. At 1 this restores the old completion-ratio behaviour,
+    // where a one-floor dungeon scored depth 1.00 and digging paid no Thrill.
+    sweep('thrillDepthFloors', [1, 2, 3, 5], n, 'wardens');
     // Retirement threshold: too low and every regular becomes a Legend, too
     // high and the third disposition never fires at all (§15.5). Swept against
     // wardens because retirement needs 3+ delves from the *same* face, and
@@ -395,4 +423,6 @@ function main(): void {
   console.log(`\ndone in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 }
 
-main();
+// Only when run as the entry point — `runSeason` is imported by other tools,
+// and a module that runs a 400-season batch on import is a booby trap.
+if (process.argv[1]?.endsWith('balance.ts')) main();
