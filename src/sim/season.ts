@@ -2,11 +2,15 @@
  * Season orchestration and the Aftermath economy (§3, §4).
  */
 import {
-  MAX_TIER_PROTOTYPE, SEASON_RAIDS, TUNING, tierForRenown, type TierRow,
+  GRUDGE_TRAIT, MAX_TIER_PROTOTYPE, SEASON_RAIDS, TUNING, tierForRenown,
+  type TierRow,
 } from './data';
+import {
+  canReturn, isNemesis, isPatron, makeVeteran,
+} from './adventurers';
 import { createDungeon, healAllMobs, totalUpkeep } from './dungeon';
 import { RaidSim } from './raid';
-import type { RaidResult, SeasonState, Veteran } from './types';
+import type { Adventurer, RaidResult, SeasonState, Veteran } from './types';
 
 export function createSeason(seed: number): SeasonState {
   return {
@@ -72,38 +76,88 @@ export interface Aftermath {
  */
 function recordVeterans(s: SeasonState, sim: RaidSim, result: RaidResult): void {
   const retiredNames = new Set(result.retired.map((l) => l.name));
+  const noteFor = (adv: Adventurer) => result.rivals.find((r) => r.advId === adv.id);
 
   for (const adv of sim.party.members) {
-    if (!adv.alive) continue;
-    const thrill = sim.survivorThrill.get(adv.id) ?? 0;
-
     let vet: Veteran | undefined = adv.veteranId !== null
       ? s.veterans.find((v) => v.id === adv.veteranId)
       : undefined;
 
+    // The dead are struck off. Without this a Nemesis you finally killed walks
+    // straight back in next raid, which makes the whole track meaningless.
+    if (!adv.alive) {
+      if (vet) vet.dead = true;
+      continue;
+    }
+
+    const thrill = sim.survivorThrill.get(adv.id) ?? 0;
+
     if (!vet) {
-      vet = {
-        id: s.nextVeteranId++,
-        name: adv.name,
-        cls: adv.cls,
-        delves: 0,
-        bestThrill: 0,
-        retired: false,
-      };
+      vet = makeVeteran(s.nextVeteranId++, adv.name, adv.cls, adv.namedId);
       s.veterans.push(vet);
     }
 
     vet.delves++;
     vet.bestThrill = Math.max(vet.bestThrill, Math.round(thrill));
+
+    // ── The Nemesis track (§9.3) ──
+    // They walked out. That is the counter, and it is the same event the
+    // Renown formula pays for — every escapee is reputation now and opposition
+    // later, which is exactly the trade §15 wanted the player to feel.
+    const wasNemesis = isNemesis(vet);
+    vet.escapes = (vet.escapes ?? 0) + 1;
+    if (adv.grudge) {
+      vet.lastGrudge = adv.grudge;
+      const traits = (vet.traits ??= []);
+      const trait = GRUDGE_TRAIT[adv.grudge]!;
+      if (!traits.includes(trait) && traits.length < TUNING.maxLearnedTraits) {
+        traits.push(trait);
+      }
+    }
+
+    // ── The Patron track (§9.4) ──
+    // Deliberately independent of the above: nothing here reads `escapes`, and
+    // nothing above reads `bigSpends`. §9.4's last paragraph is a *property of
+    // the data model*, not a special case — the same person can be climbing
+    // both ladders, becoming more profitable and more dangerous at once.
+    const wasPatron = isPatron(vet);
+    vet.goldSpent = (vet.goldSpent ?? 0) + adv.goldSpentHere;
+    if (adv.startGold > 0
+      && adv.goldSpentHere >= adv.startGold * TUNING.patronSpendFraction) {
+      vet.bigSpends = (vet.bigSpends ?? 0) + 1;
+    }
+    // The floor that nearly killed them. Kept fresh every visit — a Patron's
+    // caution tracks the last place they bled, not the first.
+    if (adv.nearDeathFloor !== null) vet.cautiousFloor = adv.nearDeathFloor;
+
     // The sim already flipped `retired` for anyone it retired; belt and braces
     // for a first-time face who somehow qualified without a Veteran record.
     if (retiredNames.has(adv.name)) vet.retired = true;
+
+    const note = noteFor(adv);
+    if (note) {
+      note.veteranId = vet.id;
+      note.becameNemesis = !wasNemesis && isNemesis(vet);
+      note.becamePatron = !wasPatron && isPatron(vet);
+      note.escapes = vet.escapes ?? 0;
+      note.bigSpends = vet.bigSpends ?? 0;
+    }
   }
 
   for (const legend of result.retired) {
     legend.retiredOnRaid = s.raidNumber;   // the sim has no raid counter
     s.legends.push(legend);
   }
+}
+
+/** Living Patrons on the roster — a standing income stream, and a standing tax. */
+export function activePatrons(s: SeasonState): Veteran[] {
+  return s.veterans.filter((v) => canReturn(v) && isPatron(v));
+}
+
+/** Living Nemeses on the roster. These are the faces the player is afraid of. */
+export function activeNemeses(s: SeasonState): Veteran[] {
+  return s.veterans.filter((v) => canReturn(v) && isNemesis(v));
 }
 
 /**
@@ -129,6 +183,13 @@ export function applyAftermath(s: SeasonState, sim: RaidSim): Aftermath {
   if (TUNING.thrillRenown) {
     result.renown += s.legends.length * TUNING.legendRenownTrickle;
   }
+  // SUBSTITUTION for §9.4's "+3 Insight at season end while alive": a Patron
+  // talks about your dungeon, and talk is Renown. Counted before this raid is
+  // folded in, for the same reason Legends are — and note that Renown is the
+  // difficulty dial (§4.4), so keeping a Patron alive raises the tier of
+  // everyone who follows them in. The income stream has a price.
+  result.renown += activePatrons(s).length * TUNING.patronRenownTrickle;
+
   recordVeterans(s, sim, result);
 
   s.mana = Math.max(0, s.mana + manaIncome);

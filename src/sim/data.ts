@@ -167,6 +167,122 @@ export const TUNING = {
    * and at 0.35 a veteran rarely survived long enough to become one.
    */
   veteranReturnChance: 0.55,
+
+  // ── The Nemesis track (§9.3) ──
+  /**
+   * Escapes required to become a Nemesis (§9.3).
+   *
+   * The counter is the whole point: every party you send home *unharmed* is a
+   * person who now knows your dungeon. It is also, structurally, the natural
+   * brake on the §15.1 "let everybody live" optimum — a build that maximises
+   * escapees is a build that manufactures its own opposition.
+   */
+  nemesisEscapes: 3,
+  /**
+   * Stat multiplier per Rank. §9.3's "+1 Rank: higher stats".
+   *
+   * Deliberately modest and compounding-free: the returning face is supposed to
+   * be recognisably tougher, not a wall. The *traits* are what make them hard,
+   * because a trait invalidates a strategy and a stat bump only taxes it.
+   */
+  nemesisStatPerRank: 0.12,
+  /** Rank ceiling, so a season-long survivor cannot spiral out of reach. */
+  nemesisMaxRank: 5,
+  /** Extra party members a Nemesis brings — they lead a party of their own. */
+  nemesisPartyBonus: 1,
+  /**
+   * Souls for killing a Nemesis, on top of the normal named payout.
+   *
+   * SUBSTITUTION: §9.3 pays "triple Insight". Insight and the Codex are out of
+   * prototype scope (§12), so the reward lands in Souls — the prototype's only
+   * permanent-progress currency — plus a Renown spike for the story.
+   */
+  nemesisKillSouls: 60,
+  nemesisKillRenown: 20,
+  /**
+   * Chance a Nemesis or Patron forces their way into a given raid.
+   *
+   * Higher than `veteranReturnChance` because these are characters, not extras:
+   * a Nemesis you never see again is not a Nemesis. They still have to survive
+   * the roll, so a season can go a raid or two without them.
+   */
+  recurringReturnChance: 0.7,
+  /** Cap on Nemesis/Patron headliners in one party, and on the size bonus. */
+  maxRecurringPerParty: 2,
+  maxPartyBonus: 2,
+  /** Traits one adventurer may accumulate. Four exist; three is already nasty. */
+  maxLearnedTraits: 3,
+
+  // ── The Patron track (§9.4) ──
+  /**
+   * Delves with heavy spending required to become a Patron (§9.4).
+   * Symmetric with `nemesisEscapes` on purpose — the two ladders are the same
+   * height so one adventurer can climb both at the same rate.
+   */
+  patronSpends: 3,
+  /**
+   * Fraction of their purse an adventurer must hand over for the delve to count
+   * as a big spend. At 0.4 a party that uses a shop twice qualifies; a party
+   * that window-shops does not.
+   */
+  patronSpendFraction: 0.4,
+  /** §9.4: a Patron "arrives with 3× gold". */
+  patronGoldMult: 3,
+  /** §9.4: "brings one extra party member (a friend they told)". */
+  patronPartyBonus: 1,
+  /**
+   * Renown per raid per living Patron.
+   *
+   * SUBSTITUTION: §9.4 grants "+3 Insight at season end while alive". With no
+   * Insight in the prototype this becomes a Renown trickle, matching how
+   * Legends already pay (§15.5). Note this is a *cost* as much as a reward —
+   * Renown is the difficulty dial (§4.4), so a stable of Patrons raises the
+   * tier of everyone who follows them in.
+   */
+  patronRenownTrickle: 2,
+  /** Souls for killing a Patron — §9.4's "large one-time Soul payout". */
+  patronKillSouls: 45,
+  /**
+   * HP fraction that counts as "nearly died", for the floor a Patron will not
+   * descend past (§9.4).
+   */
+  patronCautionHpPct: 0.4,
+
+  // ── Learned trait strengths (§9.3) ──
+  /** 'supplies': extra party Kit per provisioned member. Counters drain. */
+  learnedKitBonus: 2,
+  /** 'muscle': flat armour. Counters burst bruisers. */
+  learnedArmorBonus: 2,
+  /** 'swarm': extra max HP, as a fraction. Counters chip damage and packs. */
+  learnedHpBonus: 0.2,
+  /** 'nerve': extra max Resolve, and Resolve damage taken is halved. */
+  learnedResolveBonus: 10,
+  learnedResolveResist: 0.5,
+  /** 'coin': what a haggler pays at your amenities. Counters commerce. */
+  learnedHagglePct: 0.6,
+
+  // ── Named adventurer traits (§9.2) ──
+  /**
+   * Damage multiplier on every monster while the Quiet Twins are alive.
+   *
+   * §9.2 has them "split into two paths, halving your per-room mob density".
+   * The prototype has no pathing, so the abstraction is applied where the
+   * density actually mattered: half your monsters are chasing the other twin,
+   * so half your damage lands. It is the same counter to the same build —
+   * one heavily stacked choke room.
+   */
+  twinsDensityMult: 0.55,
+  /** Gold Coin-Cutter Sable lifts from your takings at each Landing (§9.2). */
+  sableTheft: 30,
+  /**
+   * HP fraction a delve must push someone below before the monster that did it
+   * teaches them anything (§9.3).
+   *
+   * Without a floor here every survivor learns something from every scratch,
+   * and within three raids the whole roster is carrying three traits. A grudge
+   * has to be earned or it stops meaning anything.
+   */
+  grudgeHurtHpPct: 0.6,
 };
 
 export type Tuning = typeof TUNING;
@@ -403,6 +519,16 @@ export interface NamedDef {
   statMult: number;
 }
 
+/**
+ * §9.2's roster. **Each trait invalidates a strategy — they are counter-play,
+ * not stat spikes.** The `statMult` is deliberately small; the trait is the
+ * content. If a named adventurer is only "the same person with more HP", the
+ * player has learned nothing about their own dungeon by meeting them.
+ *
+ * `Halden Torch` is absent: his trait is "dispels one floor effect on entry"
+ * and floor effects (§5.3) are out of prototype scope, so there is nothing for
+ * him to counter. Inventing a substitute trait would make the doc a lie.
+ */
 export const NAMED: Record<string, NamedDef> = {
   berrick: {
     id: 'berrick',
@@ -412,6 +538,116 @@ export const NAMED: Record<string, NamedDef> = {
     appearChance: 0.35,
     statMult: 1.25,
   },
+  ivane: {
+    id: 'ivane',
+    name: 'Sister Ivane',
+    trait: 'Restores 1 Kit to the party on entering each floor.',
+    minTier: 3,
+    appearChance: 0.22,
+    statMult: 1.1,
+  },
+  twins: {
+    id: 'twins',
+    name: 'The Quiet Twins',
+    trait: 'Split the party down two paths — your monsters hit at reduced density.',
+    minTier: 3,
+    appearChance: 0.18,
+    statMult: 1.1,
+  },
+  vess: {
+    id: 'vess',
+    name: 'Marrow-Knight Vess',
+    trait: 'Immune to Resolve damage. Terror does nothing.',
+    minTier: 4,
+    appearChance: 0.22,
+    statMult: 1.2,
+  },
+  sable: {
+    id: 'sable',
+    name: 'Coin-Cutter Sable',
+    trait: 'Pays half price at amenities, and lifts gold from every Landing.',
+    minTier: 4,
+    appearChance: 0.22,
+    statMult: 1.1,
+  },
+  oros: {
+    id: 'oros',
+    name: 'Guildmaster Oros',
+    trait: 'The party leaves on his order alone — never triggers the Descent Decision.',
+    // Late-tier only, by design. The prototype caps at Tier 4
+    // (MAX_TIER_PROTOTYPE), so Oros is implemented but unreachable until the
+    // tier cap lifts — he is here so the roster is complete, not as content.
+    minTier: 7,
+    appearChance: 0.3,
+    statMult: 1.4,
+  },
+};
+
+// ─── Learned traits (§9.3) ───────────────────────────────────────────────────
+
+export interface LearnedDef {
+  id: string;
+  name: string;
+  /** What it does, for the narrator and the UI. */
+  blurb: string;
+  /** The build it exists to punish. */
+  counters: string;
+}
+
+/**
+ * What an adventurer takes home from a delve they barely walked out of.
+ *
+ * The mapping from grudge → trait is *deterministic*, and that is the design.
+ * A random second trait would be a stat spike wearing a story; a trait chosen
+ * by what your dungeon did to them means the counter-play is something the
+ * player built themselves. Drain them and they come back stocked. Crush them
+ * with an Ogre and they come back armoured. Break their nerve and they come
+ * back braver. The dungeon teaches its own opposition.
+ */
+export const LEARNED: Record<string, LearnedDef> = {
+  provisioned: {
+    id: 'provisioned', name: 'Provisioned',
+    blurb: 'Carries a deeper pack — adds Kit to the party.',
+    counters: 'Kit drain (Wardens, Rust Ooze)',
+  },
+  armored: {
+    id: 'armored', name: 'Plated',
+    blurb: 'Wears heavier plate — flat damage reduction.',
+    counters: 'Bruiser burst (Ogre, Skeleton)',
+  },
+  hale: {
+    id: 'hale', name: 'Hale',
+    blurb: 'Came back thicker — more max HP.',
+    counters: 'Swarms and chip damage',
+  },
+  steeled: {
+    id: 'steeled', name: 'Steeled',
+    blurb: 'Has seen worse — more Resolve, and loses it half as fast.',
+    counters: 'Terror and morale builds',
+  },
+  haggler: {
+    id: 'haggler', name: 'Haggler',
+    blurb: 'Knows what your prices should be — pays less at every amenity.',
+    counters: 'Commerce builds',
+  },
+};
+
+/** Grudge → the trait it teaches. The player's dungeon picks this, not the RNG. */
+export const GRUDGE_TRAIT: Record<string, string> = {
+  supplies: 'provisioned',
+  muscle: 'armored',
+  swarm: 'hale',
+  nerve: 'steeled',
+  coin: 'haggler',
+};
+
+/** Human-readable "why they came back" — the narrator wants this text. */
+export const GRUDGE_BLURB: Record<string, string> = {
+  supplies: 'left your dungeon with an empty pack',
+  muscle: 'was nearly broken in half down there',
+  swarm: 'was bled dry a scratch at a time',
+  nerve: 'ran, and remembers running',
+  coin: 'paid your prices once too often',
 };
 
 // ─── Flavor name pools ───────────────────────────────────────────────────────

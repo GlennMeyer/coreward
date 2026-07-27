@@ -162,6 +162,36 @@ h2 { font-size: 12px; margin: 0 0 8px; color: var(--dim); text-transform: upperc
 .warn-line { font-size: 11px; padding: 1px 0; color: var(--warn); }
 .warn-line.bad { color: var(--danger); }
 
+/* ─── The account of the raid ────────────────────────────────────────────── */
+
+/*
+ * Sits at the top of the Aftermath, above the Thrill card and the ledger.
+ * Given room to breathe on purpose: it is the only prose in the interface and
+ * the only thing here anyone would repeat out loud, so it gets a taller line
+ * height and a warmer ink than the tables it introduces.
+ */
+.tale {
+  background: #1a1922; border: 1px solid var(--line);
+  border-left: 3px solid var(--thrill);
+  border-radius: 4px; padding: 10px 12px 11px; margin: 2px 0 14px;
+}
+.tale-label {
+  color: var(--dim); font-size: 9px; text-transform: uppercase;
+  letter-spacing: .16em;
+}
+.tale-head {
+  color: var(--thrill); font-size: 13px; font-weight: 600;
+  margin: 3px 0 7px; letter-spacing: .01em;
+}
+.tale-body {
+  /* .modal p is dim and margin-heavy; the story is the one thing that isn't. */
+  margin: 0; color: var(--ink); font-size: 12px; line-height: 1.7;
+}
+/* Sentences are separate spans so the spacing between them is ours, not the
+   HTML parser's — a plain text node would collapse it to a single space. */
+.tale-body span { display: inline; }
+.tale-body span + span { margin-left: .35em; }
+
 /* ─── Legends (§15.5) ────────────────────────────────────────────────────── */
 
 .legends b { color: var(--legend); }

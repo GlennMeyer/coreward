@@ -10,13 +10,14 @@ import {
 } from '../src/sim/data';
 import {
   assignStaff, buildAmenity, buyMob, digCost, digFloor, equipGear, hireStaff,
-  livingMobs, mobsInRoom, placeMobInRoom, roomSlotsUsed, totalUpkeep,
+  livingMobs, mobsInRoom, placeMobInRoom, roomSlotsUsed, setPrice, totalUpkeep,
 } from '../src/sim/dungeon';
 import type { Rng } from '../src/sim/rng';
-import type { AmenityId, Mob, SeasonState } from '../src/sim/types';
+import type { AmenityId, Mob, PriceTier, SeasonState } from '../src/sim/types';
 
 export type StrategyName =
-  | 'combat' | 'commerce' | 'balanced' | 'swarm' | 'wardens' | 'showman';
+  | 'combat' | 'commerce' | 'balanced' | 'swarm' | 'wardens' | 'showman'
+  | 'patron';
 
 export interface Strategy {
   name: StrategyName;
@@ -36,6 +37,13 @@ export interface Strategy {
    * amenities for `comfort`.
    */
   showmanship?: boolean;
+  /** Price tier to set on every amenity built. Defaults to whatever `buildAmenity` picks. */
+  priceTier?: PriceTier;
+  /**
+   * Open an amenity on every landing rather than stopping at the first one the
+   * budget allows, and keep buying shops before monsters.
+   */
+  shopEverywhere?: boolean;
 }
 
 export const STRATEGY_LIST: Record<StrategyName, Strategy> = {
@@ -63,6 +71,34 @@ export const STRATEGY_LIST: Record<StrategyName, Strategy> = {
     // roles (the prototype bestiary has no more), so the fourth, fifth and
     // sixth entries added no Thrill and cost the mana that peril is made of.
     buyOrder: ['ogre', 'ooze', 'rat'],
+  },
+  /**
+   * Play for Patrons (§9.4) — the build the track is actually written for.
+   *
+   * It exists because measuring the Patron threshold against the other
+   * strategies would have been measuring an artifact. §11 Q8 and §15.7.6 both
+   * record that the scripted commerce AI is weak and under-shops: it opens
+   * ~1.8 amenities a raid and only 16% of survivors buy anything, which
+   * produces ~1.6 heavy-spend events per season across the whole roster.
+   * No threshold can concentrate three of those on one face, so tuning
+   * `patronSpends` down to compensate would have been tuning to the AI's
+   * weakness rather than to the design.
+   *
+   * So: shops on every landing at `modest` prices (0.9 usage against
+   * standard's 0.65) — and, counter-intuitively, *strong* monsters.
+   *
+   * Measured: a soft dungeon sells nothing. A gentle warden build opened 2.2
+   * amenities a raid and got 2.3% of survivors to buy, against the ordinary
+   * commerce build's 16.3%, because the Hot Spring only sells to someone under
+   * 85% HP and the Provisioner only sells to someone whose pack is empty.
+   * **Nobody shops until the dungeon has hurt them.** Which is §7.5's line —
+   * sell on the upper landings, drain in the middle — arrived at from the
+   * other direction, and the same thing §15 says about Thrill: peril is what
+   * the whole economy is downstream of.
+   */
+  patron: {
+    name: 'patron', commerceShare: 0.4, tauntRate: 0.1,
+    priceTier: 'modest', shopEverywhere: true,
   },
 };
 
@@ -139,7 +175,11 @@ export function buildPhaseFor(s: SeasonState, strat: Strategy, rng: Rng): void {
     let spent = 0;
     for (let l = 0; l < d.landings.length; l++) {
       const landing = d.landings[l]!;
-      if (landing.amenities.some((a) => a !== null)) continue;
+      // A patron build fills both slots on a landing; everyone else stops at one.
+      const full = strat.shopEverywhere
+        ? landing.amenities.every((a) => a !== null)
+        : landing.amenities.some((a) => a !== null);
+      if (full) continue;
       // Hot Spring shallow, Provisioner deep — not the other way round.
       //
       // The Provisioner only sells when the party is short of Kit
@@ -149,18 +189,26 @@ export function buildPhaseFor(s: SeasonState, strat: Strategy, rng: Rng): void {
       // and returning zero gold and zero `comfort` all season. The Hot Spring
       // wants `hp < 85%`, which is true of everyone who has just fought a
       // floor, so it is the amenity that pays on the way in.
-      const pick: AmenityId = l === 0 ? 'hotspring' : 'provisioner';
+      const slot = landing.amenities.findIndex((a) => a === null);
+      if (slot < 0) continue;
+      // Hot Spring first on every landing: it is the one that sells on the way
+      // in. A second slot takes the Provisioner, which only pays once the
+      // party's pack is empty.
+      const pick: AmenityId = (l === 0 || strat.shopEverywhere) && slot === 0
+        ? 'hotspring'
+        : 'provisioner';
       const def = AMENITIES[pick];
       if (spent + def.buildCost + MOBS['rat']!.cost > budget) break;
-      if (buildAmenity(d, l, 0, pick) !== null) continue;
+      if (buildAmenity(d, l, slot, pick) !== null) continue;
       spent += def.buildCost;
       s.mana -= def.buildCost;
+      if (strat.priceTier) setPrice(d, l, slot, strat.priceTier);
 
       const staff = buyMob(d, 'rat');
       if (typeof staff !== 'string') {
         s.mana -= MOBS['rat']!.cost;
         spent += MOBS['rat']!.cost;
-        assignStaff(d, staff.uid, l, 0);
+        assignStaff(d, staff.uid, l, slot);
       }
     }
   }

@@ -150,7 +150,47 @@ export interface Adventurer {
   lowestHpPct: number;
   /** Links back to a persistent Veteran record, if this is a returning face. */
   veteranId: number | null;
+
+  // ── The Nemesis / Patron tracks (§9.3, §9.4) ──
+  /**
+   * Rank they walked in at. 0 for a first-timer; +1 per previous escape.
+   * Higher rank is higher stats — this is the "+1 Rank" of §9.3.
+   */
+  rank: number;
+  /** Learned traits carried in from previous delves (§9.3). Ids into LEARNED. */
+  traits: string[];
+  /** True if they were already a Nemesis / Patron when they arrived. */
+  isNemesis: boolean;
+  isPatron: boolean;
+  /**
+   * Deepest floor index a Patron will enter. Null means no limit — Patrons are
+   * cautious and refuse to descend past the floor they nearly died on (§9.4).
+   */
+  cautiousFloor: number | null;
+  /** Gold they arrived with, before any shopping. Drives the Patron track. */
+  startGold: number;
+  /** Gold handed over at your amenities this delve (§9.4). */
+  goldSpentHere: number;
+  /** Damage taken this delve, by the role of the monster that dealt it. */
+  hurtByRole: Partial<Record<MobRole, number>>;
+  /** Resolve lost this delve, from Terror mobs and from watching allies die. */
+  resolveLost: number;
+  /** Floor index where their HP low-water mark was set. Feeds `cautiousFloor`. */
+  nearDeathFloor: number | null;
+  /**
+   * What this delve taught them, decided at raid end. Null means they learned
+   * nothing — they were never really in trouble.
+   */
+  grudge: GrudgeReason | null;
 }
+
+/**
+ * Why a returning adventurer is coming back different (§9.3).
+ *
+ * The adventurer adapts to *your* dungeon, so the signal has to be what your
+ * dungeon actually did to them — not a random roll.
+ */
+export type GrudgeReason = 'supplies' | 'nerve' | 'muscle' | 'swarm' | 'coin';
 
 /**
  * A persistent adventurer across raids (§15.5). Retirement needs an identity
@@ -165,6 +205,38 @@ export interface Veteran {
   /** Best thrill they have experienced here. */
   bestThrill: number;
   retired: boolean;
+
+  // ── The two tracks (§9.3, §9.4) ──
+  //
+  // Optional, and only for compatibility: a Veteran is a plain record that
+  // tests and tools build by hand, and making eight fields mandatory would
+  // break every existing literal. Build them with `makeVeteran()` and they are
+  // always present. Read them through `isNemesis` / `isPatron` /
+  // `veteranRank` / `canReturn`, which all treat "missing" as "zero".
+  /**
+   * Named adventurer id if this face is one of §9.2's, else null. Kept on the
+   * roster so a named adventurer who escapes comes back as *himself*, trait and
+   * all, rather than as an anonymous returnee wearing his name.
+   */
+  namedId?: string | null;
+  /** Killed here. The dead do not come back — the sim skips them in the pool. */
+  dead?: boolean;
+  /** Times they have walked out alive. Three makes a Nemesis (§9.3). */
+  escapes?: number;
+  /**
+   * Delves on which they spent heavily and survived. Three makes a Patron
+   * (§9.4). Independent of `escapes` — a single adventurer can be climbing
+   * both ladders at once, which is the tension the game is built around.
+   */
+  bigSpends?: number;
+  /** Total gold they have handed over across every visit. */
+  goldSpent?: number;
+  /** Learned traits (§9.3), ids into LEARNED. Capped at `maxLearnedTraits`. */
+  traits?: string[];
+  /** What the last delve taught them — the reason behind the newest trait. */
+  lastGrudge?: GrudgeReason | null;
+  /** Deepest floor they will enter once they are a Patron (§9.4). */
+  cautiousFloor?: number | null;
 }
 
 /** A retired adventurer. Permanent passive Renown, never returns (§15.5). */
@@ -190,6 +262,44 @@ export interface Party {
   kit: number;
   maxKit: number;
   tier: number;
+  /** Kit stripped by Wardens this delve. Feeds the 'supplies' grudge (§9.3). */
+  kitStripped: number;
+}
+
+/**
+ * One recurring face's story from a single raid — the narrator's raw material.
+ *
+ * Everything here is plain readable data: no ids to resolve, no lookups into
+ * SeasonState required. `src/sim/narrate.ts` can turn a `RivalNote` into a
+ * sentence without touching the roster.
+ */
+export interface RivalNote {
+  /** Roster id, or null if this is their first visit and they died on it. */
+  veteranId: number | null;
+  /** Their `Adventurer.id` this raid — the same id the RaidEvent stream uses. */
+  advId: number;
+  name: string;
+  /** Named adventurer id (§9.2), else null. */
+  namedId: string | null;
+  /** Rank they arrived at: 0 = first-timer, +1 per previous escape (§9.3). */
+  rank: number;
+  /** Traits they walked in carrying (ids into LEARNED). */
+  traits: string[];
+  /** True if they arrived as a Nemesis / Patron. */
+  wasNemesis: boolean;
+  wasPatron: boolean;
+  /** True if *this* raid was the one that made them one. The narrator's beat. */
+  becameNemesis: boolean;
+  becamePatron: boolean;
+  survived: boolean;
+  /** Gold they spent at your amenities this delve. */
+  goldSpent: number;
+  /** What this delve taught them, and the trait it will buy them next time. */
+  grudge: GrudgeReason | null;
+  learned: string | null;
+  /** Escapes and big spends after this raid is folded in. */
+  escapes: number;
+  bigSpends: number;
 }
 
 // ─── Raid events ─────────────────────────────────────────────────────────────
@@ -232,7 +342,12 @@ export type RaidEvent =
   | { t: number; type: 'core-breach'; heartsLeft: number }
   | { t: number; type: 'raid-end'; outcome: RaidOutcome };
 
-export type RetreatReason = 'hp' | 'kit' | 'resolve' | 'wiped';
+/**
+ * 'patron' is a Patron calling the delve off at their personal floor limit
+ * (§9.4) — they are neither hurt nor out of supplies, they simply will not go
+ * deeper than the floor that nearly killed them.
+ */
+export type RetreatReason = 'hp' | 'kit' | 'resolve' | 'wiped' | 'patron';
 
 /**
  * 'wiped'     — every adventurer killed. Max Souls, halved Renown (§4.4).
@@ -255,6 +370,12 @@ export interface RaidResult {
   thrill: ThrillScore;
   /** Adventurers who retired after this delve (§15.5). */
   retired: Legend[];
+  /**
+   * Recurring faces in this raid and what happened to them (§9.3, §9.4).
+   * Only adventurers with a persistent identity appear here — a generic
+   * first-timer who dies leaves no note.
+   */
+  rivals: RivalNote[];
   /** Downed during the raid — most of these get back up. */
   mobsDowned: { uid: number; defId: string; level: number }[];
   /** Permanently slain. A subset of `mobsDowned`. */

@@ -17,6 +17,7 @@ import {
   mobEffectiveHp, placeMobInRoom, roomSlotsUsed, setPrice, totalUpkeep,
 } from '../sim/dungeon';
 import { applyAftermath, createSeason, currentTier, startRaid } from '../sim/season';
+import { narrateRaid, type Narration } from '../sim/narrate';
 import { forecast, predictThrill, thrillRating, type ThrillPrediction } from './predict';
 import type { RaidSim } from '../sim/raid';
 import type {
@@ -44,8 +45,16 @@ interface App {
   sim: RaidSim | null;
   speedIdx: number;
   log: LogLine[];
+  /**
+   * The raw event stream for the raid in progress, kept alongside the prettied
+   * log lines. The narrator (§13.2) reads events, not strings — the log throws
+   * away exactly the structure it needs.
+   */
+  events: RaidEvent[];
   selectedMob: number | null;
   aftermath: AftermathType | null;
+  /** The account of the last raid, rendered above the ledger. */
+  narration: Narration | null;
   error: string;
 }
 
@@ -55,8 +64,10 @@ const app: App = {
   sim: null,
   speedIdx: 1,
   log: [],
+  events: [],
   selectedMob: null,
   aftermath: null,
+  narration: null,
   error: '',
 };
 
@@ -155,6 +166,10 @@ render();
 }
 
 function pushLog(e: RaidEvent): void {
+  // Every drain path in this file funnels through here, so this is the one
+  // place the whole stream is guaranteed to pass. The log is trimmed for the
+  // scrollback; `events` is not, because the narrator needs the whole delve.
+  app.events.push(e);
   const line = describe(e);
   if (line) app.log.push({ t: e.t, ...line });
   if (app.log.length > 400) app.log.splice(0, app.log.length - 400);
@@ -387,6 +402,8 @@ function beginRaid(): void {
   app.sim = startRaid(app.season);
   app.phase = 'raid';
   app.log = [];
+  app.events = [];
+  app.narration = null;
   app.selectedMob = null;
   app.error = '';
   for (const e of app.sim.step()) pushLog(e);
@@ -457,7 +474,19 @@ function finishRaid(): void {
   const sim = app.sim;
   if (!sim || sim.status !== 'complete') return;
   stopTimer();
+  const raidNumber = app.season.raidNumber;
   app.aftermath = applyAftermath(app.season, sim);
+  // Narrated *after* the Aftermath so retirements, Legends and the veterans'
+  // delve counts are already folded in — "her fifth descent" needs the count
+  // that includes the descent we are describing.
+  app.narration = narrateRaid({
+    events: app.events,
+    result: app.aftermath.result,
+    party: sim.party,
+    dungeon: app.season.dungeon,
+    veterans: app.season.veterans,
+    raidNumber,
+  });
   app.phase = app.season.over ? 'over' : 'aftermath';
   // ─── Hot module replacement ──────────────────────────────────────────────────
 
@@ -525,6 +554,7 @@ function nextRaid(): void {
   app.phase = 'build';
   app.sim = null;
   app.aftermath = null;
+  app.narration = null;
   // ─── Hot module replacement ──────────────────────────────────────────────────
 
 /**
@@ -591,8 +621,8 @@ function restart(): void {
   stopTimer();
   Object.assign(app, {
     season: createSeason(Math.floor(Math.random() * 100000)),
-    phase: 'build', sim: null, speedIdx: 1, log: [],
-    selectedMob: null, aftermath: null, error: '',
+    phase: 'build', sim: null, speedIdx: 1, log: [], events: [],
+    selectedMob: null, aftermath: null, narration: null, error: '',
   });
   // ─── Hot module replacement ──────────────────────────────────────────────────
 
@@ -1484,6 +1514,9 @@ function aftermathModal(a: AftermathType): HTMLElement {
   const m = el('<div class="modal wide"></div>');
   m.append(el('<h3>Aftermath</h3>'));
 
+  // The story leads. Everything below it is the receipt.
+  if (app.narration) m.append(narrationBlock(app.narration));
+
   const survivors = r.escaped;
   m.append(thrillCard(r.thrill, {
     caption: survivors
@@ -1522,6 +1555,25 @@ function aftermathModal(a: AftermathType): HTMLElement {
   m.append(row);
   bg.append(m);
   return bg;
+}
+
+/**
+ * The account of the raid — theatre of the mind, above the ledger.
+ *
+ * This is deliberately the first thing in the Aftermath and the only prose in
+ * it. The Thrill card and the table explain *what the numbers were*; this
+ * explains what happened, which is the part worth building another floor for.
+ */
+function narrationBlock(n: Narration): HTMLElement {
+  const box = el('<div class="tale"></div>');
+  box.append(el('<div class="tale-label">Word from the stair</div>'));
+  box.append(el(`<div class="tale-head">${esc(n.headline)}</div>`));
+  const body = el('<p class="tale-body"></p>');
+  // One sentence per <span> so the CSS can breathe between them without the
+  // browser collapsing the gap the way it would with plain text nodes.
+  for (const s of n.sentences) body.append(el(`<span>${esc(s)}</span>`));
+  box.append(body);
+  return box;
 }
 
 /** Retirement is a celebration, not a line item (§15.5). */

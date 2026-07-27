@@ -42,6 +42,23 @@ export interface SeasonOutcome {
   /** Adventurers who retired over the season, and the Legends wall at the end (§15.5). */
   retirements: number;
   legends: number;
+
+  // ── Recurring characters (§9.3, §9.4) ──
+  /** Roster members who reached each threshold at any point in the season. */
+  nemeses: number;
+  patrons: number;
+  /**
+   * §9.4's last paragraph: the same face on BOTH tracks — more profitable and
+   * more dangerous at once. If this column is 0 the design's central knot is
+   * not actually being tied, whatever the code says.
+   */
+  dualTrack: number;
+  /** Highest Rank any adventurer reached, and total traits learned. */
+  maxRank: number;
+  traitsLearned: number;
+  /** Nemeses and Patrons killed — the payout side of both tracks. */
+  nemesesKilled: number;
+  patronsKilled: number;
 }
 
 export function runSeason(seed: number, strat: Strategy): SeasonOutcome {
@@ -51,6 +68,7 @@ export function runSeason(seed: number, strat: Strategy): SeasonOutcome {
   let killed = 0, escaped = 0, breaches = 0, mobsLost = 0;
   let goldFromSales = 0, goldFromCorpses = 0;
   let retirements = 0;
+  let nemesesKilled = 0, patronsKilled = 0;
   // Thrill is already a per-raid mean over survivors, so the season figure is
   // a mean of means — raids weigh equally regardless of party size.
   const thrill = { total: 0, peril: 0, depth: 0, variety: 0, comfort: 0, tedium: 0 };
@@ -73,6 +91,10 @@ export function runSeason(seed: number, strat: Strategy): SeasonOutcome {
     goldFromSales += r.goldFromSales;
     goldFromCorpses += r.goldFromCorpses;
     retirements += r.retired.length;
+    for (const rival of r.rivals) {
+      if (!rival.survived && rival.wasNemesis) nemesesKilled++;
+      if (!rival.survived && rival.wasPatron) patronsKilled++;
+    }
     thrill.total += r.thrill.total;
     thrill.peril += r.thrill.peril;
     thrill.depth += r.thrill.depth;
@@ -112,6 +134,18 @@ export function runSeason(seed: number, strat: Strategy): SeasonOutcome {
     tedium: thrill.tedium / raids,
     retirements,
     legends: s.legends.length,
+    // Counted off the end-of-season roster, so the dead are included: a Nemesis
+    // you killed still happened.
+    nemeses: s.veterans.filter((v) => (v.escapes ?? 0) >= TUNING.nemesisEscapes).length,
+    patrons: s.veterans.filter((v) => (v.bigSpends ?? 0) >= TUNING.patronSpends).length,
+    dualTrack: s.veterans.filter(
+      (v) => (v.escapes ?? 0) >= TUNING.nemesisEscapes
+        && (v.bigSpends ?? 0) >= TUNING.patronSpends,
+    ).length,
+    maxRank: s.veterans.reduce((m, v) => Math.max(m, v.escapes ?? 0), 0),
+    traitsLearned: s.veterans.reduce((m, v) => m + (v.traits?.length ?? 0), 0),
+    nemesesKilled,
+    patronsKilled,
   };
 }
 
@@ -141,6 +175,13 @@ interface Agg {
   avgTedium: number;
   avgRetirements: number;
   avgLegends: number;
+  avgNemeses: number;
+  avgPatrons: number;
+  avgDualTrack: number;
+  avgMaxRank: number;
+  avgTraits: number;
+  avgNemesesKilled: number;
+  avgPatronsKilled: number;
 }
 
 function aggregate(runs: SeasonOutcome[]): Agg {
@@ -171,6 +212,13 @@ function aggregate(runs: SeasonOutcome[]): Agg {
     avgTedium: mean((r) => r.tedium),
     avgRetirements: mean((r) => r.retirements),
     avgLegends: mean((r) => r.legends),
+    avgNemeses: mean((r) => r.nemeses),
+    avgPatrons: mean((r) => r.patrons),
+    avgDualTrack: mean((r) => r.dualTrack),
+    avgMaxRank: mean((r) => r.maxRank),
+    avgTraits: mean((r) => r.traitsLearned),
+    avgNemesesKilled: mean((r) => r.nemesesKilled),
+    avgPatronsKilled: mean((r) => r.patronsKilled),
     wipeShare: (() => {
       const k = mean((r) => r.killed);
       const e = mean((r) => r.escaped);
@@ -250,6 +298,44 @@ function strategyReport(n: number): void {
       a.avgRenown.toFixed(0).padStart(8), f2(a.avgRetirements).padStart(9),
       f2(a.avgLegends).padStart(8),
     ].join(''));
+  }
+
+  rivalryReport(aggs);
+}
+
+/**
+ * The Nemesis and Patron tracks (§9.3, §9.4) — does the hook actually fire?
+ *
+ * A recurring character the player never meets twice is a data structure, not
+ * a character. These columns are the difference between "implemented" and
+ * "happens": how many faces cross each threshold in an 8-raid season, how hard
+ * they come back (rank, traits), and — the column that matters most — how
+ * often ONE adventurer is on both ladders at once. §9.4's last paragraph calls
+ * that the decision the whole game is built around, so if `both` is zero the
+ * feature is not doing its job however green the tests are.
+ */
+function rivalryReport(aggs: readonly (readonly [Strategy, Agg])[]): void {
+  console.log(`\n─── Nemesis & Patron tracks (per season) ───\n`);
+  header([
+    'strategy'.padEnd(11), 'nemeses'.padStart(9), 'patrons'.padStart(9),
+    'both'.padStart(7), 'maxRank'.padStart(9), 'traits'.padStart(8),
+    'nemKill'.padStart(9), 'patKill'.padStart(9),
+  ]);
+  for (const [strat, a] of aggs) {
+    console.log([
+      strat.name.padEnd(11), f2(a.avgNemeses).padStart(9), f2(a.avgPatrons).padStart(9),
+      f2(a.avgDualTrack).padStart(7), f2(a.avgMaxRank).padStart(9),
+      f1(a.avgTraits).padStart(8), f2(a.avgNemesesKilled).padStart(9),
+      f2(a.avgPatronsKilled).padStart(9),
+    ].join(''));
+  }
+
+  const both = aggs.reduce((m, [, a]) => Math.max(m, a.avgDualTrack), 0);
+  if (both <= 0) {
+    console.log(
+      '\nFAIL: no adventurer was ever on both tracks at once. §9.4\'s central '
+      + 'case is excluded — check patronSpendFraction and recurringReturnChance.',
+    );
   }
 }
 
@@ -354,6 +440,7 @@ function sweep<K extends keyof Tuning>(
     'renown'.padStart(8), 'thrill'.padStart(8), 'killed'.padStart(8),
     'escaped'.padStart(8), 'breach'.padStart(8), 'gold'.padStart(7),
     'sales%'.padStart(8), 'mobLv'.padStart(7), 'retire/s'.padStart(9),
+    'nem/s'.padStart(7), 'pat/s'.padStart(7),
   ]);
   for (const v of values) {
     const a = withTuning({ ...base, [key]: v } as Partial<Tuning>, () =>
@@ -365,6 +452,7 @@ function sweep<K extends keyof Tuning>(
       f1(a.avgEscaped).padStart(8), f1(a.avgBreaches).padStart(8),
       a.avgGold.toFixed(0).padStart(7), pct(a.salesShare).padStart(8),
       f1(a.avgMaxMobLevel).padStart(7), f2(a.avgRetirements).padStart(9),
+      f2(a.avgNemeses).padStart(7), f2(a.avgPatrons).padStart(7),
     ].join(''));
   }
 }
@@ -409,6 +497,17 @@ function main(): void {
     // Run with retireThrill at 40, because at the shipped 75 nothing retires in
     // an 8-raid season and the sweep would measure a branch that never runs.
     sweep('veteranReturnChance', [0, 0.2, 0.35, 0.5, 0.8], n, 'wardens', { retireThrill: 40 });
+    // ── Recurring characters (§9.3, §9.4) ──
+    // The Nemesis counter. Swept against wardens because wardens manufactures
+    // escapees, so it is the build that breeds the most opposition — which is
+    // the point: the §15.1 "let everybody live" optimum arms its own enemies.
+    sweep('nemesisEscapes', [2, 3, 4, 5], n, 'wardens');
+    sweep('nemesisStatPerRank', [0, 0.08, 0.12, 0.2, 0.3], n, 'wardens');
+    // The Patron counter, swept against commerce — the only scripted build that
+    // opens enough shops for the track to have any chance of firing at all.
+    sweep('patronSpends', [1, 2, 3], n, 'commerce');
+    sweep('patronSpendFraction', [0.1, 0.25, 0.4, 0.6], n, 'commerce');
+    sweep('patronGoldMult', [1, 2, 3, 4], n, 'commerce');
     // Swept against wardens: a drain build parks cheap mobs and leaves gaps,
     // so it is the strategy the empty-room penalty is aimed at (§15.4).
     sweep('tediumPerEmptyRoom', [0, 2, 4, 8, 16], n, 'wardens');

@@ -9,11 +9,11 @@
 import {
   AMENITIES, COMMERCE_REVENUE_PER_LEVEL, COMMERCE_XP_PER_SALE,
   DESCEND_HP_THRESHOLD, DESCEND_KIT_PER_MEMBER, DESCEND_RESOLVE_THRESHOLD,
-  HOTSPRING_HEAL_PCT, LEY_CHARGES, MANA_PER_KILL, MOBS, PRICE_TIERS,
-  PROVISIONER_MAX_KIT, RENOWN_PER_ESCAPEE, RENOWN_PER_GOLD, RENOWN_PER_KILL,
-  RENOWN_WIPE_MULT, REST_RESOLVE_PCT, RESOLVE_ON_ALLY_DEATH, SOULS_PER_KILL,
-  SOULS_PER_NAMED, TUNING, XP_PER_HIT, XP_PER_KILL, CLASS_MODS, mobMaxHp,
-  soulsTierMult, type TierRow,
+  GRUDGE_TRAIT, HOTSPRING_HEAL_PCT, LEY_CHARGES, MANA_PER_KILL, MOBS,
+  PRICE_TIERS, PROVISIONER_MAX_KIT, RENOWN_PER_ESCAPEE, RENOWN_PER_GOLD,
+  RENOWN_PER_KILL, RENOWN_WIPE_MULT, REST_RESOLVE_PCT, RESOLVE_ON_ALLY_DEATH,
+  SOULS_PER_KILL, SOULS_PER_NAMED, TUNING, XP_PER_HIT, XP_PER_KILL, CLASS_MODS,
+  mobMaxHp, soulsTierMult, type TierRow,
 } from './data';
 import {
   downMob, getMob, grantCommerceXp, grantXp, isOpen, mobEffectiveDmg,
@@ -24,8 +24,8 @@ import {
   aliveMembers, avgHpPct, avgResolvePct, generateParty, partyHasNamed,
 } from './adventurers';
 import type {
-  Adventurer, Dungeon, Legend, Mob, MobRole, Party, RaidEvent, RaidOutcome,
-  RaidResult, RetreatReason, ThrillScore, Veteran,
+  Adventurer, Dungeon, GrudgeReason, Legend, Mob, MobRole, Party, RaidEvent,
+  RaidOutcome, RaidResult, RetreatReason, RivalNote, ThrillScore, Veteran,
 } from './types';
 
 export type RaidStatus = 'running' | 'awaiting-taunt' | 'complete';
@@ -123,6 +123,8 @@ export class RaidSim {
   private thrillScore: ThrillScore = ZERO_THRILL;
   private retiredThisRaid: Legend[] = [];
   private perAdvThrill = new Map<number, number>();
+  /** Recurring faces and what this delve did to them (§9.3, §9.4). */
+  private rivalNotes: RivalNote[] = [];
 
   private readonly veterans: Veteran[];
 
@@ -335,6 +337,38 @@ export class RaidSim {
     }
   }
 
+  // ─── Trait effects (§9.2 named, §9.3 learned) ──────────────────────────────
+
+  /**
+   * Resolve damage, filtered through the traits that exist to stop it (§9.2).
+   * Returns the amount actually taken, so the caller can decide whether it is
+   * worth an event.
+   */
+  private applyResolveDamage(adv: Adventurer, amount: number): number {
+    // Marrow-Knight Vess: immune to Resolve damage. Terror builds do nothing
+    // to him at all — that is the entire point of him.
+    if (adv.namedId === 'vess') return 0;
+    // 'Steeled': they have run from this dungeon before and are not doing it
+    // again quite so fast (§9.3).
+    let taken = amount;
+    if (adv.traits.includes('steeled')) taken = amount * (1 - TUNING.learnedResolveResist);
+    taken = Math.min(adv.resolve, Math.max(0, Math.round(taken)));
+    if (taken <= 0) return 0;
+    adv.resolve -= taken;
+    adv.resolveLost += taken;
+    return taken;
+  }
+
+  /**
+   * The Quiet Twins split the party down two paths, so only half your monsters
+   * are ever in the room they are in (§9.2). No pathing exists in the
+   * prototype, so the density loss lands on the damage instead — same counter,
+   * same target: the single heavily stacked choke room.
+   */
+  private densityMult(): number {
+    return partyHasNamed(this.party, 'twins') ? TUNING.twinsDensityMult : 1;
+  }
+
   private mobAct(mob: Mob): void {
     const alive = aliveMembers(this.party);
     if (alive.length === 0) return;
@@ -345,24 +379,33 @@ export class RaidSim {
     // Pack Tactics scales with how many allies are still standing, so a swarm
     // hits hardest before it gets thinned out.
     const allies = mobsInRoom(this.d, this.floor, this.room).length;
-    const raw = mobEffectiveDmg(mob) * packMultiplier(mob, allies);
+    const raw = mobEffectiveDmg(mob) * packMultiplier(mob, allies) * this.densityMult();
 
     if (role === 'terror') {
-      const amount = Math.max(1, Math.round(raw));
-      target.resolve = Math.max(0, target.resolve - amount);
-      this.emit({
-        t: this.tick, type: 'resolve-hit', advId: target.id,
-        amount, resolveLeft: target.resolve,
-      });
+      const amount = this.applyResolveDamage(target, Math.max(1, Math.round(raw)));
+      if (amount > 0) {
+        this.emit({
+          t: this.tick, type: 'resolve-hit', advId: target.id,
+          amount, resolveLeft: target.resolve,
+        });
+      }
       grantXp(mob, XP_PER_HIT);
       return;
     }
 
     const dmg = Math.max(1, Math.round(raw - target.armor));
     target.hp = Math.max(0, target.hp - dmg);
+    // Who is doing the hurting, so a returning adventurer can adapt to *this*
+    // dungeon rather than to dungeons in general (§9.3).
+    target.hurtByRole[role] = (target.hurtByRole[role] ?? 0) + dmg;
     // The low-water mark is the whole of `peril` (§15.3): what matters is how
     // close they came, not what they limped out on.
-    target.lowestHpPct = Math.min(target.lowestHpPct, target.hp / target.maxHp);
+    const pct = target.hp / target.maxHp;
+    if (pct < target.lowestHpPct) {
+      target.lowestHpPct = pct;
+      // The floor a Patron will not go past next time (§9.4).
+      if (pct <= TUNING.patronCautionHpPct) target.nearDeathFloor = this.floor;
+    }
     this.emit({
       t: this.tick, type: 'attack', source: 'mob',
       uid: mob.uid, targetId: target.id, dmg,
@@ -370,6 +413,7 @@ export class RaidSim {
 
     if (mobStripsKit(mob) && this.party.kit > 0) {
       this.party.kit -= 1;
+      this.party.kitStripped++;
       this.emit({ t: this.tick, type: 'kit-strip', uid: mob.uid, amount: 1, kitLeft: this.party.kit });
     }
 
@@ -454,7 +498,7 @@ export class RaidSim {
     // Morale shock to the survivors — this is what makes Resolve matter even
     // without a Terror mob in the roster.
     for (const other of aliveMembers(this.party)) {
-      other.resolve = Math.max(0, other.resolve - RESOLVE_ON_ALLY_DEATH);
+      this.applyResolveDamage(other, RESOLVE_ON_ALLY_DEATH);
     }
     this.advAtb.delete(adv.id);
   }
@@ -496,6 +540,7 @@ export class RaidSim {
 
     this.doRest();
     this.doShopping(landingIdx);
+    this.doTheft(landingIdx);
 
     const reason = this.descentDecision();
     if (reason === null) {
@@ -559,15 +604,15 @@ export class RaidSim {
       const def = AMENITIES[a.defId];
       const pricing = PRICE_TIERS[a.price];
       const commerceMult = 1 + COMMERCE_REVENUE_PER_LEVEL * ((staff?.commerceLevel ?? 1) - 1);
-      const price = Math.round(def.basePrice * pricing.mult * commerceMult);
+      const list = def.basePrice * pricing.mult * commerceMult;
 
       for (const adv of aliveMembers(this.party)) {
+        const price = this.priceFor(adv, list);
         if (a.defId === 'hotspring') {
           const wants = adv.hp / adv.maxHp < 0.85;
           if (!wants || adv.gold < price) continue;
           if (!this.rng.chance(pricing.usage + adv.greed)) continue;
-          adv.gold -= price;
-          this.goldFromSales += price;
+          this.takePayment(adv, price);
           const heal = Math.round(adv.maxHp * HOTSPRING_HEAL_PCT);
           adv.hp = Math.min(adv.maxHp, adv.hp + heal);
           this.amenitiesUsed.add(key);
@@ -581,13 +626,52 @@ export class RaidSim {
           const qty = Math.min(PROVISIONER_MAX_KIT, affordable);
           if (qty <= 0) continue;
           const spend = qty * price;
-          adv.gold -= spend;
-          this.goldFromSales += spend;
+          this.takePayment(adv, spend);
           this.party.kit += qty;
           this.amenitiesUsed.add(key);
           this.recordSale(staff, landingIdx, a.defId, adv, spend, `+${qty} Kit`);
         }
       }
+    }
+  }
+
+  /**
+   * What this particular adventurer pays. Two traits attack the commerce build
+   * from opposite ends: Coin-Cutter Sable was born knowing your margins (§9.2),
+   * and a Haggler learned them by overpaying here three raids running (§9.3).
+   */
+  private priceFor(adv: Adventurer, list: number): number {
+    let mult = 1;
+    if (adv.namedId === 'sable') mult *= 0.5;
+    if (adv.traits.includes('haggler')) mult *= TUNING.learnedHagglePct;
+    return Math.max(1, Math.round(list * mult));
+  }
+
+  /** One place to bank a sale, so the Patron track cannot miss a transaction. */
+  private takePayment(adv: Adventurer, amount: number): void {
+    adv.gold -= amount;
+    adv.goldSpentHere += amount;
+    this.goldFromSales += amount;
+  }
+
+  /**
+   * Coin-Cutter Sable lifts gold from the till at every Landing that has
+   * something on it (§9.2). §11 Q9 keeps shops as neutral ground for everyone
+   * else; Sable is the exception that proves the rule.
+   */
+  private doTheft(landingIdx: number): void {
+    if (!partyHasNamed(this.party, 'sable')) return;
+    const landing = this.d.landings[landingIdx];
+    if (!landing || !landing.amenities.some((a) => a && isOpen(a))) return;
+    const taken = Math.min(this.goldFromSales, TUNING.sableTheft);
+    if (taken <= 0) return;
+    this.goldFromSales -= taken;
+    const sable = aliveMembers(this.party).find((m) => m.namedId === 'sable');
+    if (sable) {
+      sable.gold += taken;
+      // Stolen back, so it does not count as money he spent here — the Patron
+      // track must not be farmable by a thief.
+      sable.goldSpentHere = Math.max(0, sable.goldSpentHere - taken);
     }
   }
 
@@ -607,6 +691,20 @@ export class RaidSim {
     const alive = aliveMembers(this.party);
     if (alive.length === 0) return 'wiped';
 
+    // §9.4: a Patron will not descend past the floor they nearly died on. This
+    // is checked first and unconditionally, because it is not a judgement about
+    // this delve — it is a standing rule they arrived with. It also caps how
+    // much of your dungeon your best customer will ever see, which is the price
+    // of the income stream.
+    const cautious = alive.find(
+      (m) => m.cautiousFloor !== null && this.floor >= m.cautiousFloor,
+    );
+    if (cautious) return 'patron';
+
+    // Guildmaster Oros: the party leaves on his order alone. No threshold in
+    // §7.3 can turn this party back — they either breach or they die (§9.2).
+    if (partyHasNamed(this.party, 'oros')) return null;
+
     const greedMod = alive.reduce((s, m) => s + m.greed, 0) / alive.length;
 
     if (avgHpPct(this.party) <= DESCEND_HP_THRESHOLD - greedMod) return 'hp';
@@ -625,6 +723,12 @@ export class RaidSim {
     this.room = 0;
     this.roomEntered = false;
     this.phase = 'room';
+    // Sister Ivane restores 1 Kit to the party on every floor she enters
+    // (§9.2). A drain dungeon can still out-strip her — it just cannot win by
+    // arithmetic alone any more.
+    if (partyHasNamed(this.party, 'ivane')) {
+      this.party.kit = Math.min(this.party.maxKit, this.party.kit + 1);
+    }
     this.emit({ t: this.tick, type: 'descend', toFloor: this.floor });
     this.emit({ t: this.tick, type: 'floor-enter', floor: this.floor });
   }
@@ -645,6 +749,8 @@ export class RaidSim {
     // Scored once, here, rather than in the `result` getter: retirement mutates
     // the veteran roster, and the getter is read repeatedly by the UI.
     this.scoreDelve();
+    this.recordGrudges(reason);
+    this.rivalNotes = this.buildRivalNotes();
     this.outcome = outcome;
     this._status = 'complete';
     this.emit({ t: this.tick, type: 'raid-end', outcome });
@@ -743,6 +849,114 @@ export class RaidSim {
     return out;
   }
 
+  // ─── The Nemesis track: what they learned (§9.3) ───────────────────────────
+
+  /**
+   * Work out what each survivor takes home from this delve.
+   *
+   * This is the whole hook, so it is worth being explicit about the design
+   * choice: **the grudge is a deterministic read of what your dungeon did to
+   * them.** It is not rolled. Drain someone's pack and they come back
+   * provisioned; put them under an Ogre and they come back plated; break their
+   * nerve and they come back steeled. The counter-play the player faces on raid
+   * six is a mirror of the dungeon they built on raid three, which means the
+   * escalation is legible, predictable, and theirs.
+   *
+   * The retreat reason comes first because it is literally "why they left".
+   * Damage is the fallback: someone can walk out of a bruiser floor at 10% HP
+   * without the party ever failing a threshold.
+   */
+  private recordGrudges(reason: RetreatReason): void {
+    for (const adv of aliveMembers(this.party)) {
+      adv.grudge = this.grudgeFor(adv, reason);
+    }
+  }
+
+  private grudgeFor(adv: Adventurer, reason: RetreatReason): GrudgeReason | null {
+    if (reason === 'resolve') return 'nerve';
+    if (reason === 'kit') return 'supplies';
+
+    // Otherwise: whatever hurt them most, but only if it genuinely hurt. A
+    // grudge you can pick up from a scratch is not a grudge (§9.3).
+    if (adv.lowestHpPct <= TUNING.grudgeHurtHpPct) {
+      let topRole: MobRole | null = null;
+      let top = 0;
+      for (const [role, dealt] of Object.entries(adv.hurtByRole)) {
+        if (dealt > top) {
+          top = dealt;
+          topRole = role as MobRole;
+        }
+      }
+      switch (topRole) {
+        case 'skirmisher':
+        case 'ambusher':
+          return 'swarm';     // bled a scratch at a time → 'hale'
+        case 'warden':
+          return 'supplies';  // the thing taking their pack was also hitting them
+        case 'terror':
+          return 'nerve';
+        case null:
+          break;
+        default:
+          return 'muscle';    // bruiser, caster, support → 'armored'
+      }
+    }
+
+    // Resolve took a beating without breaking. They noticed.
+    if (adv.resolveLost >= adv.maxResolve * 0.5) return 'nerve';
+
+    // Nothing hurt them — but they left a lot lighter than they arrived. The
+    // commerce build has its own opposition, and this is where it comes from.
+    if (adv.startGold > 0 && adv.goldSpentHere >= adv.startGold * TUNING.patronSpendFraction) {
+      return 'coin';
+    }
+
+    return null;
+  }
+
+  /**
+   * The narrator's raw material (§9.3, §9.4).
+   *
+   * Only faces with a persistent identity get a note: a returning veteran, or a
+   * named adventurer on any visit. A generic first-timer has no story yet.
+   * `becameNemesis` / `becamePatron` and the post-raid counters are stamped by
+   * season.ts, which is where the roster is actually updated.
+   */
+  private buildRivalNotes(): RivalNote[] {
+    const out: RivalNote[] = [];
+    for (const adv of this.party.members) {
+      if (adv.veteranId === null && adv.namedId === null) continue;
+      const vet = adv.veteranId !== null
+        ? this.veterans.find((v) => v.id === adv.veteranId)
+        : undefined;
+      const grudge = adv.alive ? adv.grudge : null;
+      out.push({
+        veteranId: adv.veteranId,
+        advId: adv.id,
+        name: adv.name,
+        namedId: adv.namedId,
+        rank: adv.rank,
+        traits: [...adv.traits],
+        wasNemesis: adv.isNemesis,
+        wasPatron: adv.isPatron,
+        becameNemesis: false,
+        becamePatron: false,
+        survived: adv.alive,
+        goldSpent: adv.goldSpentHere,
+        grudge,
+        // A trait they already carry teaches them nothing new — surfacing it as
+        // "learned" would have the narrator announce the same beat every raid.
+        learned: grudge && !adv.traits.includes(GRUDGE_TRAIT[grudge]!)
+          ? GRUDGE_TRAIT[grudge]!
+          : null,
+        escapes: vet?.escapes ?? 0,
+        bigSpends: vet?.bigSpends ?? 0,
+
+      });
+    }
+    return out;
+  }
+
   /**
    * Decide which downed monsters actually died. Rolled inside the sim so it
    * stays part of the deterministic event stream.
@@ -772,9 +986,29 @@ export class RaidSim {
     const escaped = aliveMembers(this.party).length;
     const namedKilled = this.party.members.filter((m) => !m.alive && m.namedId).length;
 
+    // Killing a recurring character ends something (§9.3, §9.4).
+    //
+    // SUBSTITUTION: §9.3 pays "triple Insight" for a Nemesis and §9.4 "a large
+    // one-time Soul payout" for a Patron. Insight and the Codex are out of
+    // prototype scope (§12), so the Nemesis bounty lands in Souls plus a Renown
+    // spike — the story of the kill travels. Both are read off the state the
+    // adventurer *arrived* with, so a face who became a Nemesis by escaping
+    // three times and then died on the fourth visit pays out in full.
+    let bountySouls = 0;
+    let bountyRenown = 0;
+    for (const adv of this.party.members) {
+      if (adv.alive) continue;
+      if (adv.isNemesis) {
+        bountySouls += TUNING.nemesisKillSouls;
+        bountyRenown += TUNING.nemesisKillRenown;
+      }
+      if (adv.isPatron) bountySouls += TUNING.patronKillSouls;
+    }
+
     const souls = Math.round(
       this.killed * SOULS_PER_KILL * soulsTierMult(this.tier.tier)
-      + namedKilled * SOULS_PER_NAMED,
+      + namedKilled * SOULS_PER_NAMED
+      + bountySouls,
     );
 
     // The reframe (§15.3): reputation is the quality of the delve, not the
@@ -792,6 +1026,9 @@ export class RaidSim {
         + this.goldFromSales * RENOWN_PER_GOLD;
       if (outcome === 'wiped') renown *= RENOWN_WIPE_MULT;
     }
+    // Paid under either formula so the head-to-head stays a like-for-like
+    // comparison of the Renown *rule*, not of who happened to kill a Nemesis.
+    renown += bountyRenown;
 
     return {
       outcome,
@@ -803,6 +1040,7 @@ export class RaidSim {
       renown: Math.round(renown),
       thrill: this.thrillScore,
       retired: this.retiredThisRaid,
+      rivals: this.rivalNotes,
       mobsDowned: this.mobsDowned,
       mobsLost: this.mobsLost,
       deepestFloorReached: this.deepestFloor,
