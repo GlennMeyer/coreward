@@ -1693,6 +1693,29 @@ The early game is fair — raids 1–2 breach at 0% — and the late game is not
 5–8 still breach at 22–30%. The player sees *more* content while dying less (Tier 2.9 up
 from 2.4).
 
+### 18.5a Engagement width — one room, one test of strength
+
+`party` formation originally engaged *every* living adventurer, so once Tier 4 unlocked,
+staggering simply stopped and a five-person party brought five attackers to one room.
+
+**Engagement width caps simultaneous combatants under every formation, and it is never the
+whole group.** Single-file is width 1; a coordinated party is `partyEngageWidth` (2). The
+rest queue and rotate in through the same line machinery.
+
+A party's advantage is therefore **rotation, not volume**: it can put a fresh fighter in
+the doorway the moment the point man falls back. A room stays a test of what is in it
+rather than of how many bodies fit through the door at once.
+
+The queue mechanics (`waitingIds`, point-man announcements, line-break) are now
+formation-agnostic — they were short-circuited for `party` when parties had no queue.
+
+Measured: seasons overrun 28% → **25%**, early game unchanged (raids 1–2 still breach at
+0%), late game still pressured (raids 5–8 at 21–27%). `h2h` passes.
+
+**On the map:** the delvers currently in a room are drawn *inside* that room, with a
+`+N at the door` marker for the queue. The rule was correct before this and completely
+invisible — you had to infer it from the log.
+
 ### 18.6 Two builds regressed, and the reasons are informative
 
 1. **`traps` 29% → 39% overrun.** Isolated: forcing single-file at every tier gives traps

@@ -411,3 +411,24 @@ button.sell { width: 100%; margin-top: 8px; }
 
 .stat.incoming b { color: var(--adv); }
 .stat.incoming .lvl { color: var(--dim); margin-left: 5px; font-size: 11px; }
+
+/* ─── The stage: who is actually in the room (§18.2) ─────────────────────── */
+
+.stage {
+  display: flex; flex-wrap: wrap; gap: 3px; margin-top: 4px;
+  padding-top: 4px; border-top: 1px dashed #3d5a6b;
+}
+.delver {
+  background: #1d3540; border-left: 3px solid var(--adv); border-radius: 3px;
+  padding: 2px 5px; font-size: 10px; min-width: 54px;
+}
+.delver .dnm { color: var(--adv); }
+.delver .dhp {
+  display: block; height: 3px; background: #123; border-radius: 2px;
+  margin-top: 2px; overflow: hidden;
+}
+.delver .dhp i { display: block; height: 100%; background: var(--adv); }
+.queued {
+  align-self: center; font-size: 10px; color: var(--dim);
+  border: 1px dashed var(--line); border-radius: 3px; padding: 2px 5px;
+}

@@ -181,6 +181,18 @@ export const TUNING = {
    *
    * Set to 0 to get the meat grinder back and measure the difference.
    */
+  /**
+   * How many of a coordinated party can be engaged in a room at once (§18).
+   *
+   * Never the whole group. A room is a test of what is in it, not of how many
+   * bodies the party can pile through the door at the same moment — without a
+   * cap, numbers convert directly into damage and a five-person party simply
+   * drowns any room. A party's real advantage is that it can rotate a fresh
+   * fighter in the moment the point man falls back, not that everyone swings.
+   *
+   * Single-file is this same rule at width 1.
+   */
+  partyEngageWidth: 2,
   lineBreakHpPct: 0.3,
   /**
    * Damage multiplier on the parting blow every monster in the room lands on a

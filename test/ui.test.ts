@@ -153,6 +153,20 @@ describe('UI smoke', () => {
     expect(amenity.dataset['slot']).toMatch(/^\d+$/);
   });
 
+  it('shows the delvers standing in the active room, one at a time', () => {
+    const buy = [...document.querySelectorAll('.buy')]
+      .find((b) => b.textContent?.includes('Ogre'));
+    click(buy);
+    click(document.querySelectorAll('.room')[0]);
+    click(button('Begin Raid'));
+
+    const stage = document.querySelector('.room.active .stage');
+    expect(stage).toBeTruthy();
+    // Tier 1 is single-file: exactly one delver on the stage, rest at the door.
+    expect(stage!.querySelectorAll('.delver')).toHaveLength(1);
+    expect(stage!.querySelector('.queued')?.textContent).toMatch(/\+\d+ at the door/);
+  });
+
   it('speed controls do not throw', () => {
     click(button('Begin Raid'));
     for (const label of ['II', '1x', '2x', '4x']) click(button(label));

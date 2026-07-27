@@ -209,7 +209,6 @@ export class RaidSim {
 
   /** Ids waiting their turn in the queue, front of the line first (§7.2). */
   get waitingIds(): number[] {
-    if (this.formation === 'party') return [];
     const engaged = new Set(this.engagedIds);
     return this.line.filter((a) => a.alive && !engaged.has(a.id)).map((a) => a.id);
   }
@@ -364,10 +363,17 @@ export class RaidSim {
    * does on a landing, not things one person does in a doorway.
    */
   private engagedMembers(): Adventurer[] {
-    const alive = aliveMembers(this.party);
-    if (this.formation === 'party') return alive;
-    const p = this.point();
-    return p ? [p] : [];
+    const width = this.engageWidth();
+    // The line is the rotation order under every formation; a party just holds
+    // the door with more people at once (§18.2).
+    const fit = this.line.filter((a) => a.alive);
+    return fit.slice(0, width);
+  }
+
+  /** Simultaneous combatants a room allows this formation. Never the whole party. */
+  private engageWidth(): number {
+    if (this.formation !== 'party') return 1;
+    return Math.max(1, Math.min(TUNING.partyEngageWidth, this.party.members.length - 1));
   }
 
   /**
@@ -376,7 +382,6 @@ export class RaidSim {
    * engaged?" without knowing the rotation rules.
    */
   private syncPoint(): void {
-    if (this.formation === 'party') return;
     const p = this.point();
     const id = p?.id ?? null;
     if (id === this.pointId) return;
@@ -405,7 +410,6 @@ export class RaidSim {
    * Returns true if the raid ended.
    */
   private checkLine(): boolean {
-    if (this.formation === 'party') return false;
     const p = this.point();
     if (!p) return false;
     if (p.hp / p.maxHp >= TUNING.lineBreakHpPct) return false;

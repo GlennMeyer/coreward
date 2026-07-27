@@ -1031,17 +1031,36 @@ describe('formation (§7.2)', () => {
     expect(sawQueue).toBe(true);
   });
 
-  it('engages everyone at once under party formation', () => {
+  it('caps a party at partyEngageWidth — numbers never fully convert (§18.2)', () => {
     const s = threeRoomsOf('slime', 401);
     const sim = new RaidSim(s.dungeon, tierAs(0, 'party'), 7);
+    let sawQueue = false;
     while (sim.status !== 'complete') {
       sim.step();
       if (sim.status === 'awaiting-taunt') sim.resolveTaunt(false);
       const alive = sim.party.members.filter((m) => m.alive).length;
       if (alive === 0) break;
-      expect(sim.engagedIds).toHaveLength(alive);
-      expect(sim.waitingIds).toHaveLength(0);
+      // A room is a test of what is in it, not of how many bodies fit through
+      // the door at once. Never the whole group while anyone is spare.
+      expect(sim.engagedIds.length).toBeLessThanOrEqual(TUNING.partyEngageWidth);
+      expect(sim.engagedIds.length).toBeLessThanOrEqual(alive);
+      if (alive > TUNING.partyEngageWidth) {
+        expect(sim.engagedIds.length).toBeLessThan(alive);
+        sawQueue = true;
+      }
+      expect(sim.engagedIds.length + sim.waitingIds.length).toBe(alive);
     }
+    expect(sawQueue).toBe(true);
+  });
+
+  it('a party still brings more to bear than single-file', () => {
+    const s = threeRoomsOf('slime', 402);
+    const solo = new RaidSim(s.dungeon, tierAs(0, 'single-file'), 11);
+    solo.step();
+    const s2 = threeRoomsOf('slime', 402);
+    const group = new RaidSim(s2.dungeon, tierAs(0, 'party'), 11);
+    group.step();
+    expect(group.engagedIds.length).toBeGreaterThan(solo.engagedIds.length);
   });
 
   it('a coordinated party clears the same dungeon far faster', () => {

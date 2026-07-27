@@ -601,6 +601,12 @@ function dungeonPanel(): HTMLElement {
         room.append(mobChip(mob));
       }
       for (const trap of trapsInRoom(d, fi, ri)) room.append(trapChip(trap));
+
+      // The delvers themselves, standing in the room they are actually in.
+      // Under single-file that is exactly one person with the rest queued at
+      // the door (§18.2) — putting them on the map is the only way the player
+      // can SEE the rule working rather than infer it from a list.
+      if (isActive && sim) room.append(stageStrip(sim));
       // Traps draw on the same capacity as monsters (§16.3), so the readout
       // has to show the real ceiling rather than the doc's flat 3.
       room.append(el(
@@ -1169,6 +1175,37 @@ function raidPanel(): HTMLElement {
   wrap.append(lp);
   queueMicrotask(() => { log.scrollTop = log.scrollHeight; });
   return wrap;
+}
+
+/**
+ * Who is physically in the room right now, drawn inside the room on the map.
+ *
+ * Single-file means one delver on the stage and a queue outside the door; a
+ * coordinated party means the whole group is in there at once. That difference
+ * is the entire point of §18, and before this it was invisible unless you read
+ * the log carefully.
+ */
+function stageStrip(sim: RaidSim): HTMLElement {
+  const engagedIds = new Set(sim.engagedIds);
+  const inRoom = sim.party.members.filter((m) => m.alive && engagedIds.has(m.id));
+  const queued = sim.waitingIds.length;
+
+  const strip = el('<div class="stage"></div>');
+  for (const a of inRoom) {
+    const hp = Math.max(0, Math.round((a.hp / a.maxHp) * 100));
+    strip.append(el(`
+      <div class="delver" title="${esc(a.name)} — ${a.cls} ${a.level}, ${hp}% HP">
+        <span class="dnm">${esc(a.name.split(' ')[0] ?? a.name)}</span>
+        <span class="dhp"><i style="width:${hp}%"></i></span>
+      </div>`));
+  }
+  if (queued > 0) {
+    strip.append(el(
+      `<div class="queued" title="Waiting at the door — they fight one at a time (§18.2)">`
+      + `+${queued} at the door</div>`,
+    ));
+  }
+  return strip;
 }
 
 /**
