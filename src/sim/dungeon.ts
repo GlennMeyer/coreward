@@ -336,6 +336,37 @@ export function slayMob(d: Dungeon, uid: number): string[] {
   return salvageGear(d, uid);
 }
 
+/**
+ * Refund fraction when a monster is dismissed (§4.1).
+ *
+ * Half of base cost, and deliberately NOT scaled by level: selling a veteran
+ * throws its levels away, which is what stops dismissal being a way to launder
+ * a grown monster back into mana.
+ */
+export const DISMISS_REFUND = 0.5;
+
+export function dismissValue(mob: Mob): number {
+  return Math.floor(MOBS[mob.defId]!.cost * DISMISS_REFUND);
+}
+
+/**
+ * Sell a monster back. Returns the mana refunded and any gear it was carrying,
+ * which returns to the armory intact (§6.5) — you lose the creature, never the
+ * investment.
+ */
+export function dismissMob(
+  d: Dungeon, uid: number,
+): { mana: number; gear: string[] } | string {
+  const mob = getMob(d, uid);
+  if (!mob) return 'No such monster.';
+  if (!mob.alive) return 'That monster is already dead.';
+  const mana = dismissValue(mob);
+  const gear = salvageGear(d, uid);
+  unplace(d, uid);
+  d.mobs = d.mobs.filter((m) => m.uid !== uid);
+  return { mana, gear };
+}
+
 export function reconstitute(d: Dungeon, uid: number): BuildError {
   const mob = getMob(d, uid);
   if (!mob) return 'No such monster.';

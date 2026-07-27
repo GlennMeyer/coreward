@@ -282,3 +282,32 @@ body.dragging .mob { cursor: grabbing; }
   box-shadow: 0 0 0 1px var(--renown) inset;
 }
 .amenity.drop-hover { outline: 1px solid var(--renown); background: #33301c; }
+
+/* ─── Next-raid forecast ─────────────────────────────────────────────────── */
+
+.fc-party { font-size: 12px; margin-bottom: 8px; }
+.fc-party b { color: var(--adv); }
+.fc-ret { color: var(--warn); font-size: 11px; }
+
+.fc-bar {
+  height: 8px; border-radius: 4px; overflow: hidden;
+  background: var(--adv); margin-bottom: 6px;
+}
+.fc-bar .fc-us { display: block; height: 100%; background: var(--mob); }
+
+.fc-verdict { font-size: 11px; margin-bottom: 8px; display: flex; gap: 8px; }
+.fc-verdict .fc-ratio { margin-left: auto; color: var(--dim); }
+.fc-verdict.outmatched, .fc-verdict.overwhelming { color: var(--danger); }
+.fc-verdict.thin { color: var(--warn); }
+.fc-verdict.even { color: var(--renown); }
+.fc-verdict.strong { color: var(--adv); }
+
+.fc-table { font-size: 11px; margin-bottom: 4px; }
+.fc-table td { padding: 1px 0; }
+.fc-table td:first-child { color: var(--dim); }
+.fc-table .fc-them, .fc-table .fc-us-h { text-align: right; width: 34%; }
+.fc-table .fc-them { color: var(--adv); }
+.fc-table .fc-us-h { color: var(--mob); }
+
+.hint.warn-t { color: var(--warn); }
+button.sell { width: 100%; margin-top: 8px; }

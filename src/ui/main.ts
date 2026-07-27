@@ -13,11 +13,11 @@ import {
 } from '../sim/data';
 import {
   assignStaff, buildAmenity, buyMob, demolishAmenity, digCost, digFloor,
-  equipGear, getMob, hireStaff, isOpen, mobEffectiveHp, placeMobInRoom,
-  roomSlotsUsed, setPrice, totalUpkeep,
+  dismissMob, dismissValue, equipGear, getMob, hireStaff, isOpen,
+  mobEffectiveHp, placeMobInRoom, roomSlotsUsed, setPrice, totalUpkeep,
 } from '../sim/dungeon';
 import { applyAftermath, createSeason, currentTier, startRaid } from '../sim/season';
-import { predictThrill, thrillRating, type ThrillPrediction } from './predict';
+import { forecast, predictThrill, thrillRating, type ThrillPrediction } from './predict';
 import type { RaidSim } from '../sim/raid';
 import type {
   Adventurer, Amenity, AmenityId, Legend, Mob, PriceTier, RaidEvent,
@@ -349,8 +349,8 @@ function render(): void {
   root.append(topbar());
 
   const cols = el('<div class="cols"></div>');
-  const left = el('<div></div>');
-  const right = el('<div></div>');
+  const left = el('<div class="col-left"></div>');
+  const right = el('<div class="col-right"></div>');
 
   left.append(dungeonPanel());
   right.append(app.phase === 'raid' ? raidPanel() : buildPanel());
@@ -384,6 +384,14 @@ function topbar(): HTMLElement {
     </div>`);
   return bar;
 }
+
+const VERDICT_TEXT: Record<string, string> = {
+  outmatched: 'Outmatched — they will walk to the Core.',
+  thin: 'Thin — expect a breach unless the upper floors slow them.',
+  even: 'Evenly matched — this is where the good stories happen.',
+  strong: 'Strong — they should turn back hurt.',
+  overwhelming: 'Overwhelming — likely a wipe, and a wipe pays no Renown.',
+};
 
 // ─── Thrill (§15) ────────────────────────────────────────────────────────────
 
@@ -609,8 +617,10 @@ function buildPanel(): HTMLElement {
   actions.append(el(`<div class="hint">Drag monsters into rooms, or onto a shop to staff it. Clicking works too: select, then click a target.</div>`));
   wrap.append(actions);
 
-  wrap.append(predictionPanel());
-  wrap.append(legendsPanel());
+  // Order requested: Build Phase, then what's coming, then Monsters, then
+  // Predicted Thrill, then Legends. Forecast sits high because it is what the
+  // player acts on while spending; Thrill and Legends are review, not input.
+  wrap.append(forecastPanel());
 
   // Roster
   const idle = d.mobs.filter((m) => m.alive && m.placement.kind === 'unassigned');
@@ -645,6 +655,27 @@ function buildPanel(): HTMLElement {
         p.append(b);
       }
       p.append(el(`<div class="hint">Gear survives its wearer — slain monsters return it to the armory.</div>`));
+
+      // Dismiss (§4.1). Half of BASE cost, so selling a levelled monster
+      // throws its levels away — worth saying out loud before they click.
+      const refund = dismissValue(mob);
+      const sell = el(`<button class="danger sell">Dismiss — refund ${refund} mana</button>`);
+      sell.onclick = () => {
+        const res = dismissMob(d, mob.uid);
+        if (typeof res === 'string') return fail(res);
+        s.mana += res.mana;
+        app.selectedMob = null;
+        return fail(null);
+      };
+      const sellRow = el('<div class="row"></div>');
+      sellRow.append(sell);
+      p.append(sellRow);
+      if (mob.level > 1) {
+        p.append(el(`<div class="hint warn-t">Dismissing loses ${mob.level - 1} level${mob.level === 2 ? '' : 's'} permanently — the refund is on base cost only.</div>`));
+      }
+      if (mob.gear.length) {
+        p.append(el(`<div class="hint">Its gear returns to the armory.</div>`));
+      }
       wrap.append(p);
     }
   }
@@ -671,7 +702,57 @@ function buildPanel(): HTMLElement {
     shop.append(b);
   }
   wrap.append(shop);
+  wrap.append(predictionPanel());
+  wrap.append(legendsPanel());
   return wrap;
+}
+
+/**
+ * "What is coming, and can we take it?" — a power-ratio readout, not a
+ * prediction. See `forecast()` for why a single number cannot be a win chance.
+ */
+function forecastPanel(): HTMLElement {
+  const s = app.season;
+  const tier = currentTier(s);
+  const f = forecast(s.dungeon, tier);
+  const p = el('<div class="panel"></div>');
+  p.append(el(`<h2>Next Raid — Tier ${f.tier}</h2>`));
+
+  const returning = s.veterans.filter((v) => !v.retired).length;
+  p.append(el(`
+    <div class="fc-party">
+      <b>${f.partySize} adventurers</b>, level ${f.levelMin}–${f.levelMax}
+      ${returning > 0 ? `<span class="fc-ret" title="Survivors who may come back (§15.5)">· ${returning} may return</span>` : ''}
+    </div>`));
+
+  const bar = el(`<div class="fc-bar" title="Dungeon power vs party power"></div>`);
+  const pct = Math.max(4, Math.min(96, (f.ratio / 2) * 100));
+  bar.append(el(`<i class="fc-us" style="width:${pct}%"></i>`));
+  p.append(bar);
+  p.append(el(`
+    <div class="fc-verdict ${f.verdict}">
+      ${VERDICT_TEXT[f.verdict]}
+      <span class="fc-ratio">×${f.ratio.toFixed(2)}</span>
+    </div>`));
+
+  const t = el('<table class="fc-table"></table>');
+  t.append(el(`<tr><td></td><td class="fc-them">Them</td><td class="fc-us-h">Us</td></tr>`));
+  t.append(el(`<tr><td>HP</td><td class="fc-them">${f.partyEffectiveHp}</td><td class="fc-us-h">${f.dungeonHp}</td></tr>`));
+  t.append(el(`<tr><td>Damage</td><td class="fc-them">${f.partyDmg}</td><td class="fc-us-h">${f.dungeonDmg}</td></tr>`));
+  t.append(el(`<tr><td>Bodies</td><td class="fc-them">${f.partySize}</td><td class="fc-us-h">${f.defenders}</td></tr>`));
+  p.append(t);
+
+  // Kit is why "Them HP" looks inflated — it roughly doubles their health
+  // (§14.4), and hiding that would make the comparison lie.
+  p.append(el(`<div class="hint">Their HP includes ${f.partyKit} Kit of healing — supplies are most of a party's staying power (§7.3).</div>`));
+
+  if (f.staffed > 0) {
+    p.append(el(`<div class="hint warn-t">${f.staffed} monster${f.staffed === 1 ? '' : 's'} behind a counter, not fighting (§8.4).</div>`));
+  }
+  if (f.namedIncoming.length) {
+    p.append(el(`<div class="hint warn-t">Named adventurers possible: ${esc(f.namedIncoming.join(', '))}.</div>`));
+  }
+  return p;
 }
 
 /**

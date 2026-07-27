@@ -6,7 +6,7 @@
  * Runs in jsdom — see environmentMatchGlobs in vite.config.ts.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { TIERS } from '../src/sim/data';
+import { MOBS, TIERS } from '../src/sim/data';
 import { buildAmenity, buyMob, createDungeon, hireStaff, placeMobInRoom } from '../src/sim/dungeon';
 import { predictThrill, thrillRating } from '../src/ui/predict';
 import type { SeasonState } from '../src/sim/types';
@@ -14,6 +14,12 @@ import type { SeasonState } from '../src/sim/types';
 function click(node: Element | null | undefined): void {
   if (!node) throw new Error('tried to click a node that does not exist');
   (node as HTMLElement).click();
+}
+
+/** Current mana, read off the rendered top bar. */
+function app(): { mana: number } {
+  const txt = document.querySelector('.stat.mana b')?.textContent ?? '0';
+  return { mana: Number(txt) };
 }
 
 /** Find a button by its visible text. */
@@ -147,6 +153,57 @@ describe('UI smoke', () => {
     click(button('Begin Raid'));
     for (const label of ['II', '1x', '2x', '4x']) click(button(label));
     expect(document.querySelector('.log')).toBeTruthy();
+  });
+
+  it('orders the right column: build, next raid, monsters, thrill, legends', () => {
+    const heads = [...document.querySelectorAll('.col-right .panel h2')]
+      .map((h) => h.textContent ?? '');
+    const at = (frag: string) => heads.findIndex((h) => h.includes(frag));
+    expect(at('Build Phase')).toBe(0);
+    expect(at('Next Raid')).toBeGreaterThan(at('Build Phase'));
+    expect(at('Monsters')).toBeGreaterThan(at('Next Raid'));
+    expect(at('Predicted Thrill')).toBeGreaterThan(at('Monsters'));
+    expect(at('Legends')).toBeGreaterThan(at('Predicted Thrill'));
+  });
+
+  it('forecasts party size and level for the coming raid', () => {
+    const panel = [...document.querySelectorAll('.panel')]
+      .find((p) => p.querySelector('h2')?.textContent?.includes('Next Raid'))!;
+    // Tier 1 is 3 adventurers at levels 1-2 (§4.4).
+    expect(panel.textContent).toContain('3 adventurers');
+    expect(panel.textContent).toContain('1–2');
+    // Team-vs-team readout.
+    expect(panel.textContent).toContain('HP');
+    expect(panel.textContent).toContain('Damage');
+  });
+
+  it('an empty dungeon reads as outmatched, and building shifts the verdict', () => {
+    const bare = document.querySelector('.fc-verdict')!.className;
+    expect(bare).toContain('outmatched');
+
+    for (let i = 0; i < 3; i++) {
+      const buy = [...document.querySelectorAll('.buy')]
+        .find((b) => b.textContent?.includes('Ogre'));
+      click(buy);
+      click(document.querySelectorAll('.room')[i]);
+    }
+    expect(document.querySelector('.fc-verdict')!.className).not.toContain('outmatched');
+  });
+
+  it('sells a monster back for half its base cost', () => {
+    const before = app().mana;
+    const buy = [...document.querySelectorAll('.buy')]
+      .find((b) => b.textContent?.includes('Ogre'));
+    click(buy);
+    click(document.querySelectorAll('.room')[0]);
+    const afterBuy = app().mana;
+    expect(afterBuy).toBe(before - MOBS['ogre']!.cost);
+
+    click(document.querySelector('.room .mob'));  // select it
+    click(button('Dismiss'));
+    // Half of base cost back, and the monster is gone from the room.
+    expect(app().mana).toBe(afterBuy + Math.floor(MOBS['ogre']!.cost * 0.5));
+    expect(document.querySelector('.room .mob')).toBeFalsy();
   });
 
   // ─── Thrill (§15) ─────────────────────────────────────────────────────────

@@ -19,13 +19,13 @@
  */
 import {
   ADV_ARMOR_PER_LEVEL, ADV_BASE_DMG, ADV_BASE_HP, ADV_KIT_BASE, CLASS_MODS,
-  CLASS_WEIGHTS, DESCEND_HP_THRESHOLD, MOBS, PRICE_TIERS, TUNING,
+  CLASS_WEIGHTS, DESCEND_HP_THRESHOLD, MOBS, NAMED, PRICE_TIERS, TUNING,
   type TierRow,
 } from '../sim/data';
 import {
   getMob, isOpen, mobEffectiveDmg, mobEffectiveHp, packMultiplier,
 } from '../sim/dungeon';
-import type { Dungeon, Mob, ThrillScore } from '../sim/types';
+import type { Dungeon, Mob, ThrillScore, Veteran } from '../sim/types';
 
 export interface ThrillWarning {
   /** 'bad' is a design problem worth fixing; 'warn' is a cost worth knowing. */
@@ -268,4 +268,108 @@ export function predictThrill(d: Dungeon, tier: TierRow): ThrillPrediction {
     total, peril, depth, variety, comfort, tedium,
     floorsReached, emptyRooms, repeatedRooms, lethal, warnings,
   };
+}
+
+// ─── Next-raid forecast (what is coming, and are we ready) ───────────────────
+
+export interface Forecast {
+  tier: number;
+  partySize: number;
+  levelMin: number;
+  levelMax: number;
+  /** Total HP the party brings, including Kit sustain — see below. */
+  partyHp: number;
+  partyDmg: number;
+  /** Kit roughly doubles effective health (§14.4), so it belongs in the total. */
+  partyKit: number;
+  partyEffectiveHp: number;
+  /** What the dungeon can field right now. */
+  dungeonHp: number;
+  dungeonDmg: number;
+  /** Monsters standing in rooms, and monsters behind shop counters (§8.4). */
+  defenders: number;
+  staffed: number;
+  /** dungeonPower / partyPower. 1.0 is a coin flip. */
+  ratio: number;
+  verdict: 'outmatched' | 'thin' | 'even' | 'strong' | 'overwhelming';
+  namedIncoming: string[];
+}
+
+const VERDICTS: readonly (readonly [number, Forecast['verdict']])[] = [
+  [0, 'outmatched'],
+  [0.5, 'thin'],
+  [0.85, 'even'],
+  [1.3, 'strong'],
+  [2.0, 'overwhelming'],
+];
+
+/**
+ * A rough "are we ready?" readout for the next raid (team vs team).
+ *
+ * Deliberately a power ratio rather than a win probability: the sim decides
+ * raids with targeting, Kit spending, rest and the Descent Decision, none of
+ * which a single number can capture. This tells the player whether they are in
+ * the right weight class, not what will happen.
+ */
+export function forecast(d: Dungeon, tier: TierRow): Forecast {
+  const size = tier.partySize;
+  const level = (tier.levelMin + tier.levelMax) / 2;
+
+  const partyHp = size * (ADV_BASE_HP + TUNING.advHpPerLevel * level) * AVG.hp;
+  const partyDmg = size * (ADV_BASE_DMG + TUNING.advDmgPerLevel * level) * AVG.dmg;
+  const partyKit = (ADV_KIT_BASE + tier.tier) * size;
+  // Each Kit is a heal worth kitHealPct of one member's max HP (§7.3, §14.4).
+  const perMemberHp = partyHp / size;
+  const partyEffectiveHp = partyHp + partyKit * perMemberHp * TUNING.kitHealPct;
+
+  let dungeonHp = 0;
+  let dungeonDmg = 0;
+  let defenders = 0;
+  let staffed = 0;
+  for (const m of d.mobs) {
+    if (!m.alive) continue;
+    if (m.placement.kind === 'amenity') { staffed++; continue; }
+    if (m.placement.kind !== 'room') continue;
+    defenders++;
+    dungeonHp += mobEffectiveHp(m);
+    const def = MOBS[m.defId]!;
+    // Terrors break nerve rather than bodies, so they do not count as damage.
+    if (def.role !== 'terror') dungeonDmg += mobEffectiveDmg(m) * def.spd;
+  }
+
+  // Geometric mean of the two ratios: a dungeon that is all HP and no damage
+  // (or the reverse) is not actually ready, and averaging would hide that.
+  const hpRatio = dungeonHp / Math.max(1, partyEffectiveHp);
+  const dmgRatio = dungeonDmg / Math.max(1, partyDmg);
+  const ratio = Math.sqrt(Math.max(0, hpRatio) * Math.max(0, dmgRatio));
+
+  let verdict: Forecast['verdict'] = 'outmatched';
+  for (const [floor, name] of VERDICTS) if (ratio >= floor) verdict = name;
+
+  const namedIncoming = Object.values(NAMED)
+    .filter((n) => tier.tier >= n.minTier)
+    .map((n) => n.name);
+
+  return {
+    tier: tier.tier,
+    partySize: size,
+    levelMin: tier.levelMin,
+    levelMax: tier.levelMax,
+    partyHp: Math.round(partyHp),
+    partyDmg: Math.round(partyDmg),
+    partyKit,
+    partyEffectiveHp: Math.round(partyEffectiveHp),
+    dungeonHp: Math.round(dungeonHp),
+    dungeonDmg: Math.round(dungeonDmg),
+    defenders,
+    staffed,
+    ratio,
+    namedIncoming,
+    verdict,
+  };
+}
+
+/** Returning faces the player has seen before (§15.5) — flavour for the forecast. */
+export function returningCount(veterans: Veteran[]): number {
+  return veterans.filter((v) => !v.retired).length;
 }
