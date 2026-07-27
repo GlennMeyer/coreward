@@ -194,6 +194,17 @@ function describe(e: RaidEvent): { cls: string; text: string } | null {
       return { cls: 'crit', text: `${MOBS[e.defId]!.name} is downed.` };
     case 'mob-slain':
       return { cls: 'crit', text: `${MOBS[e.defId]!.name} (lv ${e.level}) is slain for good.` };
+    case 'adv-downed':
+      return { cls: 'good', text: `${e.name} goes down, bleeding.` };
+    case 'death-save':
+      return {
+        cls: e.success ? '' : 'crit',
+        text: `${e.name} ${e.success ? 'holds on' : 'fades'} — ${e.successes} steady, ${e.failures} failing.`,
+      };
+    case 'adv-stable':
+      return { cls: '', text: `${e.name} is stabilised. Out of the fight, but alive.` };
+    case 'adv-rescued':
+      return { cls: 'buy2', text: `${e.name} is dragged out alive — ${e.fee}g for the service.` };
     case 'adv-death':
       return { cls: 'good', text: `${e.name} dies. ${e.goldDropped}g recovered.` };
     case 'mob-levelup':
@@ -226,7 +237,7 @@ function describe(e: RaidEvent): { cls: string; text: string } | null {
 }
 
 function reasonText(r: string): string {
-  return { hp: 'too wounded', kit: 'out of supplies', resolve: 'nerve broken', wiped: 'all dead' }[r] ?? r;
+  return { hp: 'too wounded', kit: 'out of supplies', resolve: 'nerve broken', wiped: 'all dead', casualties: 'carrying wounded' }[r] ?? r;
 }
 
 // ─── Playback ────────────────────────────────────────────────────────────────

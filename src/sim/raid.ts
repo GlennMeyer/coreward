@@ -143,6 +143,9 @@ export class RaidSim {
   // Running tallies for the result.
   private goldFromSales = 0;
   private goldFromCorpses = 0;
+  private goldFromRescues = 0;
+  private downedCount = 0;
+  private rescuedCount = 0;
   private killed = 0;
   private mobsDowned: { uid: number; defId: string; level: number }[] = [];
   private mobsLost: { uid: number; defId: string; level: number }[] = [];
@@ -546,6 +549,10 @@ export class RaidSim {
       }
     }
 
+    // Bleeding resolves after everyone has acted, so a body that dropped this
+    // tick gets a full interval before its first save.
+    this.tickDeathSaves();
+
     if (this.checkPartyState()) return;
     this.syncPoint();
     this.checkLine();
@@ -700,6 +707,7 @@ export class RaidSim {
   private trapDamage(trap: Trap, adv: Adventurer, amount: number): void {
     if (!adv.alive) return;
     const dmg = Math.max(1, Math.round(amount));
+    const trapExcess = dmg - adv.hp;
     adv.hp = Math.max(0, adv.hp - dmg);
     adv.hurtByTrap = (adv.hurtByTrap ?? 0) + dmg;
     // Traps count toward `peril` exactly like a monster does. They are part of
@@ -714,7 +722,7 @@ export class RaidSim {
       t: this.tick, type: 'trap-hit', uid: trap.uid, defId: trap.defId,
       advId: adv.id, dmg,
     });
-    if (adv.hp <= 0) this.killAdventurer(adv);
+    if (adv.hp <= 0) this.dropAdventurer(adv, Math.max(0, trapExcess));
   }
 
   private initRoomCombatants(): void {
@@ -813,6 +821,7 @@ export class RaidSim {
     if (!target.alive) return;
     const role = MOBS[mob.defId]!.role;
     const dmg = Math.max(1, Math.round(raw - target.armor));
+    const excess = dmg - target.hp;
     target.hp = Math.max(0, target.hp - dmg);
     // Who is doing the hurting, so a returning adventurer can adapt to *this*
     // dungeon rather than to dungeons in general (§9.3).
@@ -831,7 +840,7 @@ export class RaidSim {
     });
 
     if (target.hp <= 0) {
-      this.killAdventurer(target);
+      this.dropAdventurer(target, Math.max(0, excess));
       if (grantXp(mob, XP_PER_KILL)) {
         this.emit({ t: this.tick, type: 'mob-levelup', uid: mob.uid, level: mob.level });
       }
@@ -921,8 +930,122 @@ export class RaidSim {
     }
   }
 
+  /**
+   * They hit 0 HP. Whether that is a death depends on how hard (§19).
+   *
+   * `excess` is damage past 0. Past `overkillPct` of their max HP they are
+   * simply killed; otherwise they go down bleeding and start rolling saves.
+   */
+  private dropAdventurer(adv: Adventurer, excess: number): void {
+    const overkill = excess >= adv.maxHp * TUNING.overkillPct;
+    if (overkill) {
+      this.killAdventurer(adv);
+      return;
+    }
+
+    adv.downed = true;
+    adv.hp = 0;
+    adv.saveSuccesses = 0;
+    adv.saveFailures = 0;
+    this.downedCount++;
+    this.emit({
+      t: this.tick, type: 'adv-downed',
+      advId: adv.id, name: adv.name, overkill: false,
+    });
+
+    // Seeing someone go down still shakes the party, just less than a death.
+    for (const other of this.standingMembers()) {
+      this.applyResolveDamage(other, Math.round(RESOLVE_ON_ALLY_DEATH / 2));
+    }
+    this.advAtb.delete(adv.id);
+    this.rotateIfDown(adv);
+  }
+
+  /** Alive, conscious and able to act. Downed bodies are none of those. */
+  private standingMembers(): Adventurer[] {
+    return this.party.members.filter((m) => m.alive && !m.downed);
+  }
+
+  /** If the point man just went down, the queue steps up (§18.2). */
+  private rotateIfDown(adv: Adventurer): void {
+    if (this.line[0]?.id === adv.id) {
+      this.line = this.line.filter((a) => a.id !== adv.id).concat(adv);
+      this.syncPoint();
+    }
+  }
+
+  /**
+   * Roll for the bleeding. Three successes stabilise; three failures kill.
+   *
+   * Runs off the sim's seeded Rng like everything else (§13.2), so a delve
+   * narrates and replays identically.
+   */
+  private tickDeathSaves(): void {
+    for (const adv of this.party.members) {
+      if (!adv.alive || !adv.downed || adv.stable) continue;
+      if (this.tick % TUNING.deathSaveInterval !== 0) continue;
+
+      const success = this.rng.chance(TUNING.deathSaveChance);
+      if (success) adv.saveSuccesses++; else adv.saveFailures++;
+      this.emit({
+        t: this.tick, type: 'death-save', advId: adv.id, name: adv.name,
+        success, successes: adv.saveSuccesses, failures: adv.saveFailures,
+      });
+
+      if (adv.saveFailures >= 3) {
+        this.killAdventurer(adv);
+      } else if (adv.saveSuccesses >= 3) {
+        adv.downed = false;
+        adv.stable = true;
+        this.emit({ t: this.tick, type: 'adv-stable', advId: adv.id, name: adv.name });
+      }
+    }
+  }
+
+  /**
+   * The rescue service (§19.3). The party buys a bleeding friend out.
+   *
+   * This is the Tycoon reframe applied to the one moment the old rules threw
+   * money away: killing destroys 75% of what they carry (§4.3), so a corpse
+   * was worth less than a customer. Dropping someone can now pay better than
+   * killing them — and it hands them back a survivor who will tell the story.
+   */
+  private offerRescue(): void {
+    for (const adv of this.party.members) {
+      if (!adv.alive || !adv.downed || adv.stable) continue;
+      const payers = this.standingMembers();
+      if (payers.length === 0) continue;
+      // Nobody buys out a friend once their own nerve is gone.
+      if (avgResolvePct(this.party) < TUNING.rescueResolveFloor) continue;
+
+      const fee = Math.round(
+        TUNING.rescueFee * TUNING.rescueFeeEscalation ** this.rescuedCount,
+      );
+      const pot = payers.reduce((sum, m) => sum + m.gold, 0) + adv.gold;
+      if (pot < fee) continue;
+
+      let owed = fee;
+      // The patient pays first; it is their skin.
+      for (const m of [adv, ...payers]) {
+        const take = Math.min(m.gold, owed);
+        m.gold -= take;
+        owed -= take;
+        if (owed <= 0) break;
+      }
+      this.goldFromRescues += fee;
+      this.rescuedCount++;
+      adv.downed = false;
+      adv.stable = true;
+      this.emit({
+        t: this.tick, type: 'adv-rescued',
+        advId: adv.id, name: adv.name, fee,
+      });
+    }
+  }
+
   private killAdventurer(adv: Adventurer): void {
     adv.alive = false;
+    adv.downed = false;
     adv.hp = 0;
     this.killed++;
     // Killing destroys 75% of what they carried (§4.3) — this is the number
@@ -937,16 +1060,30 @@ export class RaidSim {
 
     // Morale shock to the survivors — this is what makes Resolve matter even
     // without a Terror mob in the roster.
-    for (const other of aliveMembers(this.party)) {
+    for (const other of this.standingMembers()) {
       this.applyResolveDamage(other, RESOLVE_ON_ALLY_DEATH);
     }
     this.advAtb.delete(adv.id);
+    this.rotateIfDown(adv);
   }
 
   /** Returns true if the raid ended. */
   private checkPartyState(): boolean {
     if (aliveMembers(this.party).length === 0) {
       this.finish('wiped', 'wiped');
+      return true;
+    }
+
+    // Nobody left conscious. A downed party is not a fighting party: whoever
+    // was still bleeding is left to it, and whoever stabilised is dragged out
+    // by the ones who could still walk — of whom there are none, so they are
+    // carried out by the dungeon's own staff, alive, and very quiet about it.
+    if (this.standingMembers().length === 0) {
+      for (const m of this.party.members) {
+        if (m.alive && m.downed && !m.stable) this.killAdventurer(m);
+      }
+      if (aliveMembers(this.party).length === 0) this.finish('wiped', 'wiped');
+      else this.finish('retreated', 'hp');
       return true;
     }
     if (avgResolvePct(this.party) <= 0) {
@@ -980,6 +1117,10 @@ export class RaidSim {
     const landingIdx = this.floor;
     this.emit({ t: this.tick, type: 'landing-enter', landing: landingIdx });
 
+    // You cannot negotiate a rescue mid-fight. Buying a friend out is a
+    // Landing transaction like any other service (§19.3) — which is also what
+    // stops it out-racing the death saves and making everyone immortal.
+    this.offerRescue();
     this.doRest();
     this.doShopping(landingIdx);
     this.doTheft(landingIdx);
@@ -1147,6 +1288,19 @@ export class RaidSim {
     // §7.3 can turn this party back — they either breach or they die (§9.2).
     if (partyHasNamed(this.party, 'oros')) return null;
 
+    // Casualties end the delve (§19.2). Someone is being carried, and you do
+    // not carry a friend DEEPER into a dungeon.
+    //
+    // This is what keeps §19 from breaking the game. Downing without this rule
+    // creates a fatal asymmetry: monsters still die permanently while
+    // adventurers no longer do, so attrition always favours the party and they
+    // grind to the Core. Measured, that collapsed kills to 0.3/season, Souls to
+    // ~1, and pushed breaches to 2.9. Downing has to STOP a delve — that is the
+    // payoff for a dungeon that hurts people without killing them.
+    if (this.party.members.some((m) => m.alive && (m.stable || m.downed))) {
+      return 'casualties';
+    }
+
     const greedMod = alive.reduce((s, m) => s + m.greed, 0) / alive.length;
 
     if (avgHpPct(this.party) <= DESCEND_HP_THRESHOLD - greedMod) return 'hp';
@@ -1252,7 +1406,13 @@ export class RaidSim {
       TUNING.tediumPerEmptyRoom * this.emptyRooms
       + TUNING.tediumPerRepeatedRoom * this.repeatedRooms;
 
-    const survivors = aliveMembers(this.party);
+    // Only those who walked out under their own power tell the story (§19.4).
+    //
+    // A carried-out casualty paying full Renown was what broke §19: everyone
+    // survived, Renown ran to 225/season, the tier ratchet outran the dungeon
+    // to 3.9, and season survival collapsed from 71% to 14%. Being dragged
+    // unconscious past a Rot-Gas Vent is not a delve anybody recounts.
+    const survivors = aliveMembers(this.party).filter((m) => !m.stable && !m.downed);
     // Dead men tell no tales. A wipe scores nothing, which is the principled
     // replacement for the old flat ×0.5 wipe multiplier (§15.3).
     if (survivors.length === 0) {
@@ -1468,6 +1628,11 @@ export class RaidSim {
   get result(): RaidResult {
     const outcome = this.outcome ?? 'retreated';
     const escaped = aliveMembers(this.party).length;
+    // Renown is paid per *storyteller*, not per body that left the building
+    // (§19.4). Someone carried out unconscious contributes nothing to the
+    // dungeon's reputation, and counting them was inflating Renown by roughly
+    // 70% and running the tier ratchet away from the player.
+    const tellers = aliveMembers(this.party).filter((m) => !m.stable && !m.downed).length;
     const namedKilled = this.party.members.filter((m) => !m.alive && m.namedId).length;
 
     // Killing a recurring character ends something (§9.3, §9.4).
@@ -1501,11 +1666,11 @@ export class RaidSim {
     let renown: number;
     if (TUNING.thrillRenown) {
       renown =
-        this.thrillScore.total * escaped * TUNING.renownPerThrill
+        this.thrillScore.total * tellers * TUNING.renownPerThrill
         + this.retiredThisRaid.length * TUNING.retireRenownBonus;
     } else {
       renown =
-        escaped * RENOWN_PER_ESCAPEE
+        tellers * RENOWN_PER_ESCAPEE
         + this.killed * RENOWN_PER_KILL
         + this.goldFromSales * RENOWN_PER_GOLD;
       if (outcome === 'wiped') renown *= RENOWN_WIPE_MULT;
@@ -1521,6 +1686,9 @@ export class RaidSim {
       escaped,
       goldFromSales: this.goldFromSales,
       goldFromCorpses: this.goldFromCorpses,
+      goldFromRescues: this.goldFromRescues,
+      downedCount: this.downedCount,
+      rescuedCount: this.rescuedCount,
       souls,
       renown: Math.round(renown),
       thrill: this.thrillScore,

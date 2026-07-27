@@ -236,6 +236,18 @@ export interface Adventurer {
   /** Named adventurer id, e.g. 'berrick'. Null for generics. */
   namedId: string | null;
   /**
+   * Bleeding out at 0 HP but not dead (§19). Mirrors the monster Downed→Slain
+   * rule: dropping someone is common, killing them outright takes overkill or
+   * three failed saves. Downed adventurers cannot act and do not vote.
+   */
+  downed: boolean;
+  /** Successful death saves this delve. Three stabilises them. */
+  saveSuccesses: number;
+  /** Failed death saves. Three kills them. */
+  saveFailures: number;
+  /** Stabilised: out of the fight for this delve, but they walk home. */
+  stable: boolean;
+  /**
    * Low-water mark of hp/maxHp across this delve. Drives `peril` (§15.3):
    * the closer they came to dying, the better the story they carry home.
    */
@@ -454,6 +466,10 @@ export type RaidEvent =
   | { t: number; type: 'mob-downed'; uid: number; defId: string; level: number }
   | { t: number; type: 'mob-slain'; uid: number; defId: string; level: number }
   | { t: number; type: 'adv-death'; advId: number; name: string; goldDropped: number }
+  | { t: number; type: 'adv-downed'; advId: number; name: string; overkill: boolean }
+  | { t: number; type: 'death-save'; advId: number; name: string; success: boolean; successes: number; failures: number }
+  | { t: number; type: 'adv-stable'; advId: number; name: string }
+  | { t: number; type: 'adv-rescued'; advId: number; name: string; fee: number }
   | { t: number; type: 'mob-levelup'; uid: number; level: number }
   | { t: number; type: 'room-clear'; floor: number; room: number }
   | { t: number; type: 'landing-enter'; landing: number }
@@ -480,7 +496,7 @@ export type RaidEvent =
  * (§9.4) — they are neither hurt nor out of supplies, they simply will not go
  * deeper than the floor that nearly killed them.
  */
-export type RetreatReason = 'hp' | 'kit' | 'resolve' | 'wiped' | 'patron';
+export type RetreatReason = 'hp' | 'kit' | 'resolve' | 'wiped' | 'casualties' | 'patron';
 
 /**
  * 'wiped'     — every adventurer killed. Max Souls, halved Renown (§4.4).
@@ -499,6 +515,12 @@ export interface RaidResult {
   escaped: number;
   goldFromSales: number;
   goldFromCorpses: number;
+  /** Rescue fees (§19.3) — they pay us to drag them out alive. */
+  goldFromRescues: number;
+  /** Dropped to 0 HP at some point, whether or not they survived it. */
+  downedCount: number;
+  /** Stabilised by their own saves, or bought out. */
+  rescuedCount: number;
   souls: number;
   renown: number;
   /** Mean Thrill across survivors, and the components behind it (§15.3). */

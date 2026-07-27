@@ -594,16 +594,24 @@ describe('season economy (§4.1)', () => {
 });
 
 /** An undefended dungeon breaches every time; find a seed where it doesn't. */
+/**
+ * A total wipe is deliberately rare since §19: dropping someone to 0 HP downs
+ * them, and killing outright needs overkill or three failed saves. Roughly 5%
+ * of delves against this setup end in a wipe, so the scan is wide.
+ */
 function findWipe(): { season: ReturnType<typeof seasonWithFloors>; sim: RaidSim } {
-  for (let seed = 0; seed < 200; seed++) {
+  for (let seed = 0; seed < 600; seed++) {
     const season = seasonWithFloors(900 + seed, 1);
-    // An Ogre fills a Floor-1 room on its own now (4 of 4 slots).
-    for (let r = 0; r < 3; r++) addMob(season.dungeon, 'ogre', 0, r);
+    // Ogre (3 slots) + Cave Rat (1) fills a Floor-1 room exactly.
+    for (let r = 0; r < 3; r++) {
+      addMob(season.dungeon, 'ogre', 0, r);
+      addMob(season.dungeon, 'rat', 0, r);
+    }
     const sim = new RaidSim(season.dungeon, TIERS[0]!, seed);
     sim.runToCompletion();
     if (sim.result.outcome === 'wiped') return { season, sim };
   }
-  throw new Error('no wiping scenario found in 200 seeds');
+  throw new Error('no wiping scenario found in 600 seeds');
 }
 
 describe('gear — the Gold sink (§6.5)', () => {

@@ -1731,3 +1731,75 @@ invisible — you had to infer it from the log.
 **New failure mode:** an over-killed room wipes a single-file queue in ~10 ticks for zero
 Renown, because you cannot withdraw from an Ogre alpha strike. `predictThrill`'s "looks
 lethal" warning covers it, but over-building is punished harder than before.
+
+---
+
+## 19. Downed, death saves and rescue
+
+**Status: IMPLEMENTED (v0.6).** Mirrors the monster Downed→Slain rule (§6.4).
+
+### 19.1 The rule
+
+An adventurer reduced to 0 HP is **downed**, not dead. They die only if:
+
+- **Overkill** — the blow exceeded 0 by `overkillPct` (**0.15**) of their max HP. A big
+  monster kills; chaff only drops. This gives bruisers an identity chaff cannot copy.
+- **Three failed death saves** — rolled every `deathSaveInterval` (3) ticks at
+  `deathSaveChance` (0.5). Three successes stabilise them instead.
+
+A downed adventurer cannot act, does not vote, and is removed from the line.
+
+### 19.2 Casualties end the delve
+
+Any casualty (downed or stabilised) returns `'casualties'` from the Descent Decision. **You
+do not carry a friend deeper into a dungeon.**
+
+This is load-bearing. Without it §19 creates a fatal asymmetry — monsters still die
+permanently while adventurers no longer do, so attrition always favours the party and they
+grind to the Core. Measured without it: kills fell to 0.3/season, Souls to ~1, breaches
+rose to 2.9.
+
+### 19.3 Rescue — they pay you to survive
+
+The party can buy a bleeding member out for `rescueFee` (45), escalating ×1.8 per rescue in
+the same delve. **Only at a Landing** — you cannot negotiate mid-fight, and mid-fight it
+out-raced the death saves so completely that nobody ever died (0.98 rescues/raid, zero
+kills).
+
+This is the Tycoon reframe applied to the one moment the old rules threw money away:
+killing destroys 75% of what they carry (§4.3), so a corpse was worth less than a customer.
+**Dropping someone can now pay better than killing them.** Measured at ~42 gold/raid
+against a hard target — a genuinely new income stream that does not require a kill.
+
+### 19.4 Renown is paid per storyteller
+
+Only adventurers who left **under their own power** pay Renown. Someone carried out
+unconscious contributes nothing.
+
+Also load-bearing. Counting casualties as escapees inflated Renown ~70%, ran the tier
+ratchet to 3.9 while the dungeon stayed at its old strength, and collapsed season survival
+from 71% to **14%**. Fixing it recovered the game in one change.
+
+### 19.5 Result
+
+| | before §19 | after |
+|---|---|---|
+| combat survival | 71% | 65% |
+| tier reached | 2.8 | **3.6** |
+| Renown | 138 | 239 |
+| killed / season | 13.2 | **4.1** |
+| Souls | 28 | 10 |
+
+Adventurers now mostly survive their mistakes, exactly as intended — and the player reaches
+**deeper tiers** (3.6 vs 2.8) for roughly the same survival rate, so a season shows more
+content. `h2h` passes; wardens unchanged at #2.
+
+### 19.6 Open
+
+1. **Souls fell 28 → 10.** They come only from kills (§4.2), and kills are now rare by
+   design. Either Souls need a second source — downing is the obvious candidate — or the
+   Soul sinks (Evolutions, Reconstitute) need repricing. **Unresolved.**
+2. **Seasons overrun rose to 38%** for `balanced` (was 25%), concentrated in raids 6–8 at
+   41–44%. The early game is untouched; the late game got harder because the tier climbs
+   faster. Whether that is good escalation or a runaway needs play, not simulation.
+3. `showman` fell 55% → 25%. Thrill builds depend on survivors, and casualties do not pay.

@@ -136,6 +136,10 @@ function makeAdventurer(
     alive: true,
     namedId,
     /** Low-water mark starts full and only ever falls (§15.3). */
+    downed: false,
+    saveSuccesses: 0,
+    saveFailures: 0,
+    stable: false,
     lowestHpPct: 1,
     veteranId: veteran?.id ?? null,
 

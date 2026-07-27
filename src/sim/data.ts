@@ -193,6 +193,40 @@ export const TUNING = {
    * Single-file is this same rule at width 1.
    */
   partyEngageWidth: 2,
+  // ── Downed, death saves and rescue (§19) ──
+  /**
+   * Damage past 0 HP, as a fraction of max HP, that kills outright.
+   *
+   * Below this they are DOWNED, not dead — the mirror of the monster
+   * Downed→Slain rule (§6.4), and for the same reason: if every drop is a
+   * death, nobody ever becomes a recurring face and §9.3/§15.5 never fire.
+   * Overkill is how a genuinely lethal dungeon still kills.
+   */
+  overkillPct: 0.15,
+  /** Chance a death save succeeds. Three successes stabilise, three fail kills. */
+  deathSaveChance: 0.5,
+  /** Ticks between a downed adventurer's saves. */
+  deathSaveInterval: 3,
+  /**
+   * Gold the party pays to have a downed member dragged out alive (§19.3).
+   *
+   * The dungeon runs a rescue service. It is the Tycoon reframe applied to the
+   * one moment the old rules threw money away: killing destroys 75% of what
+   * they carry (§4.3), so a corpse was worth less than a customer. Now dropping
+   * someone can be *more* profitable than killing them.
+   */
+  rescueFee: 45,
+  /**
+   * Each rescue in the same delve costs this much more than the last.
+   *
+   * Surge pricing, and it is what stops the service being a blanket immunity:
+   * measured at a flat fee the party bought out essentially every casualty
+   * (0.98 rescues/raid) and nobody ever died. The first body is affordable,
+   * the third is a decision.
+   */
+  rescueFeeEscalation: 1.8,
+  /** Party's willingness to pay: they buy out if they can afford it and care. */
+  rescueResolveFloor: 0.25,
   lineBreakHpPct: 0.3,
   /**
    * Damage multiplier on the parting blow every monster in the room lands on a
