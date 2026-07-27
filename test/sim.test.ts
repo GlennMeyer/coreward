@@ -838,6 +838,9 @@ describe('Thrill-based Renown (§15.3)', () => {
     TUNING.thrillRenown = false;
 
     const s = seasonWithFloors(305, 1);
+    // Selling cover multiplies Renown by its price tier (§21); this test is
+    // about the Renown *rule*, so take the dungeon out of the insurance market.
+    s.dungeon.insurance = 'off';
     const sim = startRaid(s);
     sim.runToCompletion();
     const r = sim.result;
@@ -972,6 +975,9 @@ describe('Veterans, Retirement and Legends (§15.5)', () => {
     TUNING.retireMinDelves = 2;
 
     const s = runnableSeason(312);
+    // §21 scales Renown by the cover price; this test hand-computes the
+    // Thrill formula, so keep the dungeon out of the insurance market.
+    s.dungeon.insurance = 'off';
 
     let sawBonus = false, sawTrickle = false;
     while (!s.over) {

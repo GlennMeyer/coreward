@@ -9,7 +9,7 @@
 import './styles.css';
 import {
   AMENITIES, FORMATION_INFO, GEAR, HIRED_STAFF_COST, MAX_GEAR_SLOTS, MOBS,
-  STAFFED_REVENUE_MULT,
+  INSURANCE_BASE, STAFFED_REVENUE_MULT,
   admissionPrice,
   PRICE_TIERS, SEASON_RAIDS, TRAPS, TUNING, roomCapacity, trapCost,
   trapRearmCost,
@@ -207,6 +207,10 @@ function describe(e: RaidEvent): { cls: string; text: string } | null {
       return e.turnedAway > 0
         ? { cls: 'buy2', text: `${e.total}g at the gate — ${e.turnedAway} turned away, unable to pay ${e.each}g.` }
         : { cls: 'buy2', text: `${e.total}g taken at the gate (${e.each}g a head).` };
+    case 'insurance-sold':
+      return { cls: 'buy2', text: `${e.buyers} bought death cover at ${e.each}g — ${e.total}g in premiums.` };
+    case 'insurance-claim':
+      return { cls: 'buy2', text: `${e.name} dies, and the policy pays. They get up again.` };
     case 'adv-downed':
       return { cls: 'good', text: `${e.name} goes down, bleeding.` };
     case 'death-save':
@@ -871,6 +875,23 @@ function buildPanel(): HTMLElement {
     adm.append(b);
   }
   actions.append(adm);
+  // Death cover (§21). Premiums land every raid from everyone; claims are rare.
+  const ins = el('<div class="row adm"></div>');
+  ins.append(el('<span class="adm-l">Death cover</span>'));
+  for (const t of ['off', 'modest', 'standard', 'premium', 'gouge'] as (PriceTier | 'off')[]) {
+    const on = (d.insurance ?? 'off') === t;
+    const label = t === 'off'
+      ? 'off'
+      : `${t} ${Math.round(INSURANCE_BASE * tier.tier * PRICE_TIERS[t].mult)}g`;
+    const title = t === 'off'
+      ? 'Sell no policies.'
+      : `${Math.round(INSURANCE_BASE * tier.tier * PRICE_TIERS[t].mult)}g a head · Renown ×${PRICE_TIERS[t].renownMult} · a claim resurrects them`;
+    const b = el(`<button class="${on ? 'on' : ''}" title="${title}">${label}</button>`);
+    b.onclick = () => { d.insurance = t; fail(null); };
+    ins.append(b);
+  }
+  actions.append(ins);
+
   actions.append(el(`<div class="hint">Gate money is money they cannot spend on surviving — and a fleecing is remembered (Renown ×${PRICE_TIERS[d.admission ?? 'modest'].renownMult}).</div>`));
 
   actions.append(el(`<div class="hint">Drag monsters into rooms, or onto a shop to staff it. Clicking works too: select, then click a target.</div>`));

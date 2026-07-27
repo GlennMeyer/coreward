@@ -12,8 +12,8 @@ import {
   GRUDGE_TRAIT, LEY_CHARGES, MANA_PER_KILL, MOBS,
   PRICE_TIERS, PROVISIONER_MAX_KIT, RENOWN_PER_ESCAPEE, RENOWN_PER_GOLD,
   RENOWN_PER_KILL, RENOWN_WIPE_MULT, REST_RESOLVE_PCT, RESOLVE_ON_ALLY_DEATH,
-  SOULS_PER_KILL, SOULS_PER_NAMED, STAFFED_REVENUE_MULT, TRAPS, TUNING, XP_PER_DOWN, XP_PER_HIT,
-  admissionPrice,
+  SOULS_PER_DOWN, SOULS_PER_KILL, SOULS_PER_NAMED, STAFFED_REVENUE_MULT, TRAPS, TUNING, XP_PER_DOWN, XP_PER_HIT,
+  INSURANCE_BASE, INSURANCE_UPTAKE, admissionPrice,
   XP_PER_KILL,
   CLASS_MODS, mobMaxHp, soulsTierMult, trapPower, type TierRow,
 } from './data';
@@ -147,6 +147,8 @@ export class RaidSim {
   private goldFromCorpses = 0;
   private goldFromRescues = 0;
   private goldFromAdmission = 0;
+  private goldFromInsurance = 0;
+  private insuranceClaims = 0;
   private downedCount = 0;
   private rescuedCount = 0;
   private killed = 0;
@@ -233,6 +235,42 @@ export class RaidSim {
     this.goldFromAdmission = total;
     this.line = this.line.filter((a) => a.alive);
     this.emit({ t: 0, type: 'admission', total, each, turnedAway });
+    this.sellInsurance();
+  }
+
+  /**
+   * Sell death cover at the gate (§21).
+   *
+   * The dungeon sells you a policy against the dungeon. Premiums arrive every
+   * raid from every buyer while claims are rare — §19 already made death
+   * uncommon — so this is a floor under the gold economy where rescue was a
+   * lottery that paid 0.3 times a raid.
+   *
+   * The cautious buy and the greedy gamble, which is why `greed` reduces uptake:
+   * a policy is money not spent on potions.
+   */
+  private sellInsurance(): void {
+    const tierName = this.d.insurance ?? 'off';
+    if (tierName === 'off') return;
+    const pricing = PRICE_TIERS[tierName];
+    const each = Math.round(INSURANCE_BASE * this.tier.tier * pricing.mult);
+    if (each <= 0) return;
+
+    let total = 0;
+    let buyers = 0;
+    for (const adv of this.party.members) {
+      if (!adv.alive || adv.gold < each) continue;
+      // Greed is gambling on not needing it.
+      if (!this.rng.chance(INSURANCE_UPTAKE - adv.greed)) continue;
+      adv.gold -= each;
+      adv.insured = true;
+      total += each;
+      buyers++;
+    }
+    this.goldFromInsurance = total;
+    if (buyers > 0) {
+      this.emit({ t: 0, type: 'insurance-sold', total, each, buyers });
+    }
   }
 
   get status(): RaidStatus {
@@ -1098,6 +1136,22 @@ export class RaidSim {
   }
 
   private killAdventurer(adv: Adventurer): void {
+    // Policy pays out (§21). A cleric is on retainer, and the dungeon keeps the
+    // premium either way — they walk out under their own power, which under
+    // §19.4 means they tell the story, so a claim buys Renown as well as
+    // goodwill. That is the trade: guaranteed income against a harder ratchet.
+    if (adv.insured) {
+      adv.insured = false;
+      adv.downed = false;
+      adv.stable = false;
+      adv.saveSuccesses = 0;
+      adv.saveFailures = 0;
+      adv.hp = Math.max(1, Math.round(adv.maxHp * TUNING.rescueHpPct));
+      this.insuranceClaims++;
+      this.emit({ t: this.tick, type: 'insurance-claim', advId: adv.id, name: adv.name });
+      return;
+    }
+
     adv.alive = false;
     adv.downed = false;
     adv.hp = 0;
@@ -1738,7 +1792,9 @@ export class RaidSim {
     }
 
     const souls = Math.round(
-      this.killed * SOULS_PER_KILL * soulsTierMult(this.tier.tier)
+      (this.killed * SOULS_PER_KILL
+        + Math.max(0, this.downedCount - this.killed) * SOULS_PER_DOWN)
+      * soulsTierMult(this.tier.tier)
       + namedKilled * SOULS_PER_NAMED
       + bountySouls,
     );
@@ -1763,6 +1819,12 @@ export class RaidSim {
     // because a cheap enough gate prices nobody out and nothing else pushed
     // back. A dungeon that fleeces people at the door is talked about worse.
     renown *= PRICE_TIERS[this.d.admission ?? 'modest'].renownMult;
+    // Premiums are talked about the same way gate prices are (§21). Without
+    // this, gouging cover was strictly dominant — best survival, best Renown
+    // AND best gold at once — because a fleeced party arrives too poor to buy
+    // anything that would have kept it alive.
+    const ins = this.d.insurance ?? 'off';
+    if (ins !== 'off') renown *= PRICE_TIERS[ins].renownMult;
 
     // Paid under either formula so the head-to-head stays a like-for-like
     // comparison of the Renown *rule*, not of who happened to kill a Nemesis.
@@ -1777,6 +1839,8 @@ export class RaidSim {
       goldFromCorpses: this.goldFromCorpses,
       goldFromRescues: this.goldFromRescues,
       goldFromAdmission: this.goldFromAdmission,
+      goldFromInsurance: this.goldFromInsurance,
+      insuranceClaims: this.insuranceClaims,
       downedCount: this.downedCount,
       rescuedCount: this.rescuedCount,
       souls,

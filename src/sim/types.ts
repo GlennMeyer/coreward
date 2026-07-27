@@ -196,6 +196,14 @@ export interface Dungeon {
   hearts: number;
   /** Gate price tier (§20). Charged on entry, before they spend a coin inside. */
   admission: PriceTier;
+  /**
+   * Death-cover premium tier, or 'off' to sell no policies (§21).
+   *
+   * Premiums are collected from everyone at the gate; payouts happen only to
+   * the few who actually die. That inversion is the point — rescue only earns
+   * when someone drops, insurance earns every raid from everybody.
+   */
+  insurance: PriceTier | 'off';
   mobs: Mob[];
   nextMobUid: number;
   /**
@@ -256,6 +264,8 @@ export interface Adventurer {
   downed: boolean;
   /** Priced out at the gate (§20). Never entered; counts as nothing. */
   turnedAway: boolean;
+  /** Bought death cover at the gate (§21). Spent on the first death. */
+  insured: boolean;
   /** Successful death saves this delve. Three stabilises them. */
   saveSuccesses: number;
   /** Failed death saves. Three kills them. */
@@ -486,6 +496,8 @@ export type RaidEvent =
   | { t: number; type: 'adv-stable'; advId: number; name: string }
   | { t: number; type: 'adv-rescued'; advId: number; name: string; fee: number }
   | { t: number; type: 'admission'; total: number; each: number; turnedAway: number }
+  | { t: number; type: 'insurance-sold'; total: number; each: number; buyers: number }
+  | { t: number; type: 'insurance-claim'; advId: number; name: string }
   | { t: number; type: 'mob-levelup'; uid: number; level: number }
   | { t: number; type: 'room-clear'; floor: number; room: number }
   | { t: number; type: 'landing-enter'; landing: number }
@@ -535,6 +547,10 @@ export interface RaidResult {
   goldFromRescues: number;
   /** Gate takings (§20). Collected before they can spend it on surviving. */
   goldFromAdmission: number;
+  /** Premiums collected (§21). Paid by everyone, claimed by almost nobody. */
+  goldFromInsurance: number;
+  /** Policies actually paid out — a resurrection on the floor. */
+  insuranceClaims: number;
   /** Dropped to 0 HP at some point, whether or not they survived it. */
   downedCount: number;
   /** Stabilised by their own saves, or bought out. */

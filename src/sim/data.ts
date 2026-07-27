@@ -601,9 +601,20 @@ export const XP_PER_KILL = 5;
 export const XP_PER_DOWN = 4;
 export const MAX_LEVEL = 10;
 
-/** Reconstitute cost in Souls: 20 × level². Deliberately brutal (§6.4). */
+/**
+ * Souls to bring a slain monster back, per level.
+ *
+ * Was `20 × level²` — 500 Souls for a level 5 against a season income of ~10.
+ * That is not "deliberately brutal", it is decorative: nobody has ever paid it.
+ * Losing a veteran should be a setback you can claw back from, because that is
+ * the whole of pillar 3 — a monster you care about needs to be recoverable or
+ * it is just a consumable with a name.
+ */
+export const SOULS_PER_RECONSTITUTE = 4;
+
+/** Reconstitute cost in Souls, linear in level (§6.4). */
 export function reconstituteCost(level: number): number {
-  return 20 * level * level;
+  return Math.round(SOULS_PER_RECONSTITUTE * level);
 }
 
 export function mobMaxHp(defId: string, level: number): number {
@@ -718,6 +729,18 @@ export const MAX_GEAR_SLOTS = 2;
  * sales, because they arrived broke. Admission has to be a slice, not the meal.
  */
 export const ADMISSION_BASE = 3;
+
+/**
+ * Death-cover premium, scaled like admission (§21).
+ *
+ * The dungeon sells you a policy against the dungeon. Premiums land every raid
+ * from every buyer; claims are rare, because §19 already makes death rare — so
+ * this is a floor under your income where rescue was a lottery.
+ */
+export const INSURANCE_BASE = 4;
+
+/** How readily an adventurer buys cover. Cautious classes buy; the greedy skip. */
+export const INSURANCE_UPTAKE = 0.65;
 
 /**
  * Gold taken at the gate is gold they cannot spend on surviving your dungeon.
@@ -848,6 +871,13 @@ export function tierForRenown(renown: number, cap = MAX_TIER_PROTOTYPE): TierRow
  */
 export const MANA_PER_KILL = 12;
 export const SOULS_PER_KILL = 2;
+/**
+ * Souls for putting an adventurer on the floor rather than in the ground.
+ *
+ * §19 made kills rare by design and Souls come only from kills, so the upgrade
+ * currency dried up to ~10 a season. The dungeon still won that fight.
+ */
+export const SOULS_PER_DOWN = 1;
 export const SOULS_PER_NAMED = 15;
 export const RENOWN_PER_ESCAPEE = 6;
 export const RENOWN_PER_KILL = 2;

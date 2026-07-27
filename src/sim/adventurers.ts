@@ -138,6 +138,7 @@ function makeAdventurer(
     /** Low-water mark starts full and only ever falls (§15.3). */
     downed: false,
     turnedAway: false,
+    insured: false,
     saveSuccesses: 0,
     saveFailures: 0,
     stable: false,
