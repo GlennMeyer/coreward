@@ -15,6 +15,7 @@
   --warn: #e8963f;
   --adv: #6fd0e8;
   --mob: #c76a5c;
+  --trap: #7fb0c4;
   --shop: #d6a83c;
   /* Thrill (§15) borrows the Renown green — it is the same axis, one step back. */
   --thrill: #57c98a;
@@ -84,6 +85,18 @@ h2 { font-size: 12px; margin: 0 0 8px; color: var(--dim); text-transform: upperc
 .mob .gear { color: var(--dim); font-size: 10px; }
 .hpbar { height: 3px; background: #4a2a2a; border-radius: 2px; margin-top: 3px; overflow: hidden; }
 .hpbar i { display: block; height: 100%; background: var(--mob); }
+
+/* Traps (§5.2). Cool steel against the mob's warm red, so a room reads as
+   "machinery and meat" at a glance rather than as one undifferentiated pile. */
+.trap {
+  background: #1f2a30; border-left: 3px solid var(--trap); border-radius: 3px;
+  padding: 3px 5px; font-size: 11px; cursor: pointer;
+}
+.trap.selected { outline: 1px solid var(--gold); }
+/* Spent: a hole in the floor. It fires nothing and its room reads as empty. */
+.trap.spent { opacity: .38; border-left-color: var(--dim); }
+.trap .ch { color: var(--trap); letter-spacing: 1px; }
+.trap.spent .ch { color: var(--dim); }
 
 .landing {
   background: #1a2320; border: 1px dashed #3d5147; border-radius: 4px;
@@ -249,6 +262,7 @@ button.on { background: #2c4a63; border-color: var(--adv); }
 .buy .cost { color: var(--mana); }
 .buy .cost.g { color: var(--gold); }
 .buy .meta { color: var(--dim); font-size: 10px; }
+.buy.trap-buy { border-left: 3px solid var(--trap); }
 
 /* ─── Log ────────────────────────────────────────────────────────────────── */
 

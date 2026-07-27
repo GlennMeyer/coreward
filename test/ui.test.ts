@@ -6,7 +6,7 @@
  * Runs in jsdom — see environmentMatchGlobs in vite.config.ts.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MOBS, TIERS, TUNING } from '../src/sim/data';
+import { MOBS, TIERS, TRAPS, TUNING, roomCapacity } from '../src/sim/data';
 import { buildAmenity, buyMob, createDungeon, hireStaff, placeMobInRoom } from '../src/sim/dungeon';
 import { predictThrill, thrillRating } from '../src/ui/predict';
 import type { SeasonState } from '../src/sim/types';
@@ -50,7 +50,11 @@ describe('UI smoke', () => {
     // Buying selects the monster; clicking a room places it.
     click(document.querySelectorAll('.room')[0]);
     expect(document.querySelector('.room .mob')).toBeTruthy();
-    expect(document.querySelector('.room .slots')?.textContent).toBe('1/3');
+    // The readout used to print a hardcoded "/3" while `roomCapacity(0)` was
+    // actually 4 — harmless while monsters were the only occupants, a lie once
+    // traps draw on the same budget.
+    expect(document.querySelector('.room .slots')?.textContent)
+      .toBe(`1/${roomCapacity(0)}`);
   });
 
   it('digs a floor, which opens another landing', () => {
@@ -170,7 +174,34 @@ describe('UI smoke', () => {
     const at = (frag: string) => heads.findIndex((h) => h.includes(frag));
     expect(at('Build Phase')).toBe(0);
     expect(at('Monsters')).toBeGreaterThan(at('Build Phase'));
-    expect(at('Legends')).toBeGreaterThan(at('Monsters'));
+    expect(at('Traps')).toBeGreaterThan(at('Monsters'));
+    expect(at('Legends')).toBeGreaterThan(at('Traps'));
+  });
+
+  it('buys a trap, places it, and offers to re-arm it once it has fired', () => {
+    const def = TRAPS['darts']!;
+    const buy = [...document.querySelectorAll('.buy')]
+      .find((b) => b.textContent?.includes(def.name));
+    const before = app().mana;
+    click(buy);
+    click(document.querySelectorAll('.room')[0]);
+
+    const chip = document.querySelector('.room .trap');
+    expect(chip).toBeTruthy();
+    expect(chip?.textContent).toContain(def.name);
+    expect(app().mana).toBe(before - def.cost);
+    // Traps never bill you for standing still — that is the whole system.
+    expect(document.querySelector('.col-left .panel h2')?.textContent)
+      .toContain('upkeep 0/raid');
+    // Fully armed, so there is nothing to re-arm yet.
+    expect(button('Re-arm traps')).toBeFalsy();
+
+    click(button('Begin Raid'));
+    click(button('Instant'));
+    click(button('Aftermath'));
+    click(button('Continue') ?? button('New Season'));
+    // It fired on the threshold, so now it has a bill.
+    expect(button('Re-arm traps')).toBeTruthy();
   });
 
   it('shows the expected adventurer count top-left', () => {

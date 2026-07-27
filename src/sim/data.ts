@@ -2,7 +2,9 @@
  * Tuning tables. Every number here traces to docs/DESIGN.md — when you change
  * one, change the doc too, or the doc becomes a lie.
  */
-import type { AdventurerClass, AmenityDef, AmenityId, MobDef, PriceTier } from './types';
+import type {
+  AdventurerClass, AmenityDef, AmenityId, MobDef, PriceTier, TrapDef,
+} from './types';
 
 // ─── Monsters (§6.3, prototype subset of 6) ──────────────────────────────────
 
@@ -34,6 +36,94 @@ export const MOBS: Record<string, MobDef> = {
 };
 
 export const MOB_IDS = Object.keys(MOBS);
+
+// ─── Traps (§5.2, §10 Engineering) ───────────────────────────────────────────
+
+/**
+ * The trap roster. Costed against the *opening* budget, not the endgame.
+ *
+ * **Why traps exist.** Measured over 750 seasons, raid 2 was a cliff: 6% of
+ * raids breached on raid 1 and 40% on raid 2, and 62% of seasons ended overrun.
+ * 300 starting Mana buys roughly three monsters, which holds one party; from
+ * then on income is ~130-150/raid against permanent monster losses and a rising
+ * Threat Tier, so the player cannot replace what died, let alone invest. §4.1
+ * calls upkeep "the pressure valve", and it was stuck shut — every defensive
+ * option in the game charged rent.
+ *
+ * So the shape of a trap is defined by what a monster is *not*:
+ *
+ * | | Monster | Trap |
+ * |---|---|---|
+ * | Up front | 12-85 mana | 22-70 mana |
+ * | Per raid, idle | upkeep, always | **nothing** |
+ * | Per raid, working | upkeep | re-arm what fired |
+ * | Scales | levels, gear, evolution | never |
+ * | Dies | permanently (§6.4) | never |
+ *
+ * A trap is a *pay-per-use* defence. A dungeon that is losing can stop paying
+ * for it and it is still there; a dungeon that is winning pays only for the
+ * charges it actually spent. That is the option a poor dungeon can take, and
+ * it is why traps soften the early cliff without inflating the late game —
+ * they are the one thing in the dungeon that never gets better.
+ *
+ * **They complement monsters rather than replacing them.** Only two of the five
+ * deal HP damage at all, and the other three (Kit, Resolve, delay) do nothing
+ * on their own — they set up whatever is standing behind them. A room of pure
+ * traps is a room the party walks out of.
+ */
+export const TRAPS: Record<string, TrapDef> = {
+  darts: {
+    id: 'darts', name: 'Dart Battery', tier: 1, job: 'damage',
+    power: 7, slots: 1, cost: 24, rearm: 8, charges: 2,
+    blurb: 'Peppers the whole party. Ignores armour — it is a mechanism, not a swordsman.',
+  },
+  snare: {
+    id: 'snare', name: 'Snare Net', tier: 1, job: 'delay',
+    power: 3, slots: 1, cost: 30, rearm: 10, charges: 1,
+    blurb: 'Holds them still for three ticks while the room keeps swinging. Worthless alone.',
+  },
+  gasvent: {
+    id: 'gasvent', name: 'Rot-Gas Vent', tier: 2, job: 'kit',
+    power: 3, slots: 1, cost: 38, rearm: 13, charges: 1,
+    blurb: 'Spoils rations, fouls potions. Kit is half their effective health (§14.4).',
+  },
+  shrieker: {
+    id: 'shrieker', name: 'Shrieker', tier: 2, job: 'resolve',
+    power: 6, slots: 1, cost: 34, rearm: 11, charges: 1,
+    blurb: 'Breaks nerve, not bodies. The prototype bestiary fields no Terror; this is it.',
+  },
+  deadfall: {
+    id: 'deadfall', name: 'Deadfall', tier: 3, job: 'burst',
+    power: 30, slots: 2, cost: 66, rearm: 22, charges: 1,
+    blurb: 'Drops a ceiling on whoever is healthiest. The tank arrives at the fight hurt.',
+  },
+};
+
+export const TRAP_IDS = Object.keys(TRAPS);
+
+/** Install cost after the sweepable scalar. Always use this, never `def.cost`. */
+export function trapCost(defId: string): number {
+  return Math.max(1, Math.round((TRAPS[defId]?.cost ?? 0) * TUNING.trapCostScalar));
+}
+
+/** Mana per charge to re-arm. Always use this, never `def.rearm`. */
+export function trapRearmCost(defId: string): number {
+  return Math.max(1, Math.round((TRAPS[defId]?.rearm ?? 0) * TUNING.trapRearmScalar));
+}
+
+/**
+ * Effective magnitude of one firing. `sprung` applies the §7.4 Spring
+ * multiplier — a trap triggered out of sequence catches them mid-fight instead
+ * of on the threshold.
+ */
+export function trapPower(defId: string, sprung = false): number {
+  const def = TRAPS[defId];
+  if (!def) return 0;
+  const scaled = def.power * TUNING.trapPowerScalar * (sprung ? TUNING.springMult : 1);
+  // Rounded, but never to nothing: a trap that fires must do something, or the
+  // event stream tells the player a lie.
+  return Math.max(1, Math.round(scaled));
+}
 
 /**
  * Sweepable tuning knobs.
@@ -71,6 +161,57 @@ export const TUNING = {
    * regardless, so this only governs raids you actually turned back.
    */
   slayChance: 0.25,
+
+  // ── Traps (§5.2) ──
+  /**
+   * Global multiplier on every trap's magnitude.
+   *
+   * One knob for the whole roster, so the balance runner can ask "are traps
+   * strong enough to soften raid 2?" without sweeping five numbers against each
+   * other. The *relative* strengths in TRAPS are a design statement; this is
+   * the volume dial on all of them at once.
+   */
+  trapPowerScalar: 1.0,
+  /** Global multiplier on install cost. */
+  trapCostScalar: 1.0,
+  /**
+   * Global multiplier on re-arm cost — the trap economy's only recurring bill.
+   *
+   * This is the knob that decides whether traps are cheap defence or cheap
+   * *Thrill*. An armed trap makes its room non-empty, which is worth
+   * `tediumPerEmptyRoom` (4) Thrill, and Thrill pays `manaPerThrill` (1.8) mana
+   * per point — so re-arming has to cost more than ~7 mana or a trap pays for
+   * itself in Tedium relief alone and every empty corridor gets a decorative
+   * spring. The cheapest re-arm in the roster is 9.
+   */
+  trapRearmScalar: 1.0,
+  /**
+   * Magnitude multiplier when a trap is triggered by the Spring intervention
+   * (§7.4) rather than by someone stepping on it.
+   *
+   * 1.0: Spring buys *timing and reach*, not power. Its value is that it can
+   * fire a trap the party will never reach — one on a floor they are about to
+   * turn back from is otherwise dead mana — and that it can land mid-fight,
+   * when a lost Kit or a lost turn actually decides the room. That is a real
+   * decision precisely because springing a trap they were going to walk into
+   * anyway is a waste of a Ley Charge.
+   */
+  springMult: 1.0,
+  /**
+   * How much the whole trap layer may add to the `variety` set (§15.3).
+   *
+   * Traps *do* count toward variety — they are part of what makes a delve worth
+   * describing, and pretending otherwise would make the Tedium rules a lie.
+   * But all trap jobs together contribute at most this much, however many
+   * distinct ones the party meets. Adventurers tell stories about the things
+   * that fought back; a trap is scenery with a punchline, and the first one is
+   * a beat while the fourth is a corridor.
+   *
+   * Without the cap, four traps (~190 mana, no upkeep) would max `variety` with
+   * no bestiary at all — which is §15.1's exploit wearing a different hat.
+   * Set to 0 to take trap variety away entirely and measure the difference.
+   */
+  trapVarietyCredit: 1,
 
   // ── Thrill-based Renown (§15). Set `thrillRenown` false for the flat
   //    `6 × escapees` formula, so the two can be measured against each other.

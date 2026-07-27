@@ -1,21 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  GEAR, MOBS, RENOWN_PER_ESCAPEE, RENOWN_WIPE_MULT, TIERS, TUNING,
+  GEAR, MOBS, RENOWN_PER_ESCAPEE, RENOWN_WIPE_MULT, TIERS, TRAPS, TUNING,
   XP_THRESHOLDS, mobMaxHp, resetTuning, roomCapacity, roomsOnFloor,
-  tierForRenown,
+  tierForRenown, trapCost, trapRearmCost,
 } from '../src/sim/data';
 import { generateParty } from '../src/sim/adventurers';
 import { Rng } from '../src/sim/rng';
 import type { Veteran } from '../src/sim/types';
 import {
-  assignStaff, buyMob, createDungeon, digFloor, equipGear, grantXp, hireStaff,
-  mobEffectiveDmg, mobEffectiveHp, mobStripsKit, mobsInRoom, packMultiplier,
-  placeMobInRoom, roomSlotsUsed, totalUpkeep, unplace,
+  assignStaff, buyMob, buyTrap, createDungeon, digFloor, equipGear, getTrap,
+  grantXp, hireStaff, mobEffectiveDmg, mobEffectiveHp, mobStripsKit,
+  mobsInRoom, packMultiplier, placeMobInRoom, placeTrapInRoom, rearmAll,
+  rearmAllPrice, removeTrap, roomSlotsUsed, totalUpkeep, unplace,
 } from '../src/sim/dungeon';
 import { RaidSim } from '../src/sim/raid';
 import { applyAftermath, createSeason, startRaid } from '../src/sim/season';
 import type { Dungeon, Mob } from '../src/sim/types';
-import { addMob, addStaffedAmenity, seasonWithFloors } from './helpers';
+import { addMob, addStaffedAmenity, addTrap, seasonWithFloors } from './helpers';
 
 describe('dungeon construction', () => {
   let d: Dungeon;
@@ -333,6 +334,196 @@ describe('interventions (§7.4)', () => {
     }
     expect(sim.result.outcome).toBe('retreated');
     expect(sim.result.escaped).toBeGreaterThan(0);
+  });
+});
+
+describe('traps (§5.2)', () => {
+  afterEach(resetTuning);
+
+  it('installs armed, costs no upkeep, and draws on the room slot budget', () => {
+    const d = createDungeon();
+    addMob(d, 'ogre', 0, 0);          // 3 slots
+    const uid = addTrap(d, 'darts', 0, 0);  // 1 slot
+
+    expect(getTrap(d, uid)!.charges).toBe(TRAPS['darts']!.charges);
+    expect(roomSlotsUsed(d, 0, 0)).toBe(MOBS['ogre']!.slots + TRAPS['darts']!.slots);
+    // The whole point of the system: a trap never bills you for standing still.
+    expect(totalUpkeep(d)).toBe(MOBS['ogre']!.upkeep);
+  });
+
+  it('refuses a trap that will not fit', () => {
+    const d = createDungeon();
+    addMob(d, 'ogre', 0, 0);
+    // roomCapacity(0) is 4; Ogre takes 3 and a Deadfall needs 2.
+    const trap = buyTrap(d, 'deadfall');
+    if (typeof trap === 'string') throw new Error(trap);
+    expect(placeTrapInRoom(d, trap.uid, 0, 0)).toMatch(/full/);
+  });
+
+  it('fires on room entry, before anything swings, and spends a charge', () => {
+    const s = seasonWithFloors(900, 1);
+    const uid = addTrap(s.dungeon, 'darts', 0, 0);
+    const sim = new RaidSim(s.dungeon, TIERS[0]!, 5);
+    const events = sim.step();
+
+    const fire = events.find((e) => e.type === 'trap-fire');
+    const hit = events.find((e) => e.type === 'trap-hit');
+    expect(fire).toBeTruthy();
+    expect(hit).toBeTruthy();
+    // Every member caught it — `damage` is a spread job.
+    expect(events.filter((e) => e.type === 'trap-hit'))
+      .toHaveLength(sim.party.members.length);
+    expect(getTrap(s.dungeon, uid)!.charges).toBe(TRAPS['darts']!.charges - 1);
+  });
+
+  it('a spent trap does nothing at all', () => {
+    const s = seasonWithFloors(901, 1);
+    const uid = addTrap(s.dungeon, 'gasvent', 0, 0);
+    getTrap(s.dungeon, uid)!.charges = 0;
+    const sim = new RaidSim(s.dungeon, TIERS[0]!, 5);
+    const events = sim.runToCompletion();
+    expect(events.some((e) => e.type === 'trap-fire')).toBe(false);
+  });
+
+  it('a room holding only a SPENT trap still counts as empty for Tedium', () => {
+    const armed = (charges: number): number => {
+      const s = seasonWithFloors(902, 1);
+      const uid = addTrap(s.dungeon, 'darts', 0, 0);
+      getTrap(s.dungeon, uid)!.charges = charges;
+      const sim = new RaidSim(s.dungeon, TIERS[0]!, 7);
+      sim.runToCompletion();
+      return sim.result.thrill.tedium;
+    };
+    // Three rooms, one trap. Armed it occupies its room; spent it does not,
+    // which is what stops traps buying Tedium relief once and collecting it
+    // every raid forever.
+    expect(armed(0)).toBe(3 * TUNING.tediumPerEmptyRoom);
+    expect(armed(1)).toBe(2 * TUNING.tediumPerEmptyRoom);
+  });
+
+  it('destroys Kit, which is the lever §14.4 says matters', () => {
+    const s = seasonWithFloors(903, 1);
+    addTrap(s.dungeon, 'gasvent', 0, 0);
+    const sim = new RaidSim(s.dungeon, TIERS[0]!, 9);
+    const before = sim.party.kit;
+    const events = sim.step();
+    const e = events.find((x) => x.type === 'trap-kit');
+    expect(e).toBeTruthy();
+    expect(sim.party.kit).toBe(before - TRAPS['gasvent']!.power);
+    expect(sim.party.kitStripped).toBe(TRAPS['gasvent']!.power);
+  });
+
+  it('Resolve traps route through the traits that exist to stop Terror', () => {
+    const s = seasonWithFloors(904, 1);
+    addTrap(s.dungeon, 'shrieker', 0, 0);
+    const sim = new RaidSim(s.dungeon, TIERS[0]!, 11);
+    // 'steeled' halves Resolve damage (§9.3). Applied before the trap fires.
+    const victim = sim.party.members[0]!;
+    victim.traits.push('steeled');
+    const start = victim.resolve;
+    sim.step();
+    const other = sim.party.members[1]!;
+    expect(start - victim.resolve).toBeLessThan(other.maxResolve - other.resolve);
+  });
+
+  it('a delay trap costs the party turns while the room keeps swinging', () => {
+    const taken = (snare: boolean): number => {
+      const s = seasonWithFloors(905, 1);
+      addMob(s.dungeon, 'ogre', 0, 0);
+      if (snare) addTrap(s.dungeon, 'snare', 0, 0);
+      const sim = new RaidSim(s.dungeon, TIERS[0]!, 13);
+      const events = sim.runToCompletion();
+      return events
+        .filter((e) => e.type === 'attack' && e.source === 'mob')
+        .reduce((sum, e) => sum + (e as { dmg: number }).dmg, 0);
+    };
+    // A Snare does no damage of its own. It buys the room free swings — the
+    // party still needs the same number of blows to fell the Ogre, it just
+    // spends three more ticks being hit while it lands them.
+    expect(taken(true)).toBeGreaterThan(taken(false));
+  });
+
+  it('trap damage counts toward peril', () => {
+    const s = seasonWithFloors(906, 1);
+    for (let r = 0; r < 3; r++) addTrap(s.dungeon, 'darts', 0, r);
+    const sim = new RaidSim(s.dungeon, TIERS[0]!, 17);
+    sim.runToCompletion();
+    expect(sim.result.thrill.peril).toBeGreaterThan(0);
+  });
+
+  it('the whole trap layer is worth at most trapVarietyCredit', () => {
+    const variety = (): number => {
+      const s = seasonWithFloors(907, 1);
+      addTrap(s.dungeon, 'darts', 0, 0);
+      addTrap(s.dungeon, 'gasvent', 0, 1);
+      addTrap(s.dungeon, 'shrieker', 0, 2);
+      const sim = new RaidSim(s.dungeon, TIERS[0]!, 19);
+      sim.runToCompletion();
+      return sim.result.thrill.variety;
+    };
+    // Three distinct jobs, no monsters. Uncapped this would be full marks —
+    // §15.1's exploit in a new hat. Capped at 1, it is a third of the term.
+    expect(variety()).toBeCloseTo(1 / 3, 5);
+    TUNING.trapVarietyCredit = 0;
+    expect(variety()).toBe(0);
+  });
+
+  it('re-arming costs mana per spent charge and nothing when full', () => {
+    const d = createDungeon();
+    const uid = addTrap(d, 'deadfall', 0, 0);
+    expect(rearmAllPrice(d)).toBe(0);
+    getTrap(d, uid)!.charges = 0;
+    expect(rearmAllPrice(d)).toBe(trapRearmCost('deadfall'));
+    expect(rearmAll(d, 1000)).toBe(trapRearmCost('deadfall'));
+    expect(getTrap(d, uid)!.charges).toBe(TRAPS['deadfall']!.charges);
+  });
+
+  it('re-arms cheapest-first when the purse is short', () => {
+    const d = createDungeon();
+    const cheap = addTrap(d, 'darts', 0, 0);
+    const dear = addTrap(d, 'deadfall', 0, 1);
+    getTrap(d, cheap)!.charges = 0;
+    getTrap(d, dear)!.charges = 0;
+    // Enough for the Dart Battery's charges, nowhere near the Deadfall's.
+    const budget = trapRearmCost('darts') * TRAPS['darts']!.charges;
+    expect(rearmAll(d, budget)).toBe(budget);
+    expect(getTrap(d, cheap)!.charges).toBe(TRAPS['darts']!.charges);
+    expect(getTrap(d, dear)!.charges).toBe(0);
+  });
+
+  it('Spring fires a trap out of sequence for a Ley Charge (§7.4)', () => {
+    const s = seasonWithFloors(908, 2);
+    // Installed on Floor 2 — a party that turns back on Floor 1 never meets it.
+    const uid = addTrap(s.dungeon, 'gasvent', 1, 0);
+    addMob(s.dungeon, 'ogre', 0, 0);
+    const sim = new RaidSim(s.dungeon, TIERS[0]!, 23);
+    sim.step();  // party is in Floor 1, room 1
+
+    const before = sim.party.kit;
+    expect(sim.applySpringIntervention(uid)).toBe(true);
+    expect(sim.charges).toBe(2);
+    expect(sim.party.kit).toBeLessThan(before);
+    expect(getTrap(s.dungeon, uid)!.charges).toBe(0);
+    // And it cannot be spent twice.
+    expect(sim.applySpringIntervention(uid)).toBe(false);
+  });
+
+  it('Spring refuses a trap with no charges left', () => {
+    const s = seasonWithFloors(909, 1);
+    const uid = addTrap(s.dungeon, 'shrieker', 0, 1);
+    getTrap(s.dungeon, uid)!.charges = 0;
+    const sim = new RaidSim(s.dungeon, TIERS[0]!, 29);
+    sim.step();
+    expect(sim.applySpringIntervention(uid)).toBe(false);
+    expect(sim.charges).toBe(3);
+  });
+
+  it('ripping a trap out refunds half of base cost', () => {
+    const d = createDungeon();
+    const uid = addTrap(d, 'snare', 0, 0);
+    expect(removeTrap(d, uid)).toBe(Math.floor(trapCost('snare') * 0.5));
+    expect(getTrap(d, uid)).toBeUndefined();
+    expect(roomSlotsUsed(d, 0, 0)).toBe(0);
   });
 });
 

@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { RaidSim } from '../src/sim/raid';
 import { Rng } from '../src/sim/rng';
 import { TIERS } from '../src/sim/data';
-import { addMob, addStaffedAmenity, seasonWithFloors } from './helpers';
+import { addMob, addStaffedAmenity, addTrap, seasonWithFloors } from './helpers';
 import type { SeasonState } from '../src/sim/types';
 
 function buildScenario(seed: number): SeasonState {
@@ -17,6 +17,15 @@ function buildScenario(seed: number): SeasonState {
   addMob(s.dungeon, 'skeleton', 1, 1);
   addMob(s.dungeon, 'ogre', 2, 0);
   addMob(s.dungeon, 'ooze', 2, 1);
+  // Every trap job in the roster (§5.2), so the stream covers each effect
+  // path — including the two that mutate party state outside combat (Kit and
+  // the Snare's tick counter), which are the ones an ordering bug would show
+  // up in first.
+  addTrap(s.dungeon, 'darts', 0, 0);
+  addTrap(s.dungeon, 'snare', 0, 1);
+  addTrap(s.dungeon, 'gasvent', 1, 0);
+  addTrap(s.dungeon, 'shrieker', 1, 1);
+  addTrap(s.dungeon, 'deadfall', 2, 1);
   addStaffedAmenity(s.dungeon, 0, 0, 'provisioner');
   addStaffedAmenity(s.dungeon, 1, 0, 'hotspring');
   return s;

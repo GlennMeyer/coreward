@@ -7,11 +7,11 @@
 import {
   AMENITIES, AMENITY_SLOTS_PER_LANDING, COMMERCE_XP_THRESHOLDS, DIG_COSTS,
   GEAR, HIRED_STAFF_COST, MAX_COMMERCE_LEVEL, MAX_FLOORS, MAX_GEAR_SLOTS,
-  MAX_LEVEL, MOBS, STARTING_HEARTS, XP_THRESHOLDS, mobDmg, mobMaxHp,
-  roomCapacity, roomsOnFloor,
+  MAX_LEVEL, MOBS, STARTING_HEARTS, TRAPS, XP_THRESHOLDS, mobDmg, mobMaxHp,
+  roomCapacity, roomsOnFloor, trapCost, trapRearmCost,
 } from './data';
 import type {
-  Amenity, AmenityId, Dungeon, Landing, Mob, PriceTier, Room,
+  Amenity, AmenityId, Dungeon, Landing, Mob, PriceTier, Room, Trap,
 } from './types';
 
 export type BuildError = string | null;
@@ -23,11 +23,16 @@ export function createDungeon(): Dungeon {
     hearts: STARTING_HEARTS,
     mobs: [],
     nextMobUid: 1,
+    traps: [],
+    nextTrapUid: 1,
   };
 }
 
 function emptyRooms(floorIndex: number): Room[] {
-  return Array.from({ length: roomsOnFloor(floorIndex) }, () => ({ mobUids: [] }));
+  return Array.from(
+    { length: roomsOnFloor(floorIndex) },
+    () => ({ mobUids: [], trapUids: [] }),
+  );
 }
 
 function emptyLanding(): Landing {
@@ -80,13 +85,188 @@ export function buyMob(d: Dungeon, defId: string): Mob | string {
   return mob;
 }
 
+/**
+ * Room capacity used by everything in the room — monsters AND traps.
+ *
+ * **Traps share the monster slot budget; they do not get a layer of their own.**
+ * §5.2 writes a room as holding "one of" a mob group, a trap, or a cache, and
+ * §16.3 already turned that into a single capacity number. Two reasons to keep
+ * it that way rather than giving traps free space:
+ *
+ * 1. A free layer is a free win. If a trap costs no capacity then every room in
+ *    the dungeon gets one, no room is ever "empty" for Tedium (§15.3), and the
+ *    §15.1 exploit reopens through the back door — reputation for a delve
+ *    nobody paid for. Capacity is the price that keeps the choice honest.
+ * 2. It is the interesting decision. A Hewn floor-1 room holds 4 slots: an Ogre
+ *    (3) plus a Snare, or a Skeleton (2) plus two traps, or four traps and
+ *    nothing that can finish anybody. Every trap you install is a monster you
+ *    did not, in that room, on that floor — which is exactly the "soften, then
+ *    kill" arrangement §7.5 describes, arrived at as a budget rather than a
+ *    rule.
+ */
 export function roomSlotsUsed(d: Dungeon, floor: number, room: number): number {
   const r = d.floors[floor]?.rooms[room];
   if (!r) return 0;
-  return r.mobUids.reduce((sum, uid) => {
+  const mobSlots = r.mobUids.reduce((sum, uid) => {
     const m = getMob(d, uid);
     return sum + (m ? MOBS[m.defId]!.slots : 0);
   }, 0);
+  const trapSlots = (r.trapUids ?? []).reduce((sum, uid) => {
+    const t = getTrap(d, uid);
+    return sum + (t ? TRAPS[t.defId]!.slots : 0);
+  }, 0);
+  return mobSlots + trapSlots;
+}
+
+// ─── Traps (§5.2) ────────────────────────────────────────────────────────────
+
+export function getTrap(d: Dungeon, uid: number): Trap | undefined {
+  return d.traps?.find((t) => t.uid === uid);
+}
+
+/** Every installed trap. Safe on a Dungeon literal written before traps existed. */
+export function allTraps(d: Dungeon): Trap[] {
+  return d.traps ?? [];
+}
+
+/** Traps installed in a room, in firing order, armed or not. */
+export function trapsInRoom(d: Dungeon, floor: number, room: number): Trap[] {
+  const r = d.floors[floor]?.rooms[room];
+  if (!r) return [];
+  return (r.trapUids ?? [])
+    .map((uid) => getTrap(d, uid))
+    .filter((t): t is Trap => !!t);
+}
+
+/**
+ * Traps in a room that will actually do something.
+ *
+ * The distinction matters everywhere: a spent trap is a hole in the floor. It
+ * fires nothing, it counts for no `variety`, and its room reads as empty for
+ * Tedium. Re-arming is the whole recurring cost of the trap economy, so it has
+ * to be the thing every downstream rule keys off.
+ */
+export function armedTrapsInRoom(d: Dungeon, floor: number, room: number): Trap[] {
+  return trapsInRoom(d, floor, room).filter((t) => t.charges > 0);
+}
+
+export function buyTrap(d: Dungeon, defId: string): Trap | string {
+  const def = TRAPS[defId];
+  if (!def) return `Unknown trap: ${defId}`;
+  d.traps ??= [];
+  d.nextTrapUid ??= 1;
+  const trap: Trap = {
+    uid: d.nextTrapUid++,
+    defId,
+    charges: def.charges,   // installed armed — the purchase price includes it
+    placement: { kind: 'unassigned' },
+  };
+  d.traps.push(trap);
+  return trap;
+}
+
+/** Remove a trap from wherever it sits. Idempotent. */
+export function unplaceTrap(d: Dungeon, uid: number): void {
+  const trap = getTrap(d, uid);
+  if (!trap) return;
+  if (trap.placement.kind === 'room') {
+    const r = d.floors[trap.placement.floor]?.rooms[trap.placement.room];
+    if (r?.trapUids) r.trapUids = r.trapUids.filter((x) => x !== uid);
+  }
+  trap.placement = { kind: 'unassigned' };
+}
+
+export function placeTrapInRoom(
+  d: Dungeon, uid: number, floor: number, room: number,
+): BuildError {
+  const trap = getTrap(d, uid);
+  if (!trap) return 'No such trap.';
+  const target = d.floors[floor]?.rooms[room];
+  if (!target) return 'No such room.';
+
+  const def = TRAPS[trap.defId]!;
+  const already = trap.placement.kind === 'room'
+    && trap.placement.floor === floor && trap.placement.room === room;
+  const used = roomSlotsUsed(d, floor, room) - (already ? def.slots : 0);
+  const cap = roomCapacity(floor);
+  if (used + def.slots > cap) {
+    return `Room is full — ${used}/${cap} slots, ${def.name} needs ${def.slots}.`;
+  }
+
+  unplaceTrap(d, uid);
+  (target.trapUids ??= []).push(uid);
+  trap.placement = { kind: 'room', floor, room };
+  return null;
+}
+
+/**
+ * Mana to put one charge back into a trap. Zero if it is already full.
+ *
+ * There is no automatic re-arm anywhere in the sim. That is the design: a
+ * monster's bill arrives whether it fought or not (§4.1), and a trap's arrives
+ * only for what it spent. A player who cannot afford to reset the dungeon this
+ * raid simply fights without it, and the trap is still there next raid.
+ */
+export function trapRearmPrice(d: Dungeon, uid: number): number {
+  const trap = getTrap(d, uid);
+  if (!trap) return 0;
+  const def = TRAPS[trap.defId]!;
+  return Math.max(0, def.charges - trap.charges) * trapRearmCost(trap.defId);
+}
+
+/** Total mana to bring every installed trap back to full charges. */
+export function rearmAllPrice(d: Dungeon): number {
+  return allTraps(d).reduce((sum, t) => sum + trapRearmPrice(d, t.uid), 0);
+}
+
+/** Re-arm one trap fully. Returns the mana spent, or an error. */
+export function rearmTrap(d: Dungeon, uid: number, mana: number): number | string {
+  const trap = getTrap(d, uid);
+  if (!trap) return 'No such trap.';
+  const price = trapRearmPrice(d, uid);
+  if (price === 0) return 'Already armed.';
+  if (mana < price) return `Re-arming costs ${price} mana.`;
+  trap.charges = TRAPS[trap.defId]!.charges;
+  return price;
+}
+
+/**
+ * Re-arm as much of the dungeon as `mana` covers, cheapest first.
+ *
+ * Cheapest-first rather than deepest-first on purpose: when the budget is
+ * short, the player gets the most triggers back per mana, which is the whole
+ * argument for traps over monsters. Returns what it spent.
+ */
+export function rearmAll(d: Dungeon, mana: number): number {
+  let spent = 0;
+  const queue = allTraps(d)
+    .filter((t) => trapRearmPrice(d, t.uid) > 0)
+    .sort((a, b) => trapRearmCost(a.defId) - trapRearmCost(b.defId));
+  for (const t of queue) {
+    const price = trapRearmPrice(d, t.uid);
+    if (spent + price > mana) continue;
+    t.charges = TRAPS[t.defId]!.charges;
+    spent += price;
+  }
+  return spent;
+}
+
+/**
+ * Rip a trap out. Refunds half the install cost, like dismissing a monster
+ * (§4.1) — and unlike a monster there are no levels to throw away, because a
+ * trap never improves. Spent charges are not refunded.
+ */
+export function trapSalvageValue(defId: string): number {
+  return Math.floor(trapCost(defId) * DISMISS_REFUND);
+}
+
+export function removeTrap(d: Dungeon, uid: number): number | string {
+  const trap = getTrap(d, uid);
+  if (!trap) return 'No such trap.';
+  unplaceTrap(d, uid);
+  const refund = trapSalvageValue(trap.defId);
+  d.traps = allTraps(d).filter((t) => t.uid !== uid);
+  return refund;
 }
 
 /** Remove a mob from wherever it currently sits. Idempotent. */
@@ -177,7 +357,15 @@ export function assignStaff(
 
 // ─── Upkeep & economy helpers ────────────────────────────────────────────────
 
-/** Only *placed* mobs cost upkeep; unassigned ones are in stasis by default. */
+/**
+ * Only *placed* mobs cost upkeep; unassigned ones are in stasis by default.
+ *
+ * **Traps deliberately contribute nothing.** That is not an oversight and it is
+ * not "traps are free": a trap's bill is `rearmAllPrice()`, charged in the
+ * Build Phase for exactly the charges it spent. Splitting the two is the point
+ * of the system — §4.1's pressure valve should squeeze a dungeon that is
+ * standing idle, not one that is being overrun.
+ */
 export function totalUpkeep(d: Dungeon): number {
   let total = 0;
   for (const m of d.mobs) {

@@ -235,6 +235,47 @@ describe('narration finds what was distinctive', () => {
     expect(digestRaid(ctx({ events: empty })).longestEmptyRun).toBe(6);
   });
 
+  it('reports the machinery, and reads a trap room as occupied (§5.2)', () => {
+    const events: RaidEvent[] = [
+      { t: 0, type: 'raid-start', tier: 1, partySize: 3 },
+      { t: 1, type: 'room-enter', floor: 0, room: 0 },
+      {
+        t: 1, type: 'trap-fire', uid: 500, defId: 'gasvent',
+        floor: 0, room: 0, sprung: false, chargesLeft: 0,
+      },
+      { t: 1, type: 'trap-kit', uid: 500, defId: 'gasvent', amount: 3, kitLeft: 4 },
+      { t: 2, type: 'room-clear', floor: 0, room: 0 },
+      { t: 3, type: 'raid-end', outcome: 'retreated' },
+    ];
+    const d = digestRaid(ctx({ events }));
+    expect(d.trapKit).toBe(3);
+    expect(d.topTrap).toBe('gasvent');
+    // A trap going off is not an empty corridor.
+    expect(d.emptyRooms).toBe(0);
+
+    const n = narrateRaid(ctx({ events }));
+    expect(n.beats).toContain('traps');
+    expect(n.text).toContain('Rot-Gas Vent');
+  });
+
+  it('gives the Spring intervention its own beat (§7.4)', () => {
+    const events: RaidEvent[] = [
+      { t: 0, type: 'raid-start', tier: 2, partySize: 3 },
+      { t: 1, type: 'room-enter', floor: 0, room: 0 },
+      {
+        t: 4, type: 'trap-fire', uid: 501, defId: 'snare',
+        floor: 1, room: 2, sprung: true, chargesLeft: 0,
+      },
+      { t: 4, type: 'trap-snare', uid: 501, defId: 'snare', ticks: 3 },
+      { t: 9, type: 'raid-end', outcome: 'retreated' },
+    ];
+    const n = narrateRaid(ctx({ events }));
+    expect(n.beats).toContain('spring');
+    // The sprung beat replaces the generic one rather than doubling up.
+    expect(n.beats).not.toContain('traps');
+    expect(n.text).toContain('Snare Net');
+  });
+
   it('calls out back-to-back identical rooms', () => {
     const same: RaidEvent[] = [
       { t: 0, type: 'raid-start', tier: 2, partySize: 3 },

@@ -1508,3 +1508,104 @@ trusting the numbers.
 2. Is a 1-raid delay felt at all, or is it invisible noise?
 3. Does an asymmetric floor plan emerge on its own, or does everyone widen everything in
    the same order?
+
+---
+
+## 17. Traps — the cheap defence
+
+**Status: IMPLEMENTED (v0.4).** Built to answer a specific measured failure, recorded below.
+
+### 17.1 The problem
+
+Breach rate by raid, 750 seasons, before traps existed:
+
+| raid | 1 | 2 | 3 | 4 | 5 |
+|---|---|---|---|---|---|
+| breach % | 4% | **39%** | 42% | 48% | 57% |
+
+**72% of seasons ended overrun.** Raid 2 was a cliff. Starting Mana buys ~3 monsters, which
+holds raid 1 comfortably; then income is ~130–150/raid, monsters are lost permanently to
+`slayChance`, and the Threat Tier rises. The player cannot replace losses, let alone
+invest — so §16's "keep building" fantasy was structurally unreachable.
+
+The root cause: **monsters were the only defensive tool, and they are expensive AND carry
+per-raid upkeep** — which §4.1 calls the pressure valve. A poor dungeon had no options.
+
+### 17.2 Roster
+
+| Trap | Tier | Job | Power | Slots | Cost | Re-arm | Charges |
+|---|---|---|---|---|---|---|---|
+| **Dart Battery** | 1 | Damage, every member, ignores armour | 7 | 1 | 24 | 8 | 2 |
+| **Snare Net** | 1 | Delay — the party forfeits its turns | 3 ticks | 1 | 30 | 10 | 1 |
+| **Rot-Gas Vent** | 2 | Kit destroyed | 3 | 1 | 38 | 13 | 1 |
+| **Shrieker** | 2 | Resolve damage, every member | 6 | 1 | 34 | 11 | 1 |
+| **Deadfall** | 3 | Burst on the healthiest body | 30 | 2 | 66 | 22 | 1 |
+
+**The economic shape is the whole point: zero upkeep, ever.** A trap's only recurring cost
+is re-arming the charges it actually spent, paid in the Build Phase and never automatic. A
+monster bills you whether it fought or not; a trap bills you only when it worked. Traps
+never level and never die — they are the one thing in the dungeon that does not improve,
+which is why they soften the early cliff without inflating the endgame.
+
+Three of the five deal no HP damage at all. They **set up whatever stands behind them**, so
+an all-trap room is a room the party walks out of — which is §7.5's "soften, then kill"
+arrived at as a budget rather than a rule.
+
+**Traps share the monster slot budget.** A free layer would put a trap in every room, make
+no room "empty" for Tedium, and reopen §15.1 through the back door. A Floor-1 room is 4
+slots: an Ogre (3) plus a Snare, or a Skeleton plus two traps, or four traps and nothing
+that can finish anybody.
+
+**Spring (§7.4) is now wired.** One Ley Charge fires any armed trap at the party's current
+position. Its value is reach — a Floor-3 trap is dead mana against a party turning back on
+Floor 1 — and timing. The multiplier is deliberately 1.0: springing a trap they would have
+walked into anyway wastes the charge, which is what makes it a decision.
+
+### 17.3 Keeping traps out of the Thrill loophole
+
+Three rules, all keyed on **armed**:
+
+1. **A spent trap is a hole in the floor.** Its room counts as empty for Tedium. Keeping
+   the relief means paying to re-arm — cheapest is 9 mana against 4 Tedium × 1.8 mana =
+   7.2, so it is deliberately not free.
+2. Trap ids are in the room signature, so nine Dart Battery rooms are repeats.
+3. **The whole trap layer is worth at most one `variety` entry** however many jobs fire.
+   Uncapped, four traps (~190 mana, no upkeep, no bestiary) would max the term that exists
+   to reward a wide roster.
+
+### 17.4 Result
+
+| | before | after (balanced) | trap-leaning build |
+|---|---|---|---|
+| raid-2 breach | 39% | 29% | **8%** |
+| seasons overrun | 72% | 54% | **29%** |
+| reach raid 8 | 305/750 | — | 488/600 at Tier 2.9 |
+
+The raid-2 *step change* is gone in both configurations — the curve is a ramp. For a
+trap-leaning build, raid 2 is the safest raid of the season.
+
+An unplanned win for pillar 3: best monster level rose 1.6 → 2.2 and monsters lost fell
+13.2 → 7.4, because traps absorb work that used to kill veterans.
+
+### 17.5 Deliberately not done
+
+Pushing the generalist strategies to a 0.4 trap share reaches 43% overrun and Tier 3.5 —
+better on every headline number. **It was reverted.** At 0.4 every strategy converges on
+the same dungeon: `combat` kills 2.1 a season instead of 11.6 and sends 26.6 people home,
+which is `wardens`' line exactly. Best monster level collapses to 0.6. Traps produce
+retreats, not corpses, so past about a third of the purse **pillar 2's three distinct
+builds become one and pillar 3 stops happening**. Winning numbers, dead design.
+
+### 17.6 Still open
+
+1. **Cheap monsters have terrible marginal efficiency.** Under focus fire a Skeleton dies
+   in ~3 ticks having delivered ~11 damage for 40 mana + 4 upkeep; an Ogre delivers ~52 for
+   85 + 7. The only efficient defence is a big monster you cannot afford yet, and
+   everything between is a bad buy. Traps work *because* they are immune to focus fire and
+   always deliver their full payload — but the gap underneath is what makes the mid-tier
+   bestiary feel pointless.
+2. **§14.5 is unfixed.** Adventurers out-scale monsters permanently, so a build that rides
+   the ratchet outruns its own veterans.
+3. **The residual raid-2 spike is a digging artifact**, not a trap problem: the raid after a
+   dig is a 10-room dungeon with 6 rooms of defence. Delaying the dig is worse (a floor
+   pays 40/raid). If raid 2 should be flatter still, the lever is the dig cost curve.

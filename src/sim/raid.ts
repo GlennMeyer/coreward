@@ -12,12 +12,12 @@ import {
   GRUDGE_TRAIT, HOTSPRING_HEAL_PCT, LEY_CHARGES, MANA_PER_KILL, MOBS,
   PRICE_TIERS, PROVISIONER_MAX_KIT, RENOWN_PER_ESCAPEE, RENOWN_PER_GOLD,
   RENOWN_PER_KILL, RENOWN_WIPE_MULT, REST_RESOLVE_PCT, RESOLVE_ON_ALLY_DEATH,
-  SOULS_PER_KILL, SOULS_PER_NAMED, TUNING, XP_PER_HIT, XP_PER_KILL, CLASS_MODS,
-  mobMaxHp, soulsTierMult, type TierRow,
+  SOULS_PER_KILL, SOULS_PER_NAMED, TRAPS, TUNING, XP_PER_HIT, XP_PER_KILL,
+  CLASS_MODS, mobMaxHp, soulsTierMult, trapPower, type TierRow,
 } from './data';
 import {
-  downMob, getMob, grantCommerceXp, grantXp, isOpen, mobEffectiveDmg,
-  mobStripsKit, mobsInRoom, packMultiplier, slayMob,
+  armedTrapsInRoom, downMob, getMob, getTrap, grantCommerceXp, grantXp, isOpen,
+  mobEffectiveDmg, mobStripsKit, mobsInRoom, packMultiplier, slayMob,
 } from './dungeon';
 import { Rng } from './rng';
 import {
@@ -25,7 +25,8 @@ import {
 } from './adventurers';
 import type {
   Adventurer, Dungeon, GrudgeReason, Legend, Mob, MobRole, Party, RaidEvent,
-  RaidOutcome, RaidResult, RetreatReason, RivalNote, ThrillScore, Veteran,
+  RaidOutcome, RaidResult, RetreatReason, RivalNote, ThrillScore, Trap, TrapJob,
+  Veteran,
 } from './types';
 
 export type RaidStatus = 'running' | 'awaiting-taunt' | 'complete';
@@ -101,6 +102,16 @@ export class RaidSim {
   private atb = new Map<number, number>();
   private advAtb = new Map<number, number>();
 
+  /**
+   * Ticks the party is held for by a Snare (§5.2 `delay`). While this is
+   * positive the adventurers forfeit their actions and the room's monsters
+   * keep swinging — which is the entire value of a delay trap: it does nothing
+   * on its own and multiplies whatever is standing behind it.
+   *
+   * Cleared on leaving the room. A net does not follow people downstairs.
+   */
+  private stunTicks = 0;
+
   private _status: RaidStatus = 'running';
   private pendingTaunt: { landing: number; reason: RetreatReason } | null = null;
   private leyCharges = LEY_CHARGES;
@@ -119,6 +130,12 @@ export class RaidSim {
   private repeatedRooms = 0;
   private lastRoomSig: string | null = null;
   private rolesFaced = new Set<MobRole>();
+  /**
+   * Distinct trap jobs that actually went off (§5.2). Only *fired* traps go in
+   * here — an armed trap the party never reached made no impression, and a
+   * spent one is a hole in the floor.
+   */
+  private trapJobsFaced = new Set<TrapJob>();
   private amenitiesUsed = new Set<string>();
   private thrillScore: ThrillScore = ZERO_THRILL;
   private retiredThisRaid: Legend[] = [];
@@ -234,6 +251,36 @@ export class RaidSim {
     return true;
   }
 
+  /**
+   * Intervention: **Spring** (§7.4) — trigger a trap early, out of sequence.
+   *
+   * Costs a Ley Charge and fires any armed trap in the dungeon at the party's
+   * current position, wherever the trap happens to be installed. Two things
+   * make that worth a charge:
+   *
+   * 1. **Reach.** A trap on Floor 3 is dead mana against a party that turns
+   *    back on Floor 1. Spring is the only way to convert it.
+   * 2. **Timing.** A trap normally goes off on the threshold, before anyone has
+   *    swung. Sprung, it lands in the middle of a fight the player is losing —
+   *    a Snare while the Ogre is still up, or a Gas Vent the tick before they
+   *    would have drunk their last Kit.
+   *
+   * It is deliberately possible to waste: springing a trap they were going to
+   * walk into anyway spends a Ley Charge for nothing. `TUNING.springMult` is
+   * 1.0 so the decision stays about *when*, not about damage.
+   */
+  applySpringIntervention(uid: number): boolean {
+    if (this._status !== 'running' || this.leyCharges <= 0) return false;
+    const trap = getTrap(this.d, uid);
+    if (!trap || trap.charges <= 0) return false;
+    if (aliveMembers(this.party).length === 0) return false;
+
+    this.leyCharges--;
+    this.fireTrap(trap, true);
+    this.checkPartyState();
+    return true;
+  }
+
   /** Answer a pending Taunt offer. `true` forces one more floor of descent. */
   resolveTaunt(accept: boolean): RaidEvent[] {
     if (this._status !== 'awaiting-taunt' || !this.pendingTaunt) return [];
@@ -257,7 +304,15 @@ export class RaidSim {
     if (!this.roomEntered) {
       this.roomEntered = true;
       this.emit({ t: this.tick, type: 'room-enter', floor: this.floor, room: this.room });
+      // Sampled before anything fires, so a trap that is about to spend its
+      // last charge still counts as content the party walked into (§15.3).
       this.noteRoomTraversed();
+      // Traps go off on the threshold, ahead of the ambush round and ahead of
+      // the first exchange (§7.2 step 1). The party arrives at the fight
+      // already lighter, already hurt, or already held — which is the only
+      // reason to put one in front of a monster rather than buy another
+      // monster.
+      this.fireRoomTraps();
       this.initRoomCombatants();
       this.ambushRound();
       if (this.checkPartyState()) return;
@@ -282,13 +337,19 @@ export class RaidSim {
       this.atb.set(mob.uid, acc);
     }
 
-    for (const adv of aliveMembers(this.party)) {
-      let acc = (this.advAtb.get(adv.id) ?? 0) + 1;
-      while (acc >= 1) {
-        acc -= 1;
-        this.advAct(adv);
+    // Held by a Snare: the monsters got their turn above, the party does not
+    // get theirs. One tick of the net is spent per tick of the fight.
+    if (this.stunTicks > 0) {
+      this.stunTicks--;
+    } else {
+      for (const adv of aliveMembers(this.party)) {
+        let acc = (this.advAtb.get(adv.id) ?? 0) + 1;
+        while (acc >= 1) {
+          acc -= 1;
+          this.advAct(adv);
+        }
+        this.advAtb.set(adv.id, acc);
       }
-      this.advAtb.set(adv.id, acc);
     }
 
     this.checkPartyState();
@@ -303,8 +364,14 @@ export class RaidSim {
    */
   private noteRoomTraversed(): void {
     const mobs = mobsInRoom(this.d, this.floor, this.room);
+    // ARMED traps only. A spent trap is a hole in the floor, and a room whose
+    // only occupant is a hole in the floor is an empty room — which is what
+    // stops traps being a way to buy Tedium relief once and collect it every
+    // raid forever. Keeping the room "occupied" means paying to re-arm it, and
+    // `trapRearmScalar` is set so that bill exceeds the Tedium it saves.
+    const traps = armedTrapsInRoom(this.d, this.floor, this.room);
 
-    if (mobs.length === 0) {
+    if (mobs.length === 0 && traps.length === 0) {
       this.emptyRooms++;
       // Empty rooms already pay tediumPerEmptyRoom; charging them the repeat
       // penalty as well would double-bill the same corridor.
@@ -314,11 +381,132 @@ export class RaidSim {
 
     for (const m of mobs) this.rolesFaced.add(MOBS[m.defId]!.role);
 
-    // Same cast of monsters as the room before it — nine identical Ogre rooms
-    // is a bad dungeon by rule, not just by taste (§15.4).
-    const sig = mobs.map((m) => m.defId).sort().join(',');
+    // Same cast as the room before it — nine identical Ogre rooms is a bad
+    // dungeon by rule, not just by taste (§15.4). Traps are in the signature
+    // for the same reason: a corridor of nine Dart Batteries is the same
+    // failure with a smaller budget.
+    const sig = [
+      ...mobs.map((m) => m.defId),
+      ...traps.map((t) => `trap:${t.defId}`),
+    ].sort().join(',');
     if (sig === this.lastRoomSig) this.repeatedRooms++;
     this.lastRoomSig = sig;
+  }
+
+  // ─── Traps (§5.2) ──────────────────────────────────────────────────────────
+
+  /** Everything armed in this room goes off, in installation order. */
+  private fireRoomTraps(): void {
+    for (const trap of armedTrapsInRoom(this.d, this.floor, this.room)) {
+      if (aliveMembers(this.party).length === 0) return;
+      this.fireTrap(trap, false);
+    }
+  }
+
+  /**
+   * Spend one charge and apply the effect.
+   *
+   * Traps never level, never take damage and never die — they are the one
+   * thing in the dungeon that does not improve (§6.4 is about monsters and
+   * always was). What they have instead is that they cost nothing to own.
+   */
+  private fireTrap(trap: Trap, sprung: boolean): void {
+    const def = TRAPS[trap.defId];
+    if (!def || trap.charges <= 0) return;
+    trap.charges--;
+
+    const at = trap.placement.kind === 'room'
+      ? trap.placement
+      : { floor: this.floor, room: this.room };
+    this.emit({
+      t: this.tick, type: 'trap-fire', uid: trap.uid, defId: trap.defId,
+      floor: at.floor, room: at.room, sprung, chargesLeft: trap.charges,
+    });
+    // Only a trap that actually went off is content the party experienced —
+    // and even then the whole trap layer is capped at `trapVarietyCredit`
+    // toward `variety`. See TUNING for why.
+    this.trapJobsFaced.add(def.job);
+
+    const power = trapPower(trap.defId, sprung);
+    const alive = aliveMembers(this.party);
+    if (alive.length === 0) return;
+
+    switch (def.job) {
+      case 'damage':
+        // Every member, armour ignored. Deliberately spread: it is the trap
+        // that makes a room *survivable to enter and expensive to leave*,
+        // rather than the trap that picks a victim.
+        for (const adv of [...alive]) this.trapDamage(trap, adv, power);
+        break;
+
+      case 'burst': {
+        // The healthiest body — which in practice is the one that has not been
+        // hit yet, i.e. the tank walking point.
+        const target = alive.reduce((a, b) => (b.hp > a.hp ? b : a));
+        this.trapDamage(trap, target, power);
+        break;
+      }
+
+      case 'kit': {
+        // §7.3: no Kit, no rest heal — so this is the cheapest way in the game
+        // to make HP damage stick. It also drives the Descent Decision, which
+        // is the "send them home" win condition (§7.5) available to a dungeon
+        // that cannot afford a Warden.
+        const taken = Math.min(this.party.kit, power);
+        if (taken <= 0) break;
+        this.party.kit -= taken;
+        this.party.kitStripped += taken;
+        this.emit({
+          t: this.tick, type: 'trap-kit', uid: trap.uid, defId: trap.defId,
+          amount: taken, kitLeft: this.party.kit,
+        });
+        break;
+      }
+
+      case 'resolve':
+        // Routed through applyResolveDamage so the traits that exist to stop
+        // Terror stop this too — Vess is immune, 'steeled' halves it (§9.2,
+        // §9.3). A trap should not be a way around published counter-play.
+        for (const adv of [...alive]) {
+          const amount = this.applyResolveDamage(adv, power);
+          if (amount > 0) {
+            this.emit({
+              t: this.tick, type: 'resolve-hit', advId: adv.id,
+              amount, resolveLeft: adv.resolve,
+            });
+          }
+        }
+        break;
+
+      case 'delay':
+        this.stunTicks += power;
+        this.emit({
+          t: this.tick, type: 'trap-snare', uid: trap.uid,
+          defId: trap.defId, ticks: power,
+        });
+        break;
+    }
+  }
+
+  /** Trap damage. Ignores armour, feeds peril, and can kill. */
+  private trapDamage(trap: Trap, adv: Adventurer, amount: number): void {
+    if (!adv.alive) return;
+    const dmg = Math.max(1, Math.round(amount));
+    adv.hp = Math.max(0, adv.hp - dmg);
+    adv.hurtByTrap = (adv.hurtByTrap ?? 0) + dmg;
+    // Traps count toward `peril` exactly like a monster does. They are part of
+    // how close the party came to dying, and pretending otherwise would make
+    // a trap dungeon quietly unprofitable under §15.
+    const pct = adv.hp / adv.maxHp;
+    if (pct < adv.lowestHpPct) {
+      adv.lowestHpPct = pct;
+      if (pct <= TUNING.patronCautionHpPct) adv.nearDeathFloor = this.floor;
+    }
+    this.emit({
+      t: this.tick, type: 'trap-hit', uid: trap.uid, defId: trap.defId,
+      advId: adv.id, dmg,
+    });
+    if (adv.hp <= 0) this.killAdventurer(adv);
   }
 
   private initRoomCombatants(): void {
@@ -519,6 +707,8 @@ export class RaidSim {
   private advanceRoom(): void {
     this.room++;
     this.roomEntered = false;
+    // A net does not follow people down the corridor.
+    this.stunTicks = 0;
     const floorDef = this.d.floors[this.floor]!;
     if (this.room < floorDef.rooms.length) return;
 
@@ -722,6 +912,7 @@ export class RaidSim {
     this.floor++;
     this.room = 0;
     this.roomEntered = false;
+    this.stunTicks = 0;
     this.phase = 'room';
     // Sister Ivane restores 1 Kit to the party on every floor she enters
     // (§9.2). A drain dungeon can still out-strip her — it just cannot win by
@@ -781,6 +972,29 @@ export class RaidSim {
    * deep they got, how much of the bestiary they met, how well they were
    * looked after — less the tedium of empty and repeated rooms.
    */
+  /**
+   * `variety` (§15.3): distinct monster roles met, plus a capped credit for
+   * having met any traps at all.
+   *
+   * Traps count — they are part of what makes a delve worth describing, and a
+   * Tedium rule that says "an armed trap is not an empty room" while a variety
+   * rule says "a trap is nothing" would be two rules disagreeing about the
+   * same object.
+   *
+   * But the whole trap layer is worth at most `TUNING.trapVarietyCredit`,
+   * however many distinct jobs fired. Uncapped, four traps — around 190 mana,
+   * no upkeep, no bestiary — would score full marks on the term that is
+   * supposed to reward a wide roster, which is §15.1's exploit with a
+   * different sign on it. Adventurers tell stories about the things that fought
+   * back. A trap is scenery with a punchline: the first is a beat, the fourth
+   * is a corridor.
+   */
+  private varietyScore(): number {
+    const trapCredit = Math.min(this.trapJobsFaced.size, TUNING.trapVarietyCredit);
+    const distinct = this.rolesFaced.size + trapCredit;
+    return Math.min(distinct, VARIETY_ROLE_CAP) / VARIETY_ROLE_CAP;
+  }
+
   private scoreDelve(): void {
     const tedium =
       TUNING.tediumPerEmptyRoom * this.emptyRooms
@@ -797,7 +1011,7 @@ export class RaidSim {
     // Absolute floors cleared, not the fraction of *this* dungeon cleared —
     // see TUNING.thrillDepthFloors for why the §15.3 ratio was backwards.
     const depth = clamp01(this.deepestFloor / TUNING.thrillDepthFloors);
-    const variety = Math.min(this.rolesFaced.size, VARIETY_ROLE_CAP) / VARIETY_ROLE_CAP;
+    const variety = this.varietyScore();
     const open = this.openAmenityCount();
     const comfort = open > 0 ? clamp01(this.amenitiesUsed.size / open) : 0;
 
@@ -887,6 +1101,11 @@ export class RaidSim {
           topRole = role as MobRole;
         }
       }
+      // A mechanism outdid every monster down there. It teaches 'hale' — you
+      // come back thicker, not armoured, because armour does nothing against a
+      // dart that ignores it. Same deterministic rule as everything else in
+      // §9.3: the counter-play is a mirror of what the player built.
+      if ((adv.hurtByTrap ?? 0) > top) return 'swarm';
       switch (topRole) {
         case 'skirmisher':
         case 'ambusher':

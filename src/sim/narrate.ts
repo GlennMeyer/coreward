@@ -23,7 +23,7 @@
  * end of the night. Dry, wry, faintly commercial. Never a cackling villain and
  * never purple.
  */
-import { AMENITIES, MOBS } from './data';
+import { AMENITIES, MOBS, TRAPS } from './data';
 import { Rng } from './rng';
 import type {
   Dungeon, Party, RaidEvent, RaidResult, RetreatReason, Veteran,
@@ -117,7 +117,9 @@ function middleCount(d: RaidDigest): number {
     + (d.closest && d.closest.pct <= 40 ? 1 : 0)
     + (d.purchaseGold > 0 ? 1 : 0)
     + (d.rivalry.nemesis ? 1 : 0)
-    + (d.repeatedMob ? 1 : 0);
+    + (d.repeatedMob ? 1 : 0)
+    + (d.sprung ? 1 : 0)
+    + (d.trapKit > 0 || d.trapHeld > 0 || d.trapDmg >= 12 ? 1 : 0);
   if (d.thrill < 12 && eventful === 0) return 1;
   return Math.max(1, Math.min(4, 1 + eventful));
 }
@@ -137,6 +139,8 @@ interface RoomTally {
   empty: boolean;
   /** uid → damage that mob put through the party, in this room. */
   byMob: Map<number, number>;
+  /** Trap defIds that went off here (§5.2). A trap firing is not an empty room. */
+  traps: string[];
 }
 
 interface MobRef {
@@ -177,6 +181,19 @@ export interface RaidDigest {
   dryRest: boolean;
   kitFloor: number | null;
   resolveHits: number;
+
+  // ── Traps (§5.2) ──
+  /** Traps that fired, by defId, most-used first. */
+  trapsFired: { defId: string; times: number }[];
+  /** HP damage traps put through the party, and Kit they destroyed. */
+  trapDmg: number;
+  trapKit: number;
+  /** Ticks the party spent held by a Snare. */
+  trapHeld: number;
+  /** A trap triggered by the Spring intervention (§7.4) — the player's own beat. */
+  sprung: { defId: string; floor: number; room: number } | null;
+  /** The trap that did the most measurable work. */
+  topTrap: string | null;
 
   tauntOffered: boolean;
   tauntUsed: boolean;
@@ -272,6 +289,12 @@ export function digestRaid(ctx: NarrationContext): RaidDigest {
   const goldByAmenity = new Map<string, number>();
   let repeatedMob: MobRef | null = null;
   let lastRoomSig: string | null = null;
+  const trapFires = new Map<string, number>();
+  const trapWork = new Map<string, number>();
+  let trapDmg = 0;
+  let trapKit = 0;
+  let trapHeld = 0;
+  let sprung: { defId: string; floor: number; room: number } | null = null;
 
   for (const e of events) {
     switch (e.type) {
@@ -283,9 +306,40 @@ export function digestRaid(ctx: NarrationContext): RaidDigest {
       case 'room-enter':
         cur = {
           floor: e.floor, room: e.room, dmgTaken: 0, advDeaths: [], mobDowns: 0,
-          kitStripped: 0, resolveHits: 0, empty: true, byMob: new Map(),
+          kitStripped: 0, resolveHits: 0, empty: true, byMob: new Map(), traps: [],
         };
         rooms.push(cur);
+        break;
+
+      // ── Traps (§5.2) ──
+      // A trap going off is emphatically not an empty room, so `empty` clears
+      // here for the same reason it clears on an attack: something happened.
+      case 'trap-fire':
+        trapFires.set(e.defId, (trapFires.get(e.defId) ?? 0) + 1);
+        if (e.sprung) sprung = { defId: e.defId, floor: e.floor, room: e.room };
+        if (cur) { cur.traps.push(e.defId); cur.empty = false; }
+        break;
+
+      case 'trap-hit':
+        trapDmg += e.dmg;
+        trapWork.set(e.defId, (trapWork.get(e.defId) ?? 0) + e.dmg);
+        if (cur) { cur.dmgTaken += e.dmg; cur.empty = false; }
+        break;
+
+      case 'trap-kit':
+        trapKit += e.amount;
+        kitStripped += e.amount;
+        // Weighted well above raw damage: taking supplies is worth far more
+        // than the hit points it superficially resembles (§7.3, §14.4).
+        trapWork.set(e.defId, (trapWork.get(e.defId) ?? 0) + e.amount * 12);
+        if (e.kitLeft === 0 && kitFloor === null) kitFloor = cur?.floor ?? 0;
+        if (cur) { cur.kitStripped += e.amount; cur.empty = false; }
+        break;
+
+      case 'trap-snare':
+        trapHeld += e.ticks;
+        trapWork.set(e.defId, (trapWork.get(e.defId) ?? 0) + e.ticks * 6);
+        if (cur) cur.empty = false;
         break;
 
       case 'attack':
@@ -447,6 +501,15 @@ export function digestRaid(ctx: NarrationContext): RaidDigest {
     kitFloor,
     resolveHits,
 
+    trapsFired: [...trapFires.entries()]
+      .map(([defId, times]) => ({ defId, times }))
+      .sort((a, b) => b.times - a.times),
+    trapDmg,
+    trapKit,
+    trapHeld,
+    sprung,
+    topTrap: [...trapWork.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null,
+
     tauntOffered,
     tauntUsed,
     killsAfterTaunt,
@@ -488,6 +551,7 @@ function roomSignature(
 ): { key: string | null; ref: MobRef | null } {
   let seen = -1;
   const uids = new Set<number>();
+  const traps = new Set<string>();
   for (const e of events) {
     if (e.type === 'room-enter') {
       seen++;
@@ -496,10 +560,17 @@ function roomSignature(
     if (seen !== index) continue;
     if (e.type === 'attack' && e.source === 'mob') uids.add(e.uid);
     if (e.type === 'kit-strip') uids.add(e.uid);
+    // A trap is part of a room's cast: two rooms of Dart Batteries back to
+    // back is the same failure as two rooms of Ogres, and the sim's own
+    // signature counts it (see `noteRoomTraversed`).
+    if (e.type === 'trap-fire' && !e.sprung) traps.add(e.defId);
   }
-  if (uids.size === 0) return { key: null, ref: null };
+  if (uids.size === 0 && traps.size === 0) return { key: null, ref: null };
   const refs = [...uids].map((u) => mobIndex.get(u)).filter((r): r is MobRef => !!r);
-  const key = refs.map((r) => r.defId).sort().join(',');
+  const key = [
+    ...refs.map((r) => r.defId),
+    ...[...traps].map((t) => `trap:${t}`),
+  ].sort().join(',');
   return { key: key || null, ref: refs[0] ?? null };
 }
 
@@ -561,6 +632,7 @@ function fingerprint(d: RaidDigest): number {
     d.outcome, d.tier, d.partySize, d.ticks, d.thrill, d.renown, d.souls,
     d.deepestFloor, d.rooms.length, d.emptyRooms, d.kitStripped, d.resolveHits,
     d.purchaseGold, d.slain.length, d.downed.length, d.deaths.length,
+    d.trapDmg, d.trapKit, d.trapHeld, d.sprung ? 'S' : '-',
     d.survivors.map((s) => `${s.name}:${s.pct}`).join('|'),
     d.deaths.map((x) => x.name).join('|'),
     d.tauntUsed ? 'T' : '-', d.breachHearts ?? '-', d.retreatReason ?? '-',
@@ -620,12 +692,27 @@ function buildBeats(d: RaidDigest, rng: Rng): Beat[] {
     add('turning-point', 'mid', 20, 70 + (d.turningPoint.advDeaths.length ? 25 : 0),
       turningPointBeat(d, rng));
   }
-  if (d.kitStripped >= 2 || d.dryRest) {
+  // The Kit beat is written around a *monster* taking the pack apart. When
+  // nothing living did it, the trap beat below says the same thing accurately
+  // instead of this one saying it about "something".
+  const kitByMonster = d.kitStripped > d.trapKit || d.kitStripper !== null;
+  if ((d.kitStripped >= 2 && kitByMonster) || d.dryRest) {
     add('kit', 'mid', 25, 52 + Math.min(d.kitStripped, 8) * 4 + (d.dryRest ? 18 : 0),
       kitBeat(d, rng));
   }
   if (d.resolveHits >= 3 || d.retreatReason === 'resolve') {
     add('resolve', 'mid', 26, 48 + (d.retreatReason === 'resolve' ? 25 : 0), resolveBeat(d, rng));
+  }
+  // Springing a trap is a player decision paid for with a Ley Charge (§7.4),
+  // so it outranks the trap firing on its own — the same reasoning that puts
+  // Taunt near the top of the scale.
+  if (d.sprung) {
+    add('spring', 'mid', 27, 86, springBeat(d, rng));
+  } else if (d.trapsFired.length > 0) {
+    // Weighted on what the machinery actually did, not on how many clicked.
+    add('traps', 'mid', 28,
+      40 + Math.min(24, d.trapDmg / 2) + d.trapKit * 9 + d.trapHeld * 4,
+      trapBeat(d, rng));
   }
   if (d.purchaseGold > 0) {
     // Commerce is one of the three ways to win a floor (§7.5). Weighted to be
@@ -891,6 +978,62 @@ function resolveBeat(d: RaidDigest, rng: Rng): string {
   return fill(rng, [
     `Something down there worked on their nerve for a while, and it showed in how fast they took the stairs back up.`,
     `They spent a good stretch flinching at things rather than fighting them.`,
+  ]);
+}
+
+/** The name of a trap, or a serviceable noun if the roster has moved on. */
+function trapName(defId: string | null): string {
+  return (defId && TRAPS[defId]?.name) || 'something mechanical';
+}
+
+/**
+ * The machinery did some of the work tonight.
+ *
+ * Kept to one sentence and pitched at the ledger, because a trap is the part
+ * of the dungeon with no personality — that is the joke, and it is also the
+ * design: monsters are units, traps are overheads that occasionally pay off.
+ */
+function trapBeat(d: RaidDigest, rng: Rng): string {
+  const t = trapName(d.topTrap ?? d.trapsFired[0]?.defId ?? null);
+  const fired = d.trapsFired.reduce((s, x) => s + x.times, 0);
+
+  if (d.trapKit > 0) {
+    return fill(rng, [
+      `The ${t} took ${countWord(d.trapKit)} lots of supplies off them before anything in the room had moved. No blood, no upkeep, no argument.`,
+      `${countWord(d.trapKit)} of their kit went into the ${t}. It cost us a re-arming fee and nothing else, which is the sort of bargain we like.`,
+      `The ${t} did what it is there for: ${countWord(d.trapKit)} supplies spoiled on the threshold, and a much shorter delve as a result.`,
+    ]);
+  }
+  if (d.trapHeld > 0) {
+    return fill(rng, [
+      `The ${t} held them still for ${countWord(d.trapHeld)} ticks while everything in the room kept working. A net does no damage and wins the fight anyway.`,
+      `They spent ${countWord(d.trapHeld)} ticks in the ${t}, unable to swing at anything, being swung at throughout.`,
+      `The ${t} did not hurt anybody. It simply arranged for them to stand still while something else did.`,
+    ]);
+  }
+  if (d.trapDmg >= 12) {
+    return fill(rng, [
+      `The ${t} opened the room for ${d.trapDmg} damage before a single monster had to earn its keep.`,
+      `${d.trapDmg} damage came out of the ${t} — no upkeep, no levels, no funeral. It will be there next raid too.`,
+      `The ${t} took ${d.trapDmg} out of them on the threshold. Cheapest hit points we sell.`,
+    ]);
+  }
+  return fill(rng, [
+    `The machinery went off ${fired === 1 ? 'once' : `${countWord(fired)} times`} and made rather less impression than the brochure promised.`,
+    `The ${t} triggered on cue and did very little. It still needs re-arming.`,
+    `${cap(countWord(fired))} trap${fired === 1 ? '' : 's'} fired. Nobody down there seemed especially inconvenienced.`,
+  ]);
+}
+
+/** The player spent a Ley Charge to fire a trap out of sequence (§7.4). */
+function springBeat(d: RaidDigest, rng: Rng): string {
+  const t = trapName(d.sprung!.defId);
+  const where = `Floor ${d.sprung!.floor + 1}`;
+  return fill(rng, [
+    `We sprung the ${t} early, out of sequence, while they were still busy. Nobody had planned for the ${where} machinery to go off from over there.`,
+    `A Ley Charge went on triggering the ${t} at a moment of our choosing rather than theirs. That is what the charge is for.`,
+    `The ${t} on ${where} was never going to see them at this rate, so we fired it anyway. Waste not.`,
+    `We reached over and set the ${t} off mid-fight. Very little of the dungeon is a surprise twice; timing is what is left.`,
   ]);
 }
 

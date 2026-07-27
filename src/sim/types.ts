@@ -73,6 +73,64 @@ export type Placement =
   | { kind: 'room'; floor: number; room: number }
   | { kind: 'amenity'; landing: number; slot: number };
 
+// ─── Traps (§5.2, §10 Engineering) ───────────────────────────────────────────
+
+/**
+ * What a trap is *for*. Deliberately not a copy of MobRole: a trap is a
+ * mechanism, so it does one thing, once, and then it is a hole in the floor
+ * until somebody pays to reset it.
+ *
+ * - `damage`  — chip every member. Softens the room for whatever is behind it.
+ * - `burst`   — one big hit on the healthiest body. The tank arrives hurt.
+ * - `kit`     — destroys supplies. §14.4: Kit is roughly half a party's
+ *               effective HP, and §7.3 makes it the whole of the rest heal.
+ * - `resolve` — breaks nerve rather than bodies. Pillar 2's third path, which
+ *               the prototype bestiary has no monster for.
+ * - `delay`   — holds the party still for a few ticks while the room's
+ *               monsters keep swinging. A pure force multiplier.
+ */
+export type TrapJob = 'damage' | 'burst' | 'kit' | 'resolve' | 'delay';
+
+export interface TrapDef {
+  id: string;
+  name: string;
+  tier: number;
+  job: TrapJob;
+  /**
+   * Magnitude, read according to `job`: HP per member, HP to one target, Kit
+   * destroyed, Resolve per member, or ticks held.
+   */
+  power: number;
+  /** Room capacity consumed — the same budget monsters draw on (§16.3). */
+  slots: number;
+  /** Mana to install. Arrives fully armed. */
+  cost: number;
+  /** Mana per charge to re-arm in the Build Phase. Traps have NO upkeep. */
+  rearm: number;
+  /** Armed charges it holds at once. Most are one-shot. */
+  charges: number;
+  blurb: string;
+}
+
+/** A placed trap. Persists across raids; never levels; never dies. */
+export interface Trap {
+  uid: number;
+  defId: string;
+  /**
+   * Armed charges remaining.
+   *
+   * At 0 the trap is scenery: it fires nothing, it counts for no `variety`,
+   * and its room reads as EMPTY for Tedium (§15.3). That last clause is what
+   * stops a spent trap being free padding — see `noteRoomTraversed`.
+   */
+  charges: number;
+  placement: TrapPlacement;
+}
+
+export type TrapPlacement =
+  | { kind: 'unassigned' }
+  | { kind: 'room'; floor: number; room: number };
+
 // ─── Dungeon ─────────────────────────────────────────────────────────────────
 
 export type AmenityId = 'hotspring' | 'provisioner';
@@ -99,6 +157,12 @@ export interface Amenity {
 
 export interface Room {
   mobUids: number[];
+  /**
+   * Traps installed here, in firing order. Optional so every existing Room
+   * literal — tests, tools, saved states — stays valid; read it through
+   * `trapsInRoom()`, which treats "missing" as "none".
+   */
+  trapUids?: number[];
 }
 
 export interface Floor {
@@ -121,6 +185,12 @@ export interface Dungeon {
   hearts: number;
   mobs: Mob[];
   nextMobUid: number;
+  /**
+   * Installed traps (§5.2). Optional for the same reason `Room.trapUids` is:
+   * a Dungeon literal written before traps existed is still a valid Dungeon.
+   */
+  traps?: Trap[];
+  nextTrapUid?: number;
 }
 
 // ─── Adventurers ─────────────────────────────────────────────────────────────
@@ -173,6 +243,13 @@ export interface Adventurer {
   goldSpentHere: number;
   /** Damage taken this delve, by the role of the monster that dealt it. */
   hurtByRole: Partial<Record<MobRole, number>>;
+  /**
+   * Damage taken this delve from traps (§5.2). Kept apart from `hurtByRole`
+   * because a trap is not a role — and because the grudge it teaches is a
+   * different one: a mechanism bleeds you a scratch at a time, so it makes
+   * people come back *thicker* ('hale'), not armoured (§9.3).
+   */
+  hurtByTrap?: number;
   /** Resolve lost this delve, from Terror mobs and from watching allies die. */
   resolveLost: number;
   /** Floor index where their HP low-water mark was set. Feeds `cautiousFloor`. */
@@ -316,6 +393,21 @@ export type RaidEvent =
   | { t: number; type: 'attack'; source: 'mob'; uid: number; targetId: number; dmg: number }
   | { t: number; type: 'attack'; source: 'adv'; advId: number; targetUid: number; dmg: number }
   | { t: number; type: 'kit-strip'; uid: number; amount: number; kitLeft: number }
+  // ── Traps (§5.2). `trap-fire` is the beat; the rest carry the consequences.
+  | {
+      t: number;
+      type: 'trap-fire';
+      uid: number;
+      defId: string;
+      floor: number;
+      room: number;
+      /** True if a Ley Charge triggered it out of sequence — Spring (§7.4). */
+      sprung: boolean;
+      chargesLeft: number;
+    }
+  | { t: number; type: 'trap-hit'; uid: number; defId: string; advId: number; dmg: number }
+  | { t: number; type: 'trap-kit'; uid: number; defId: string; amount: number; kitLeft: number }
+  | { t: number; type: 'trap-snare'; uid: number; defId: string; ticks: number }
   | { t: number; type: 'resolve-hit'; advId: number; amount: number; resolveLeft: number }
   | { t: number; type: 'kit-heal'; advId: number; amount: number; kitLeft: number }
   | { t: number; type: 'mob-downed'; uid: number; defId: string; level: number }

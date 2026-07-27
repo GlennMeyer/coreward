@@ -471,6 +471,29 @@ function main(): void {
     sweep('advDmgPerLevel', [0.6, 0.8, 1.0, 1.25, 1.5], n);
     sweep('kitHealPct', [0.15, 0.2, 0.25, 0.3], n);
 
+    // ── Traps (§5.2) ──
+    // The volume dial on the whole roster. Swept against `traps` because that
+    // is the build whose survival is a pure function of it, and against
+    // `balanced` because the question traps exist to answer — "can an ordinary
+    // dungeon get past raid 2?" — is an ordinary dungeon's question.
+    sweep('trapPowerScalar', [0.5, 0.7, 1.0, 1.4, 2.0], n, 'balanced');
+    sweep('trapPowerScalar', [0.5, 0.7, 1.0, 1.4, 2.0], n, 'traps');
+    // The trap economy's only recurring bill, and the knob that decides
+    // whether traps are cheap defence or cheap Thrill. Note it barely moves
+    // `balanced` (a quarter of its purse) and dominates `traps` (over half).
+    sweep('trapRearmScalar', [0.5, 1.0, 1.5, 2.5], n, 'traps');
+    sweep('trapCostScalar', [0.7, 1.0, 1.5, 2.0], n, 'traps');
+    // Trap variety credit (§15.3). At 0 traps score no `variety` at all; at 3
+    // they can max the term with no bestiary, which is §15.1's exploit in a
+    // new hat. Watch `renown` rather than `survive` — this knob is Renown, and
+    // Renown is the difficulty dial (§4.4), so a higher value shows up as a
+    // *lower* survival rate via the ratchet rather than as an easier game.
+    sweep('trapVarietyCredit', [0, 1, 2, 3], n, 'traps');
+    // Spring (§7.4). The scripted AI never spends a Ley Charge, so this sweep
+    // is a floor rather than a measurement — it is here so that changing the
+    // multiplier cannot silently change the game once a spending AI exists.
+    sweep('springMult', [1.0, 1.5], n, 'traps');
+
     // ── Thrill knobs (§15.3, §15.5) ──
     // Peril is the story: swept against showman, the build that deliberately
     // threatens rather than kills, because that is where the weight bites.

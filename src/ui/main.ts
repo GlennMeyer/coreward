@@ -9,12 +9,14 @@
 import './styles.css';
 import {
   AMENITIES, GEAR, HIRED_STAFF_COST, MAX_GEAR_SLOTS, MOBS, PRICE_TIERS,
-  SEASON_RAIDS, TUNING,
+  SEASON_RAIDS, TRAPS, TUNING, roomCapacity, trapCost, trapRearmCost,
 } from '../sim/data';
 import {
-  assignStaff, buildAmenity, buyMob, demolishAmenity, digCost, digFloor,
-  dismissMob, dismissValue, equipGear, getMob, hireStaff, isOpen,
-  mobEffectiveHp, placeMobInRoom, roomSlotsUsed, setPrice, totalUpkeep,
+  allTraps, assignStaff, buildAmenity, buyMob, buyTrap, demolishAmenity,
+  digCost, digFloor, dismissMob, dismissValue, equipGear, getMob, getTrap,
+  hireStaff, isOpen, mobEffectiveHp, placeMobInRoom, placeTrapInRoom, rearmAll,
+  rearmAllPrice, removeTrap, roomSlotsUsed, setPrice, totalUpkeep, trapsInRoom,
+  trapSalvageValue,
 } from '../sim/dungeon';
 import { applyAftermath, createSeason, currentTier, startRaid } from '../sim/season';
 import { narrateRaid, type Narration } from '../sim/narrate';
@@ -22,7 +24,7 @@ import { forecast, predictThrill, thrillRating, type ThrillPrediction } from './
 import type { RaidSim } from '../sim/raid';
 import type {
   Adventurer, Amenity, AmenityId, Legend, Mob, PriceTier, RaidEvent,
-  SeasonState, ThrillScore,
+  SeasonState, ThrillScore, Trap,
 } from '../sim/types';
 import type { Aftermath as AftermathType } from '../sim/season';
 
@@ -52,6 +54,13 @@ interface App {
    */
   events: RaidEvent[];
   selectedMob: number | null;
+  /**
+   * Selected trap uid. Deliberately a second field rather than a tagged
+   * `selection`: monsters and traps go in the same rooms but obey different
+   * rules — a trap cannot staff a shop, a monster cannot be re-armed — and one
+   * field would mean every call site re-deriving which kind it is holding.
+   */
+  selectedTrap: number | null;
   aftermath: AftermathType | null;
   /** The account of the last raid, rendered above the ledger. */
   narration: Narration | null;
@@ -66,6 +75,7 @@ const app: App = {
   log: [],
   events: [],
   selectedMob: null,
+  selectedTrap: null,
   aftermath: null,
   narration: null,
   error: '',
@@ -199,6 +209,19 @@ function describe(e: RaidEvent): { cls: string; text: string } | null {
         : { cls: '', text: `${advName(e.advId)} hits ${mobName(e.targetUid)} for ${e.dmg}.` };
     case 'kit-strip':
       return { cls: 'good', text: `${mobName(e.uid)} destroys supplies. Kit ${e.kitLeft}.` };
+    case 'trap-fire':
+      return {
+        cls: e.sprung ? 'crit' : 'buy2',
+        text: e.sprung
+          ? `SPRUNG — the ${TRAPS[e.defId]!.name} goes off early.`
+          : `The ${TRAPS[e.defId]!.name} triggers.`,
+      };
+    case 'trap-hit':
+      return { cls: 'hit', text: `${TRAPS[e.defId]!.name} catches ${advName(e.advId)} for ${e.dmg}.` };
+    case 'trap-kit':
+      return { cls: 'good', text: `${TRAPS[e.defId]!.name} ruins ${e.amount} Kit. Kit ${e.kitLeft}.` };
+    case 'trap-snare':
+      return { cls: 'good', text: `They are held fast for ${e.ticks} ticks.` };
     case 'resolve-hit':
       return { cls: 'good', text: `${advName(e.advId)} falters. Resolve ${e.resolveLeft}.` };
     case 'kit-heal':
@@ -405,6 +428,7 @@ function beginRaid(): void {
   app.events = [];
   app.narration = null;
   app.selectedMob = null;
+  app.selectedTrap = null;
   app.error = '';
   for (const e of app.sim.step()) pushLog(e);
   // ─── Hot module replacement ──────────────────────────────────────────────────
@@ -622,7 +646,7 @@ function restart(): void {
   Object.assign(app, {
     season: createSeason(Math.floor(Math.random() * 100000)),
     phase: 'build', sim: null, speedIdx: 1, log: [], events: [],
-    selectedMob: null, aftermath: null, narration: null, error: '',
+    selectedMob: null, selectedTrap: null, aftermath: null, narration: null, error: '',
   });
   // ─── Hot module replacement ──────────────────────────────────────────────────
 
@@ -696,7 +720,9 @@ render();
  */
 type DragPayload =
   | { kind: 'mob'; uid: number }
-  | { kind: 'buy'; defId: string };
+  | { kind: 'buy'; defId: string }
+  | { kind: 'trap'; uid: number }
+  | { kind: 'buy-trap'; defId: string };
 
 const DRAG_THRESHOLD = 5;
 let ghost: HTMLElement | null = null;
@@ -758,6 +784,32 @@ function drop(e: PointerEvent, payload: DragPayload): void {
   const target = targetUnder(e);
   if (!target) return;
   const d = app.season.dungeon;
+
+  // Traps only ever go in rooms — there is nothing to trap on a Landing, and
+  // §11 Q9 keeps the shops neutral ground.
+  if (payload.kind === 'buy-trap' || payload.kind === 'trap') {
+    if (!target.classList.contains('room')) return void fail('Traps go in rooms.');
+    const floor = Number(target.dataset['floor']);
+    const room = Number(target.dataset['room']);
+    if (payload.kind === 'trap') {
+      const err = placeTrapInRoom(d, payload.uid, floor, room);
+      if (!err) app.selectedTrap = null;
+      return void fail(err);
+    }
+    const price = trapCost(payload.defId);
+    if (app.season.mana < price) return void fail('Not enough mana.');
+    const trap = buyTrap(d, payload.defId);
+    if (typeof trap === 'string') return void fail(trap);
+    const err = placeTrapInRoom(d, trap.uid, floor, room);
+    if (err) {
+      d.traps = allTraps(d).filter((t) => t.uid !== trap.uid); // undo the purchase
+      return void fail(err);
+    }
+    app.season.mana -= price;
+    app.selectedTrap = trap.uid;
+    app.selectedMob = null;
+    return void fail(null);
+  }
 
   // Buying and placing in one gesture.
   let uid: number;
@@ -922,7 +974,8 @@ function dungeonPanel(): HTMLElement {
     floor.rooms.forEach((_, ri) => {
       const isActive = app.phase === 'raid' && sim?.status !== 'complete'
         && sim?.currentFloor === fi && sim?.currentRoom === ri;
-      const canDrop = app.phase === 'build' && app.selectedMob !== null;
+      const canDrop = app.phase === 'build'
+        && (app.selectedMob !== null || app.selectedTrap !== null);
       const room = el(
         `<div class="room ${isActive ? 'active' : ''} ${canDrop ? 'droppable' : ''}"
               data-floor="${fi}" data-room="${ri}"></div>`,
@@ -933,14 +986,25 @@ function dungeonPanel(): HTMLElement {
         if (!mob || !mob.alive) continue;
         room.append(mobChip(mob));
       }
-      room.append(el(`<div class="slots">${roomSlotsUsed(d, fi, ri)}/3</div>`));
+      for (const trap of trapsInRoom(d, fi, ri)) room.append(trapChip(trap));
+      // Traps draw on the same capacity as monsters (§16.3), so the readout
+      // has to show the real ceiling rather than the doc's flat 3.
+      room.append(el(
+        `<div class="slots">${roomSlotsUsed(d, fi, ri)}/${roomCapacity(fi)}</div>`,
+      ));
 
       room.onclick = (ev) => {
         ev.stopPropagation();
-        if (app.phase !== 'build' || app.selectedMob === null) return;
+        if (app.phase !== 'build') return;
+        if (app.selectedTrap !== null) {
+          const err = placeTrapInRoom(d, app.selectedTrap, fi, ri);
+          if (!err) app.selectedTrap = null;
+          return fail(err);
+        }
+        if (app.selectedMob === null) return;
         const err = placeMobInRoom(d, app.selectedMob, fi, ri);
         if (!err) app.selectedMob = null;
-        fail(err);
+        return fail(err);
       };
       rooms.append(room);
     });
@@ -981,6 +1045,42 @@ function mobChip(mob: Mob): HTMLElement {
       // Retreat intervention: pull a veteran out before the room falls.
       const ok = app.sim.applyRetreatIntervention(mob.uid);
       fail(ok ? null : 'Retreat needs a Ley Charge and a monster in the active room.');
+    }
+  };
+  return chip;
+}
+
+/**
+ * A trap in a room. Charges are drawn as pips rather than a number so a glance
+ * across the dungeon answers the only question that matters in the Build
+ * Phase: what is still armed?
+ *
+ * Clicking it in a raid is the **Spring** intervention (§7.4) — the same
+ * gesture as clicking a monster to Retreat it, because both are "spend a Ley
+ * Charge on this thing, now".
+ */
+function trapChip(trap: Trap): HTMLElement {
+  const def = TRAPS[trap.defId]!;
+  const max = def.charges;
+  const pips = '●'.repeat(trap.charges) + '○'.repeat(Math.max(0, max - trap.charges));
+  const spent = trap.charges === 0;
+  const sel = app.selectedTrap === trap.uid ? 'selected' : '';
+  const chip = el(`
+    <div class="trap ${spent ? 'spent' : ''} ${sel}" title="${esc(def.blurb)}">
+      ${esc(def.name)} <span class="ch">${pips}</span>
+    </div>`);
+
+  attachDrag(chip, { kind: 'trap', uid: trap.uid }, def.name);
+
+  chip.onclick = (ev) => {
+    ev.stopPropagation();
+    if (app.phase === 'build') {
+      app.selectedTrap = app.selectedTrap === trap.uid ? null : trap.uid;
+      app.selectedMob = null;
+      fail(null);
+    } else if (app.phase === 'raid' && app.sim) {
+      const ok = app.sim.applySpringIntervention(trap.uid);
+      fail(ok ? null : 'Spring needs a Ley Charge and a trap with a charge left.');
     }
   };
   return chip;
@@ -1073,17 +1173,67 @@ function buildPanel(): HTMLElement {
   go.onclick = beginRaid;
   const rowA = el('<div class="row"></div>');
   rowA.append(digBtn, go);
+
+  // Re-arming (§5.2) — the trap economy's entire recurring bill, and the one
+  // thing that must never be automatic. A monster charges rent whether it
+  // fought or not; a trap charges only for the charges it spent, and a player
+  // who cannot afford the reset this raid fights without it and keeps the trap.
+  const rearmPrice = rearmAllPrice(d);
+  if (rearmPrice > 0) {
+    const btn = el(
+      `<button class="${s.mana >= rearmPrice ? 'primary' : ''}" ${s.mana < rearmPrice ? 'disabled' : ''}>Re-arm traps — ${rearmPrice}</button>`,
+    );
+    btn.onclick = () => {
+      s.mana -= rearmAll(d, s.mana);
+      fail(null);
+    };
+    rowA.append(btn);
+  }
   actions.append(rowA);
   actions.append(el(`<div class="hint">Drag monsters into rooms, or onto a shop to staff it. Clicking works too: select, then click a target.</div>`));
+  if (rearmPrice > 0) {
+    actions.append(el(
+      `<div class="hint warn-t">Spent traps do nothing, and a room holding only a spent trap counts as empty for Tedium.</div>`,
+    ));
+  }
   wrap.append(actions);
 
   // Roster
   const idle = d.mobs.filter((m) => m.alive && m.placement.kind === 'unassigned');
-  if (idle.length) {
+  const idleTraps = allTraps(d).filter((t) => t.placement.kind === 'unassigned');
+  if (idle.length || idleTraps.length) {
     const p = el('<div class="panel"></div>');
-    p.append(el(`<h2>Unassigned (${idle.length}) — no upkeep, no defence</h2>`));
+    p.append(el(`<h2>Unassigned (${idle.length + idleTraps.length}) — no upkeep, no defence</h2>`));
     for (const m of idle) p.append(mobChip(m));
+    for (const t of idleTraps) p.append(trapChip(t));
     wrap.append(p);
+  }
+
+  // Selected trap: what it does, and how to get rid of it.
+  if (app.selectedTrap !== null) {
+    const trap = getTrap(d, app.selectedTrap);
+    if (trap) {
+      const def = TRAPS[trap.defId]!;
+      const p = el('<div class="panel"></div>');
+      p.append(el(`<h2>${esc(def.name)} — ${trap.charges}/${def.charges} armed</h2>`));
+      p.append(el(`<div class="hint">${esc(def.blurb)}</div>`));
+      p.append(el(
+        `<div class="hint">${trapRearmCost(trap.defId)} mana per charge to re-arm. No upkeep, ever — and it cannot be killed.</div>`,
+      ));
+      const refund = trapSalvageValue(trap.defId);
+      const rip = el(`<button class="danger sell">Rip out — refund ${refund} mana</button>`);
+      rip.onclick = () => {
+        const res = removeTrap(d, trap.uid);
+        if (typeof res === 'string') return fail(res);
+        s.mana += res;
+        app.selectedTrap = null;
+        return fail(null);
+      };
+      const row = el('<div class="row"></div>');
+      row.append(rip);
+      p.append(row);
+      wrap.append(p);
+    }
   }
 
   // Selected monster: gear
@@ -1157,6 +1307,35 @@ function buildPanel(): HTMLElement {
     shop.append(b);
   }
   wrap.append(shop);
+
+  // Trap shop (§5.2). The pitch on every line is the same one: cheap, and it
+  // never sends you a bill for standing still.
+  const traps = el('<div class="panel"></div>');
+  traps.append(el('<h2>Traps &nbsp;·&nbsp; no upkeep</h2>'));
+  for (const def of Object.values(TRAPS)) {
+    const price = trapCost(def.id);
+    const off = s.mana < price;
+    const b = el(`<div class="buy trap-buy ${off ? 'off' : ''}">
+        <span>${def.name}<div class="meta">${def.job} ${def.power} · ${def.slots} slot${def.slots > 1 ? 's' : ''} · ${def.charges} charge${def.charges > 1 ? 's' : ''} · re-arm ${trapRearmCost(def.id)}</div></span>
+        <span class="cost">${price}</span>
+      </div>`);
+    if (!off) {
+      attachDrag(b, { kind: 'buy-trap', defId: def.id }, def.name);
+      b.onclick = () => {
+        const trap = buyTrap(d, def.id);
+        if (typeof trap === 'string') return fail(trap);
+        s.mana -= price;
+        app.selectedTrap = trap.uid;
+        app.selectedMob = null;
+        return fail(null);
+      };
+    }
+    traps.append(b);
+  }
+  traps.append(el(
+    '<div class="hint">A trap fires once on the threshold, before anything swings — then it needs re-arming. It softens; the monster behind it finishes.</div>',
+  ));
+  wrap.append(traps);
   wrap.append(legendsPanel());
   return wrap;
 }

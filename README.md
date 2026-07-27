@@ -10,16 +10,19 @@ Full design in [`docs/DESIGN.md`](docs/DESIGN.md).
 ```bash
 npm install
 npm run dev       # play it
-npm test          # 59 tests: sim, determinism, UI smoke
+npm test          # 136 tests: sim, determinism, narration, UI smoke
 npm run balance   # headless strategy comparison
 ```
 
 ## How to play
 
-1. **Build Phase** — spend Mana on monsters and floors, Gold on gear and hirelings.
-   Click a monster to select it, then a room to place it (or a shop to staff it).
+1. **Build Phase** — spend Mana on monsters, traps and floors, Gold on gear and hirelings.
+   Click a monster or trap to select it, then a room to place it (or a shop to staff it).
+   Monsters bill you every raid whether they fight or not; traps bill you only for the
+   charges they spent, so **re-arm before you buy**.
 2. **Raid** — a party descends. Watch at 1×–4×, or hit Instant. You get 3 Ley Charges:
-   pull a monster out of a losing fight, or **Taunt** a retreating party one floor deeper.
+   pull a monster out of a losing fight, **Spring** a trap out of sequence, or **Taunt**
+   a retreating party one floor deeper.
 3. **Aftermath** — collect Mana, Gold, Souls, and Renown.
 
 **Renown is the difficulty dial and it only goes up.** Letting adventurers escape pays far
@@ -50,11 +53,12 @@ injected seeded PRNG in `src/sim/rng.ts`. `test/determinism.test.ts` enforces it
 src/sim/rng.ts          seeded PRNG (mulberry32)
 src/sim/types.ts        core types + the RaidEvent union
 src/sim/data.ts         all tuning tables; TUNING holds the sweepable knobs
-src/sim/dungeon.ts      dungeon state, Build Phase actions, gear, staffing
+src/sim/dungeon.ts      dungeon state, Build Phase actions, traps, gear, staffing
 src/sim/adventurers.ts  party generation
 src/sim/raid.ts         the steppable tick loop — the heart of the sim
 src/sim/season.ts       season orchestration and the Aftermath economy
 tools/balance.ts        headless batch runner + parameter sweeps
+tools/breach.ts         breach rate by raid number — where a season falls apart
 tools/trace.ts          verbose single-season trace, for debugging
 ```
 
@@ -65,6 +69,8 @@ Because the sim is headless and deterministic, tuning questions are answerable i
 ```bash
 npx tsx tools/balance.ts compare 400   # strategy comparison
 npx tsx tools/balance.ts sweep 400     # parameter sweeps
+npx tsx tools/balance.ts h2h 400       # Thrill Renown vs the flat formula (§15)
+npx tsx tools/breach.ts 750 balanced   # breach rate by raid number
 npx tsx tools/trace.ts 42 combat       # one season, verbose
 ```
 

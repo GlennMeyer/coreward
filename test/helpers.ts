@@ -1,8 +1,20 @@
 import {
-  assignStaff, buildAmenity, buyMob, digFloor, placeMobInRoom,
+  assignStaff, buildAmenity, buyMob, buyTrap, digFloor, placeMobInRoom,
+  placeTrapInRoom,
 } from '../src/sim/dungeon';
 import { createSeason } from '../src/sim/season';
 import type { AmenityId, Dungeon, SeasonState } from '../src/sim/types';
+
+/** Install a trap in a room, fully armed. Throws on any build error (§5.2). */
+export function addTrap(
+  d: Dungeon, defId: string, floor: number, room: number,
+): number {
+  const trap = buyTrap(d, defId);
+  if (typeof trap === 'string') throw new Error(trap);
+  const err = placeTrapInRoom(d, trap.uid, floor, room);
+  if (err) throw new Error(err);
+  return trap.uid;
+}
 
 /** Buy a mob and drop it straight into a room. Throws on any build error. */
 export function addMob(

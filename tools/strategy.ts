@@ -6,18 +6,21 @@
  * getting lucky.
  */
 import {
-  AMENITIES, GEAR, HIRED_STAFF_COST, MAX_GEAR_SLOTS, MOBS, roomCapacity,
+  AMENITIES, GEAR, HIRED_STAFF_COST, MAX_GEAR_SLOTS, MOBS, TRAPS, roomCapacity,
+  trapCost,
 } from '../src/sim/data';
 import {
-  assignStaff, buildAmenity, buyMob, digCost, digFloor, equipGear, hireStaff,
-  livingMobs, mobsInRoom, placeMobInRoom, roomSlotsUsed, setPrice, totalUpkeep,
+  allTraps, assignStaff, buildAmenity, buyMob, buyTrap, digCost, digFloor,
+  equipGear, hireStaff, livingMobs, mobsInRoom, placeMobInRoom,
+  placeTrapInRoom, rearmAll, rearmAllPrice, roomSlotsUsed, setPrice,
+  totalUpkeep, trapsInRoom,
 } from '../src/sim/dungeon';
 import type { Rng } from '../src/sim/rng';
-import type { AmenityId, Mob, PriceTier, SeasonState } from '../src/sim/types';
+import type { AmenityId, Mob, PriceTier, SeasonState, Trap } from '../src/sim/types';
 
 export type StrategyName =
   | 'combat' | 'commerce' | 'balanced' | 'swarm' | 'wardens' | 'showman'
-  | 'patron';
+  | 'patron' | 'traps';
 
 export interface Strategy {
   name: StrategyName;
@@ -44,16 +47,68 @@ export interface Strategy {
    * budget allows, and keep buying shops before monsters.
    */
   shopEverywhere?: boolean;
+  /**
+   * Fraction of the Build Phase purse reserved for installing traps (§5.2).
+   *
+   * Note re-arming is NOT taken out of this share and is not optional for any
+   * strategy: a charge already installed is the cheapest defence in the game,
+   * and an AI that let its traps sit spent would be measuring a build nobody
+   * would play.
+   *
+   * **0.25 for the generalists, and the ceiling is a design decision rather
+   * than a measurement.** Swept over 800 seasons of `balanced`:
+   *
+   * | share | overrun | reach raid 8 | tier @8 | killed/season | best mob lv |
+   * |---|---|---|---|---|---|
+   * | 0 (baseline) | 62% | 305 | 1.4 | 9.3 | 1.6 |
+   * | 0.25 | 53% | 404 | 1.5 | 11.6 | 2.2 |
+   * | 0.30 | 64% | 409 | 3.2 | — | — |
+   * | 0.40 | 43% | 612 | 3.5 | 2.1 | 0.6 |
+   * | 0.45 | 34% | 651 | 3.4 | — | — |
+   *
+   * Survival keeps improving past 0.25 and it is tempting to take it. Do not.
+   * At 0.4 every strategy in the file converges on the same dungeon — `combat`
+   * kills 2.1 a season instead of 11.6 and sends 26.6 people home, which is
+   * `wardens`' line exactly. Traps strip and soften, so a build made mostly of
+   * them produces retreats rather than corpses; past about a third of the purse
+   * that stops being a tool and starts being the whole plan, and pillar 2's
+   * "three distinct builds" quietly becomes one. Best mob level collapsing from
+   * 2.2 to 0.6 is the same fact from pillar 3's side — traps grant no XP, and a
+   * dungeon whose traps do the work has no veterans.
+   *
+   * So the generalists take traps as an *option* (0.25, which is also the best
+   * cell below 0.4), and `traps` below shows what specialising actually buys.
+   * That the specialist is better at surviving than the generalists is correct;
+   * that it should be better at everything is not.
+   *
+   * The 0.30 cell is a genuine chaotic outlier, not noise: the trap reserve
+   * pushes the monster budget just under an Ogre, and which monsters a raid can
+   * afford cascades through digging, placement and the Renown ratchet. Nothing
+   * in this file is smooth in `trapShare`, so sweep it rather than interpolate.
+   */
+  trapShare?: number;
+  /** Trap purchase preference, strongest-affordable first. */
+  trapOrder?: string[];
 }
 
 export const STRATEGY_LIST: Record<StrategyName, Strategy> = {
-  combat: { name: 'combat', commerceShare: 0, tauntRate: 0.5 },
-  commerce: { name: 'commerce', commerceShare: 0.5, tauntRate: 0.1 },
-  balanced: { name: 'balanced', commerceShare: 0.25, tauntRate: 0.35 },
-  // Cheap bodies only: maximum damage per mana, minimum staying power.
+  combat: { name: 'combat', commerceShare: 0, tauntRate: 0.5, trapShare: 0.25 },
+  commerce: { name: 'commerce', commerceShare: 0.5, tauntRate: 0.1, trapShare: 0.25 },
+  balanced: { name: 'balanced', commerceShare: 0.25, tauntRate: 0.35, trapShare: 0.25 },
+  /**
+   * Cheap bodies only: maximum damage per mana, minimum staying power.
+   *
+   * Kept trap-free on purpose. It is the control for "does the game reward
+   * spending everything on the cheapest thing that can attack?", and giving it
+   * traps would make it a second trap build rather than a baseline.
+   */
   swarm: { name: 'swarm', commerceShare: 0, tauntRate: 0.5, buyOrder: ['rat', 'slime'] },
-  // Kit drain: turn them back rather than killing them.
-  wardens: { name: 'wardens', commerceShare: 0, tauntRate: 0.2, buyOrder: ['ooze', 'cutpurse', 'rat'] },
+  // Kit drain: turn them back rather than killing them. The Rot-Gas Vent is
+  // the same plan by other means, so it gets one.
+  wardens: {
+    name: 'wardens', commerceShare: 0, tauntRate: 0.2,
+    buyOrder: ['ooze', 'cutpurse', 'rat'], trapShare: 0.2, trapOrder: ['gasvent'],
+  },
   /**
    * Run a good ride, not a good fortress (§15.2). Tests whether Thrill is
    * actually playable-for: role spread for `variety`, amenities for `comfort`,
@@ -65,6 +120,10 @@ export const STRATEGY_LIST: Record<StrategyName, Strategy> = {
    */
   showman: {
     name: 'showman', commerceShare: 0.35, tauntRate: 0.1, showmanship: true,
+    // Traps are a showman's cheapest peril: they hurt on the threshold, before
+    // the party has spent a single Kit, and they cost nothing to own between
+    // raids — which is what lets the defence reserve go on shops instead.
+    trapShare: 0.25,
     // One body per role — bruiser, warden, skirmisher — and the *strongest* of
     // each. The original six-mob rotation reached down to Slime and Cutpurse,
     // which bought bodies rather than threat: `variety` saturates at three
@@ -98,9 +157,46 @@ export const STRATEGY_LIST: Record<StrategyName, Strategy> = {
    */
   patron: {
     name: 'patron', commerceShare: 0.4, tauntRate: 0.1,
-    priceTier: 'modest', shopEverywhere: true,
+    priceTier: 'modest', shopEverywhere: true, trapShare: 0.25,
+  },
+  /**
+   * The trap-leaning build (§5.2) — the one this system exists to make
+   * possible.
+   *
+   * Its thesis is the opposite of every other strategy in this file: **buy
+   * almost no rent.** Traps cost nothing to own, so a dungeon made mostly of
+   * them runs an upkeep bill of single digits and can spend its whole income
+   * on getting bigger instead of on standing still. It still buys monsters —
+   * traps soften, delay and strip, and something has to finish the job (§7.5)
+   * — but it buys them last and cheaply, and it re-arms before it buys
+   * anything at all.
+   *
+   * The trap order is the design's own argument in purchase form: the Snare
+   * and the Gas Vent first, because they are pure force multipliers for
+   * whatever is behind them, then the Dart Battery for chip damage, then the
+   * Shrieker, and the Deadfall only when there is real money about.
+   */
+  traps: {
+    name: 'traps', commerceShare: 0, tauntRate: 0.3,
+    trapShare: 0.55,
+    trapOrder: ['snare', 'gasvent', 'darts', 'shrieker', 'deadfall'],
+    buyOrder: ['skeleton', 'cutpurse', 'slime', 'rat'],
   },
 };
+
+/**
+ * Traps are bought CHEAPEST first and by rotation, which is the opposite of
+ * `DEFAULT_BUY_ORDER`'s always-take-the-strongest rule. Both facts are
+ * measured, not stylistic:
+ *
+ * - Strongest-first spent an entire trap budget on one Deadfall and left four
+ *   rooms bare. A trap fires once, so a second trap is worth far more than a
+ *   bigger trap — unlike a monster, where concentration is what makes a room
+ *   winnable (see `AI.fillEmptyFirst`).
+ * - Rotating keeps the jobs mixed. Five Dart Batteries is one job, one point of
+ *   `variety`, and a row of identical rooms the signature flags as repeats.
+ */
+const DEFAULT_TRAP_ORDER = ['darts', 'gasvent', 'snare', 'shrieker', 'deadfall'];
 
 /** Strongest first — the AI always buys the best thing it can afford. */
 const DEFAULT_BUY_ORDER = ['ogre', 'ooze', 'skeleton', 'cutpurse', 'slime', 'rat'];
@@ -163,6 +259,14 @@ export function buildPhaseFor(s: SeasonState, strat: Strategy, rng: Rng): void {
     if (digFloor(d) === null) s.mana -= cost;
   }
 
+  // 1b. Re-arm. This is deliberately the FIRST thing any purse touches after
+  // the dig, and it is not gated on `trapShare`: a trap that is already
+  // installed is the cheapest defence available — 9-24 mana for a full trigger
+  // against 12-85 for a monster that then bills you every raid forever. An AI
+  // that bought a new Cave Rat while its Deadfall sat spent would be measuring
+  // a mistake rather than a strategy.
+  if (rearmAllPrice(d) > 0) s.mana -= rearmAll(d, s.mana);
+
   // 2. Commerce: one amenity per landing, staffed by a cheap monster.
   if (strat.commerceShare > 0) {
     // A showman budgets by what is left above a defence reserve rather than by
@@ -223,13 +327,27 @@ export function buildPhaseFor(s: SeasonState, strat: Strategy, rng: Rng): void {
     if (mob.placement.kind === 'unassigned') place(mob);
   }
 
-  // 5. Spend what's left of the mana on monsters.
+  // 5. Set the trap budget aside, then buy monsters, then spend it.
+  //
+  // Traps go in AFTER monsters and the ordering is load-bearing. `placeTrap`
+  // wants a room that already has something in it — a Snare with nothing
+  // behind it holds the party still in an empty corridor, and a Gas Vent is
+  // most valuable where the fight it is softening actually happens. Buying
+  // traps first put them all in empty rooms, which measured as a 91% breach
+  // rate on raid ONE for the trap build: five traps, no teeth.
+  //
+  // Reserving the share up front rather than spending the remainder is what
+  // makes it a *share*: the monster loop below drains everything down to the
+  // upkeep reserve, so anything not withheld here is never seen again.
+  const trapBudget = Math.floor(s.mana * (strat.trapShare ?? 0));
+
+  // 6. Spend the rest of the mana on monsters.
   const order = strat.buyOrder ?? DEFAULT_BUY_ORDER;
   let cursor = 0;
   let guard = 0;
   while (guard++ < 80) {
     // Keep enough in hand to cover upkeep, or income goes negative.
-    const reserve = totalUpkeep(d);
+    const reserve = totalUpkeep(d) + trapBudget;
     const budget = s.mana - reserve;
     // A showman rotates the roster so no role dominates; everyone else takes
     // the strongest thing they can afford.
@@ -247,6 +365,76 @@ export function buildPhaseFor(s: SeasonState, strat: Strategy, rng: Rng): void {
     s.mana -= MOBS[defId]!.cost;
     if (rng.chance(0.02)) break; // jitter so batches aren't lockstep
   }
+
+  // 7. Install traps into the rooms the monsters are now standing in.
+  if (trapBudget > 0) {
+    const trapOrder = strat.trapOrder ?? DEFAULT_TRAP_ORDER;
+    let budget = Math.min(trapBudget, s.mana);
+    let tcursor = 0;
+    let tguard = 0;
+    while (tguard++ < 40) {
+      const defId = nextTrapInRotation(trapOrder, tcursor++, budget);
+      if (!defId) break;
+      const trap = buyTrap(d, defId);
+      if (typeof trap === 'string') break;
+      if (!placeTrap(s, trap)) {
+        d.traps = allTraps(d).filter((t) => t.uid !== trap.uid); // nowhere to put it
+        break;
+      }
+      const price = trapCost(defId);
+      s.mana -= price;
+      budget -= price;
+    }
+  }
+}
+
+/** `nextInRotation`, for traps. Same argument, different price table. */
+function nextTrapInRotation(order: string[], cursor: number, budget: number): string | null {
+  for (let i = 0; i < order.length; i++) {
+    const id = order[(cursor + i) % order.length]!;
+    if (trapCost(id) <= budget) return id;
+  }
+  return null;
+}
+
+/**
+ * Where a trap goes.
+ *
+ * Two placements, in order of preference:
+ *
+ * 1. **In a room that already has a monster**, deepest first. This is the
+ *    arrangement the whole system is for — the trap takes a bite on the
+ *    threshold and the monster finishes what is left (§7.5). It is the only
+ *    placement a `delay` trap is worth anything in at all, since a Snare with
+ *    nothing behind it holds the party still in an empty room.
+ * 2. **The shallowest empty room otherwise.** A trap standing alone on Floor 1
+ *    is not wasted: Kit and Resolve stripped before the first real fight are
+ *    stripped for the whole delve, and the room stops reading as an empty
+ *    corridor for Tedium as long as it stays armed.
+ *
+ * Never two of the same trap in one room — a doubled Snare is two ticks the
+ * party was already going to lose, and the room signature would flag it as a
+ * repeat besides.
+ */
+function placeTrap(s: SeasonState, trap: Trap): boolean {
+  const d = s.dungeon;
+  const slots = TRAPS[trap.defId]!.slots;
+  const fits = (f: number, r: number): boolean =>
+    roomSlotsUsed(d, f, r) + slots <= roomCapacity(f)
+    && !trapsInRoom(d, f, r).some((t) => t.defId === trap.defId);
+
+  for (let f = d.floors.length - 1; f >= 0; f--) {
+    for (let r = 0; r < d.floors[f]!.rooms.length; r++) {
+      if (mobsInRoom(d, f, r).length === 0) continue;
+      if (fits(f, r)) return placeTrapInRoom(d, trap.uid, f, r) === null;
+    }
+  }
+  for (let f = 0; f < d.floors.length; f++) {
+    for (let r = 0; r < d.floors[f]!.rooms.length; r++) {
+      if (fits(f, r)) return placeTrapInRoom(d, trap.uid, f, r) === null;
+    }
+  }
+  return false;
 }
 
 /**

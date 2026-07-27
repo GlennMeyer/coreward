@@ -19,11 +19,12 @@
  */
 import {
   ADV_ARMOR_PER_LEVEL, ADV_BASE_DMG, ADV_BASE_HP, ADV_KIT_BASE, CLASS_MODS,
-  CLASS_WEIGHTS, DESCEND_HP_THRESHOLD, MOBS, NAMED, PRICE_TIERS, TUNING,
-  type TierRow,
+  CLASS_WEIGHTS, DESCEND_HP_THRESHOLD, MOBS, NAMED, PRICE_TIERS, TRAPS, TUNING,
+  trapPower, type TierRow,
 } from '../sim/data';
 import {
-  getMob, isOpen, mobEffectiveDmg, mobEffectiveHp, packMultiplier,
+  armedTrapsInRoom, getMob, isOpen, mobEffectiveDmg, mobEffectiveHp,
+  packMultiplier,
 } from '../sim/dungeon';
 import { perilGate as perilGateFraction, thrillFromParts } from '../sim/raid';
 import type { Dungeon, Mob, ThrillScore, Veteran } from '../sim/types';
@@ -105,16 +106,22 @@ export function thrillRating(total: number): string {
   return label;
 }
 
-/** Multiset of monster types in a room — the identity Tedium compares (§15.3). */
+/**
+ * Multiset of what is in a room — the identity Tedium compares (§15.3).
+ *
+ * ARMED traps only, matching the sim: a spent trap is a hole in the floor, and
+ * a room whose only occupant is a hole in the floor is an empty room.
+ */
 function roomSignature(d: Dungeon, floor: number, room: number): string {
   const r = d.floors[floor]?.rooms[room];
   if (!r) return '';
-  return r.mobUids
-    .map((uid) => getMob(d, uid))
-    .filter((m): m is Mob => !!m && m.alive)
-    .map((m) => m.defId)
-    .sort()
-    .join('+');
+  return [
+    ...r.mobUids
+      .map((uid) => getMob(d, uid))
+      .filter((m): m is Mob => !!m && m.alive)
+      .map((m) => m.defId),
+    ...armedTrapsInRoom(d, floor, room).map((t) => `trap:${t.defId}`),
+  ].sort().join('+');
 }
 
 function livingMobsInRoom(d: Dungeon, floor: number, room: number): Mob[] {
@@ -148,20 +155,46 @@ export function predictThrill(d: Dungeon, tier: TierRow): ThrillPrediction {
   for (const m of d.mobs) {
     if (m.alive && m.placement.kind === 'room') roles.add(MOBS[m.defId]!.role);
   }
+  // Distinct trap jobs on the route, but capped exactly as the sim caps them —
+  // the whole trap layer is worth `trapVarietyCredit` toward variety and no
+  // more. See `RaidSim.varietyScore` for why.
+  const trapJobs = new Set<string>();
+  let armedTraps = 0;
+  for (let fi = 0; fi < d.floors.length; fi++) {
+    for (let ri = 0; ri < (d.floors[fi]?.rooms.length ?? 0); ri++) {
+      for (const t of armedTrapsInRoom(d, fi, ri)) {
+        trapJobs.add(TRAPS[t.defId]!.job);
+        armedTraps++;
+      }
+    }
+  }
 
   outer: for (let fi = 0; fi < d.floors.length; fi++) {
     const rooms = d.floors[fi]?.rooms.length ?? 0;
     for (let ri = 0; ri < rooms; ri++) {
       const mobs = livingMobsInRoom(d, fi, ri);
+      const traps = armedTrapsInRoom(d, fi, ri);
       const sig = roomSignature(d, fi, ri);
 
-      if (mobs.length === 0) {
+      // Traps go off on the threshold, before anything swings — and they are
+      // the whole reason a room with no monster in it need not be a corridor.
+      for (const t of traps) {
+        const def = TRAPS[t.defId]!;
+        const power = trapPower(t.defId);
+        if (def.job === 'damage') hp -= (power * size) / poolHp;
+        else if (def.job === 'burst') hp -= power / poolHp;
+        else if (def.job === 'kit') kit = Math.max(0, kit - power);
+        lowest = Math.min(lowest, Math.max(0, hp));
+      }
+
+      if (mobs.length === 0 && traps.length === 0) {
         emptyRooms++;
         prevSig = '';
         continue;
       }
       if (sig === prevSig) repeatedRooms++;
       prevSig = sig;
+      if (mobs.length === 0) continue;
 
       const roomHp = mobs.reduce((s, m) => s + mobEffectiveHp(m), 0);
       // Death spiral: a pooled HP bar hides the fact that a hurt party has
@@ -213,7 +246,8 @@ export function predictThrill(d: Dungeon, tier: TierRow): ThrillPrediction {
   // Absolute, not a completion ratio: floors_cleared / floors_in_dungeon is
   // maximised by owning the smallest dungeon, which made digging a penalty.
   const depth = Math.min(1, floorsReached / TUNING.thrillDepthFloors);
-  const variety = Math.min(1, roles.size / VARIETY_ROLES);
+  const trapCredit = Math.min(trapJobs.size, TUNING.trapVarietyCredit);
+  const variety = Math.min(1, (roles.size + trapCredit) / VARIETY_ROLES);
   const comfort = Math.min(1, comfortRaw / Math.max(1, d.landings.length));
   const tedium = TUNING.tediumPerEmptyRoom * emptyRooms
     + TUNING.tediumPerRepeatedRoom * repeatedRooms;
@@ -225,8 +259,24 @@ export function predictThrill(d: Dungeon, tier: TierRow): ThrillPrediction {
   const warnings: ThrillWarning[] = [];
   const placed = d.mobs.filter((m) => m.alive && m.placement.kind === 'room').length;
 
-  if (placed === 0) {
+  if (placed === 0 && armedTraps === 0) {
     warnings.push({ level: 'bad', text: 'Nothing is defending the dungeon. They walk to the Core.' });
+  }
+  const spent = d.traps?.filter(
+    (t) => t.placement.kind === 'room' && t.charges < (TRAPS[t.defId]?.charges ?? 1),
+  ).length ?? 0;
+  if (spent > 0) {
+    warnings.push({
+      level: 'bad',
+      text: `${spent} trap${spent === 1 ? ' is' : 's are'} spent and will do nothing. `
+        + 'Re-arm before the raid — an unarmed trap is an empty room.',
+    });
+  }
+  if (placed === 0 && armedTraps > 0) {
+    warnings.push({
+      level: 'warn',
+      text: 'Traps only, no monsters. They soften and delay; nothing down there can finish anyone.',
+    });
   }
   if (lethal) {
     warnings.push({
@@ -256,10 +306,12 @@ export function predictThrill(d: Dungeon, tier: TierRow): ThrillPrediction {
         + `−${TUNING.tediumPerRepeatedRoom} Thrill each. Mix the bestiary up.`,
     });
   }
-  if (roles.size < 3 && placed > 0) {
+  if (roles.size + trapCredit < VARIETY_ROLES && placed > 0) {
     warnings.push({
       level: 'warn',
-      text: `Only ${roles.size} monster role${roles.size === 1 ? '' : 's'} down there. Variety counts four.`,
+      text: `Only ${roles.size} monster role${roles.size === 1 ? '' : 's'} down there`
+        + `${trapCredit > 0 ? ', plus the machinery' : ''}. Variety counts ${VARIETY_ROLES}, `
+        + 'and traps together are worth one of them however many you install.',
     });
   }
   if (builtAmenities === 0) {

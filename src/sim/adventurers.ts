@@ -149,6 +149,7 @@ function makeAdventurer(
     startGold: purse,
     goldSpentHere: 0,
     hurtByRole: {},
+    hurtByTrap: 0,
     resolveLost: 0,
     nearDeathFloor: null,
     grudge: null,
