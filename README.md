@@ -4,13 +4,16 @@ A dungeon-builder / reverse tower-defense roguelite. You are the intelligence at
 bottom of a dungeon: buy monsters, dig floors, run shops on the landings, and decide
 raid by raid whether to kill the adventurers, bleed them dry, or sell to them.
 
-**Prototype v0.1** — simulated combat, colored rectangles, no art.
-Full design in [`docs/DESIGN.md`](docs/DESIGN.md).
+**Prototype** — simulated combat, coloured rectangles, no art.
+Full design in [`docs/DESIGN.md`](docs/DESIGN.md), which is kept in sync with the code:
+numbers marked ✅ have been validated against the headless balance runner.
+
+**Play it:** https://glennmeyer.github.io/coreward/
 
 ```bash
 npm install
 npm run dev       # play it
-npm test          # 136 tests: sim, determinism, narration, UI smoke
+npm test          # 180 tests: sim, determinism, narration, UI smoke
 npm run balance   # headless strategy comparison
 ```
 
@@ -72,7 +75,14 @@ npx tsx tools/balance.ts sweep 400     # parameter sweeps
 npx tsx tools/balance.ts h2h 400       # Thrill Renown vs the flat formula (§15)
 npx tsx tools/breach.ts 750 balanced   # breach rate by raid number
 npx tsx tools/trace.ts 42 combat       # one season, verbose
+npx tsx tools/evolve.ts 60 30 6 renown    # evolve a build for reputation
+npx tsx tools/evolve.ts 60 30 6 survival  # evolve a build for depth
 ```
+
+`evolve.ts` is the harshest critic in the repo: it evolves a build *policy* and does not
+share the designer's assumptions, so when it finds something absurd the design is wrong.
+It has caught a difficulty ceiling four separate fixes had missed (§25), an unspendable
+17,978-Gold pile (§30), and the fact that Taunt was simply always correct (§23.3).
 
 This found three design bugs that looked like tuning bugs — a one-floor dungeon with no
 Descent Decision, permadeath that made monster leveling unreachable, and a Gold economy
