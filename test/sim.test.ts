@@ -198,6 +198,35 @@ describe('tier lookup (§4.4)', () => {
 });
 
 describe('raid resolution (§7)', () => {
+  it('an emptied dungeon cannot turn them back — they walk to the Core', () => {
+    // The reported bug: every monster downed, party clears the place, and the
+    // raid still reported "they turn back" with no Heart lost.
+    const s = seasonWithFloors(2600, 2);
+    addMob(s.dungeon, 'rat', 0, 0);   // the only thing standing; it dies
+
+    const sim = new RaidSim(s.dungeon, TIERS[3]!, 4);
+    sim.runToCompletion();
+
+    expect(sim.result.outcome).toBe('breach');
+    expect(s.dungeon.hearts).toBe(2);
+  });
+
+  it('but a dungeon with something still standing gets a real decision', () => {
+    let sawRetreat = false;
+    for (let seed = 0; seed < 60 && !sawRetreat; seed++) {
+      const fresh = seasonWithFloors(2601, 2);
+      for (let f = 0; f < 2; f++) {
+        for (let r = 0; r < fresh.dungeon.floors[f]!.rooms.length; r++) {
+          addMob(fresh.dungeon, 'ogre', f, r);
+        }
+      }
+      const sim = new RaidSim(fresh.dungeon, TIERS[0]!, seed);
+      sim.runToCompletion();
+      if (sim.result.outcome === 'retreated') sawRetreat = true;
+    }
+    expect(sawRetreat).toBe(true);
+  });
+
   it('an undefended dungeon is breached, costing a heart', () => {
     const s = seasonWithFloors(1, 1);
     const sim = startRaid(s);
@@ -325,8 +354,12 @@ describe('interventions (§7.4)', () => {
 
   it('Taunt forces a retreating party one floor deeper', () => {
     // Wardens strip Kit, which triggers a Kit-based retreat at the landing.
+    // Something has to be waiting below too: a party with a clear run at the
+    // Core presses on regardless of how battered it is (§7.3).
     const s = seasonWithFloors(13, 3);
     for (let room = 0; room < 3; room++) addMob(s.dungeon, 'ooze', 0, room);
+    addMob(s.dungeon, 'rat', 1, 0);
+    addMob(s.dungeon, 'rat', 2, 0);
     const sim = new RaidSim(s.dungeon, TIERS[0]!, 21);
 
     let sawOffer = false;
@@ -347,6 +380,8 @@ describe('interventions (§7.4)', () => {
   it('declining a Taunt ends the raid as a retreat', () => {
     const s = seasonWithFloors(14, 3);
     for (let room = 0; room < 3; room++) addMob(s.dungeon, 'ooze', 0, room);
+    addMob(s.dungeon, 'rat', 1, 0);
+    addMob(s.dungeon, 'rat', 2, 0);
     const sim = new RaidSim(s.dungeon, TIERS[0]!, 21);
     while (sim.status !== 'complete') {
       sim.step();
@@ -873,15 +908,22 @@ function restock(s: ReturnType<typeof createSeason>): void {
   for (let f = 0; f < s.dungeon.floors.length; f++) {
     for (let r = 0; r < s.dungeon.floors[f]!.rooms.length; r++, i++) {
       const defId = RESTOCK_PLAN[i % RESTOCK_PLAN.length]!;
-      if (mobsInRoom(s.dungeon, f, r).length > 0) continue;
-      if (roomSlotsUsed(s.dungeon, f, r) + MOBS[defId]!.slots > roomCapacity(f)) continue;
-      addMob(s.dungeon, defId, f, r);
+      // Top the room up rather than skipping it: the point is that something
+      // is always still standing when they reach the bottom.
+      let guard = 0;
+      while (guard++ < 6
+        && roomSlotsUsed(s.dungeon, f, r) + MOBS[defId]!.slots <= roomCapacity(f)) {
+        addMob(s.dungeon, defId, f, r);
+      }
     }
   }
 }
 
 function runnableSeason(seed: number): ReturnType<typeof createSeason> {
-  const s = seasonWithFloors(seed, 2);
+  // Three floors, filled to capacity. A thin dungeon gets cleared mid-raid,
+  // and a party with nothing left in front of it walks to the Core (§7.3) —
+  // which is a delve with no peril and therefore no Thrill to retire on.
+  const s = seasonWithFloors(seed, 3);
   s.dungeon.hearts = 99;   // the season must run its full length, not end early
   restock(s);
   return s;

@@ -2128,3 +2128,38 @@ mean.
 
 The genetic search found it in 19 seconds, repeatedly, without knowing what any of the
 systems were — which is exactly the argument for keeping it in the loop after every change.
+
+
+---
+
+## 26. An empty dungeon cannot turn anyone back
+
+**Status: FIXED (v0.11).** Reported from play.
+
+Adventurers were downing every monster, walking the whole dungeon, reaching the Core
+approach — and the raid reported **"they turn back"**, costing no Heart. The Descent
+Decision (§7.3) weighs HP, Kit, Resolve and casualties, and a party that had just cleared
+the place still failed one of those checks and politely left.
+
+The Decision is a judgement about **risk**. With nothing standing between them and the
+Core there is no risk to judge, so it is no longer asked: if no monster is up and no trap
+is armed from their position down, they walk in.
+
+### 26.1 Consequence
+
+This is a much bigger correction than it looks, because it finally punishes the build that
+*stalls* rather than *stops*:
+
+| | before | after |
+|---|---|---|
+| `wardens` (pure Kit drain) survival | 82% | **10%** |
+| `combat` survival | 32% | 21% |
+
+The §15.1 degenerate build has been chased through four separate fixes — Thrill scoring,
+the peril gate, traps moving to Gold, the tier ceiling — and this is the one that actually
+buries it. A dungeon that empties itself and relies on the party's good manners now loses,
+which is what it always should have done.
+
+Survival rates across the board are harsh (9–35%) and may need a pass. But they are honest
+now: they measure whether the dungeon can *stop* people, not whether it can inconvenience
+them until a threshold trips.

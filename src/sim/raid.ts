@@ -1254,6 +1254,24 @@ export class RaidSim {
     return this.floor >= this.d.floors.length - 1;
   }
 
+  /**
+   * Is there anything left between them and the Core?
+   *
+   * Counts standing monsters and armed traps from the current floor down. A
+   * spent trap and a downed monster are both scenery.
+   */
+  private get anyThreatBelow(): boolean {
+    for (let f = this.floor; f < this.d.floors.length; f++) {
+      const rooms = this.d.floors[f]!.rooms.length;
+      const from = f === this.floor ? this.room : 0;
+      for (let r = from; r < rooms; r++) {
+        if (mobsInRoom(this.d, f, r).length > 0) return true;
+        if (armedTrapsInRoom(this.d, f, r).length > 0) return true;
+      }
+    }
+    return false;
+  }
+
   // ─── Landing: rest, shop, decide (§7.3) ────────────────────────────────────
 
   private stepLanding(): void {
@@ -1268,7 +1286,14 @@ export class RaidSim {
     this.doShopping(landingIdx);
     this.doTheft(landingIdx);
 
-    const reason = this.descentDecision();
+    // An empty dungeon is not a decision.
+    //
+    // The Descent Decision weighs risk (§7.3) — but if nothing is left standing
+    // between them and the Core, there is no risk to weigh. A party that has
+    // walked through the whole place does not turn around at the door because
+    // someone is limping, and a dungeon with nothing left in it should not be
+    // saved by their good manners.
+    const reason = this.anyThreatBelow ? this.descentDecision() : null;
     if (reason === null) {
       // They press on. Below the deepest floor there is only the Core.
       if (this.atDeepestFloor) this.breachCore();
