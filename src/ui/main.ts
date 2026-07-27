@@ -112,66 +112,7 @@ const esc = (s: string): string =>
 
 function fail(msg: string | null): boolean {
   app.error = msg ?? '';
-  // ─── Hot module replacement ──────────────────────────────────────────────────
-
-/**
- * Keep the run alive across edits.
- *
- * Without this, every save is a full page reload: the season, the dungeon you
- * spent ten minutes building, and the log all vanish — which makes tuning by
- * feel impractical. Two things have to happen.
- *
- * 1. `dispose` MUST stop the playback timer. Module-level `setInterval` is not
- *    torn down by HMR, so without this each edit during a raid leaves another
- *    interval running against a dead module — the raid appears to accelerate.
- *
- * 2. The season is plain data (see §13.2 — the sim is engine-free), so it
- *    survives a module swap intact. `RaidSim` is a class *instance*, though, and
- *    after a sim edit the stashed one still closes over the OLD code. Carrying
- *    it would mean watching a raid resolve under rules that no longer exist, so
- *    an in-flight raid is dropped back to the Build Phase instead. The dungeon
- *    is the expensive thing to rebuild; a raid is one click.
- */
-interface HotSnapshot {
-  season: SeasonState;
-  speedIdx: number;
-  log: LogLine[];
-  wasMidRaid: boolean;
-}
-
-// `import.meta.hot` is also truthy under Vitest, where `.data` is undefined —
-// hence the optional chaining. It doubles as a guard against a snapshot leaking
-// between tests that re-import this module.
-if (import.meta.hot) {
-  const saved = import.meta.hot.data?.['snapshot'] as HotSnapshot | undefined;
-  if (saved) {
-    app.season = saved.season;
-    app.speedIdx = saved.speedIdx;
-    app.log = saved.log;
-    app.phase = 'build';
-    app.sim = null;
-    app.aftermath = null;
-    if (saved.wasMidRaid) {
-      app.error = 'Reloaded mid-raid — the raid was reset, your dungeon is intact.';
-    }
-  }
-
-  import.meta.hot.dispose((data) => {
-    stopTimer();
-    if (!data) return;
-    const snapshot: HotSnapshot = {
-      season: app.season,
-      speedIdx: app.speedIdx,
-      log: app.log,
-      wasMidRaid: app.phase === 'raid',
-    };
-    data['snapshot'] = snapshot;
-  });
-
-  import.meta.hot.accept();
-}
-
-render();
+  render();
   return msg === null;
 }
 
@@ -284,66 +225,7 @@ function tick(): void {
   if (!sim || sim.status !== 'running') { stopTimer(); return; }
   for (const e of sim.step()) pushLog(e);
   if (sim.status !== 'running') stopTimer();
-  // ─── Hot module replacement ──────────────────────────────────────────────────
-
-/**
- * Keep the run alive across edits.
- *
- * Without this, every save is a full page reload: the season, the dungeon you
- * spent ten minutes building, and the log all vanish — which makes tuning by
- * feel impractical. Two things have to happen.
- *
- * 1. `dispose` MUST stop the playback timer. Module-level `setInterval` is not
- *    torn down by HMR, so without this each edit during a raid leaves another
- *    interval running against a dead module — the raid appears to accelerate.
- *
- * 2. The season is plain data (see §13.2 — the sim is engine-free), so it
- *    survives a module swap intact. `RaidSim` is a class *instance*, though, and
- *    after a sim edit the stashed one still closes over the OLD code. Carrying
- *    it would mean watching a raid resolve under rules that no longer exist, so
- *    an in-flight raid is dropped back to the Build Phase instead. The dungeon
- *    is the expensive thing to rebuild; a raid is one click.
- */
-interface HotSnapshot {
-  season: SeasonState;
-  speedIdx: number;
-  log: LogLine[];
-  wasMidRaid: boolean;
-}
-
-// `import.meta.hot` is also truthy under Vitest, where `.data` is undefined —
-// hence the optional chaining. It doubles as a guard against a snapshot leaking
-// between tests that re-import this module.
-if (import.meta.hot) {
-  const saved = import.meta.hot.data?.['snapshot'] as HotSnapshot | undefined;
-  if (saved) {
-    app.season = saved.season;
-    app.speedIdx = saved.speedIdx;
-    app.log = saved.log;
-    app.phase = 'build';
-    app.sim = null;
-    app.aftermath = null;
-    if (saved.wasMidRaid) {
-      app.error = 'Reloaded mid-raid — the raid was reset, your dungeon is intact.';
-    }
-  }
-
-  import.meta.hot.dispose((data) => {
-    stopTimer();
-    if (!data) return;
-    const snapshot: HotSnapshot = {
-      season: app.season,
-      speedIdx: app.speedIdx,
-      log: app.log,
-      wasMidRaid: app.phase === 'raid',
-    };
-    data['snapshot'] = snapshot;
-  });
-
-  import.meta.hot.accept();
-}
-
-render();
+  render();
 }
 
 /** "Instant": drain the whole raid with no renderer in the loop. */
@@ -357,66 +239,7 @@ function runInstant(): void {
       for (const e of sim.resolveTaunt(false)) pushLog(e);
     }
   }
-  // ─── Hot module replacement ──────────────────────────────────────────────────
-
-/**
- * Keep the run alive across edits.
- *
- * Without this, every save is a full page reload: the season, the dungeon you
- * spent ten minutes building, and the log all vanish — which makes tuning by
- * feel impractical. Two things have to happen.
- *
- * 1. `dispose` MUST stop the playback timer. Module-level `setInterval` is not
- *    torn down by HMR, so without this each edit during a raid leaves another
- *    interval running against a dead module — the raid appears to accelerate.
- *
- * 2. The season is plain data (see §13.2 — the sim is engine-free), so it
- *    survives a module swap intact. `RaidSim` is a class *instance*, though, and
- *    after a sim edit the stashed one still closes over the OLD code. Carrying
- *    it would mean watching a raid resolve under rules that no longer exist, so
- *    an in-flight raid is dropped back to the Build Phase instead. The dungeon
- *    is the expensive thing to rebuild; a raid is one click.
- */
-interface HotSnapshot {
-  season: SeasonState;
-  speedIdx: number;
-  log: LogLine[];
-  wasMidRaid: boolean;
-}
-
-// `import.meta.hot` is also truthy under Vitest, where `.data` is undefined —
-// hence the optional chaining. It doubles as a guard against a snapshot leaking
-// between tests that re-import this module.
-if (import.meta.hot) {
-  const saved = import.meta.hot.data?.['snapshot'] as HotSnapshot | undefined;
-  if (saved) {
-    app.season = saved.season;
-    app.speedIdx = saved.speedIdx;
-    app.log = saved.log;
-    app.phase = 'build';
-    app.sim = null;
-    app.aftermath = null;
-    if (saved.wasMidRaid) {
-      app.error = 'Reloaded mid-raid — the raid was reset, your dungeon is intact.';
-    }
-  }
-
-  import.meta.hot.dispose((data) => {
-    stopTimer();
-    if (!data) return;
-    const snapshot: HotSnapshot = {
-      season: app.season,
-      speedIdx: app.speedIdx,
-      log: app.log,
-      wasMidRaid: app.phase === 'raid',
-    };
-    data['snapshot'] = snapshot;
-  });
-
-  import.meta.hot.accept();
-}
-
-render();
+  render();
 }
 
 // ─── Phase transitions ───────────────────────────────────────────────────────
@@ -431,66 +254,7 @@ function beginRaid(): void {
   app.selectedTrap = null;
   app.error = '';
   for (const e of app.sim.step()) pushLog(e);
-  // ─── Hot module replacement ──────────────────────────────────────────────────
-
-/**
- * Keep the run alive across edits.
- *
- * Without this, every save is a full page reload: the season, the dungeon you
- * spent ten minutes building, and the log all vanish — which makes tuning by
- * feel impractical. Two things have to happen.
- *
- * 1. `dispose` MUST stop the playback timer. Module-level `setInterval` is not
- *    torn down by HMR, so without this each edit during a raid leaves another
- *    interval running against a dead module — the raid appears to accelerate.
- *
- * 2. The season is plain data (see §13.2 — the sim is engine-free), so it
- *    survives a module swap intact. `RaidSim` is a class *instance*, though, and
- *    after a sim edit the stashed one still closes over the OLD code. Carrying
- *    it would mean watching a raid resolve under rules that no longer exist, so
- *    an in-flight raid is dropped back to the Build Phase instead. The dungeon
- *    is the expensive thing to rebuild; a raid is one click.
- */
-interface HotSnapshot {
-  season: SeasonState;
-  speedIdx: number;
-  log: LogLine[];
-  wasMidRaid: boolean;
-}
-
-// `import.meta.hot` is also truthy under Vitest, where `.data` is undefined —
-// hence the optional chaining. It doubles as a guard against a snapshot leaking
-// between tests that re-import this module.
-if (import.meta.hot) {
-  const saved = import.meta.hot.data?.['snapshot'] as HotSnapshot | undefined;
-  if (saved) {
-    app.season = saved.season;
-    app.speedIdx = saved.speedIdx;
-    app.log = saved.log;
-    app.phase = 'build';
-    app.sim = null;
-    app.aftermath = null;
-    if (saved.wasMidRaid) {
-      app.error = 'Reloaded mid-raid — the raid was reset, your dungeon is intact.';
-    }
-  }
-
-  import.meta.hot.dispose((data) => {
-    stopTimer();
-    if (!data) return;
-    const snapshot: HotSnapshot = {
-      season: app.season,
-      speedIdx: app.speedIdx,
-      log: app.log,
-      wasMidRaid: app.phase === 'raid',
-    };
-    data['snapshot'] = snapshot;
-  });
-
-  import.meta.hot.accept();
-}
-
-render();
+  render();
   syncTimer();
 }
 
@@ -512,66 +276,7 @@ function finishRaid(): void {
     raidNumber,
   });
   app.phase = app.season.over ? 'over' : 'aftermath';
-  // ─── Hot module replacement ──────────────────────────────────────────────────
-
-/**
- * Keep the run alive across edits.
- *
- * Without this, every save is a full page reload: the season, the dungeon you
- * spent ten minutes building, and the log all vanish — which makes tuning by
- * feel impractical. Two things have to happen.
- *
- * 1. `dispose` MUST stop the playback timer. Module-level `setInterval` is not
- *    torn down by HMR, so without this each edit during a raid leaves another
- *    interval running against a dead module — the raid appears to accelerate.
- *
- * 2. The season is plain data (see §13.2 — the sim is engine-free), so it
- *    survives a module swap intact. `RaidSim` is a class *instance*, though, and
- *    after a sim edit the stashed one still closes over the OLD code. Carrying
- *    it would mean watching a raid resolve under rules that no longer exist, so
- *    an in-flight raid is dropped back to the Build Phase instead. The dungeon
- *    is the expensive thing to rebuild; a raid is one click.
- */
-interface HotSnapshot {
-  season: SeasonState;
-  speedIdx: number;
-  log: LogLine[];
-  wasMidRaid: boolean;
-}
-
-// `import.meta.hot` is also truthy under Vitest, where `.data` is undefined —
-// hence the optional chaining. It doubles as a guard against a snapshot leaking
-// between tests that re-import this module.
-if (import.meta.hot) {
-  const saved = import.meta.hot.data?.['snapshot'] as HotSnapshot | undefined;
-  if (saved) {
-    app.season = saved.season;
-    app.speedIdx = saved.speedIdx;
-    app.log = saved.log;
-    app.phase = 'build';
-    app.sim = null;
-    app.aftermath = null;
-    if (saved.wasMidRaid) {
-      app.error = 'Reloaded mid-raid — the raid was reset, your dungeon is intact.';
-    }
-  }
-
-  import.meta.hot.dispose((data) => {
-    stopTimer();
-    if (!data) return;
-    const snapshot: HotSnapshot = {
-      season: app.season,
-      speedIdx: app.speedIdx,
-      log: app.log,
-      wasMidRaid: app.phase === 'raid',
-    };
-    data['snapshot'] = snapshot;
-  });
-
-  import.meta.hot.accept();
-}
-
-render();
+  render();
 }
 
 function nextRaid(): void {
@@ -579,66 +284,7 @@ function nextRaid(): void {
   app.sim = null;
   app.aftermath = null;
   app.narration = null;
-  // ─── Hot module replacement ──────────────────────────────────────────────────
-
-/**
- * Keep the run alive across edits.
- *
- * Without this, every save is a full page reload: the season, the dungeon you
- * spent ten minutes building, and the log all vanish — which makes tuning by
- * feel impractical. Two things have to happen.
- *
- * 1. `dispose` MUST stop the playback timer. Module-level `setInterval` is not
- *    torn down by HMR, so without this each edit during a raid leaves another
- *    interval running against a dead module — the raid appears to accelerate.
- *
- * 2. The season is plain data (see §13.2 — the sim is engine-free), so it
- *    survives a module swap intact. `RaidSim` is a class *instance*, though, and
- *    after a sim edit the stashed one still closes over the OLD code. Carrying
- *    it would mean watching a raid resolve under rules that no longer exist, so
- *    an in-flight raid is dropped back to the Build Phase instead. The dungeon
- *    is the expensive thing to rebuild; a raid is one click.
- */
-interface HotSnapshot {
-  season: SeasonState;
-  speedIdx: number;
-  log: LogLine[];
-  wasMidRaid: boolean;
-}
-
-// `import.meta.hot` is also truthy under Vitest, where `.data` is undefined —
-// hence the optional chaining. It doubles as a guard against a snapshot leaking
-// between tests that re-import this module.
-if (import.meta.hot) {
-  const saved = import.meta.hot.data?.['snapshot'] as HotSnapshot | undefined;
-  if (saved) {
-    app.season = saved.season;
-    app.speedIdx = saved.speedIdx;
-    app.log = saved.log;
-    app.phase = 'build';
-    app.sim = null;
-    app.aftermath = null;
-    if (saved.wasMidRaid) {
-      app.error = 'Reloaded mid-raid — the raid was reset, your dungeon is intact.';
-    }
-  }
-
-  import.meta.hot.dispose((data) => {
-    stopTimer();
-    if (!data) return;
-    const snapshot: HotSnapshot = {
-      season: app.season,
-      speedIdx: app.speedIdx,
-      log: app.log,
-      wasMidRaid: app.phase === 'raid',
-    };
-    data['snapshot'] = snapshot;
-  });
-
-  import.meta.hot.accept();
-}
-
-render();
+  render();
 }
 
 function restart(): void {
@@ -648,66 +294,7 @@ function restart(): void {
     phase: 'build', sim: null, speedIdx: 1, log: [], events: [],
     selectedMob: null, selectedTrap: null, aftermath: null, narration: null, error: '',
   });
-  // ─── Hot module replacement ──────────────────────────────────────────────────
-
-/**
- * Keep the run alive across edits.
- *
- * Without this, every save is a full page reload: the season, the dungeon you
- * spent ten minutes building, and the log all vanish — which makes tuning by
- * feel impractical. Two things have to happen.
- *
- * 1. `dispose` MUST stop the playback timer. Module-level `setInterval` is not
- *    torn down by HMR, so without this each edit during a raid leaves another
- *    interval running against a dead module — the raid appears to accelerate.
- *
- * 2. The season is plain data (see §13.2 — the sim is engine-free), so it
- *    survives a module swap intact. `RaidSim` is a class *instance*, though, and
- *    after a sim edit the stashed one still closes over the OLD code. Carrying
- *    it would mean watching a raid resolve under rules that no longer exist, so
- *    an in-flight raid is dropped back to the Build Phase instead. The dungeon
- *    is the expensive thing to rebuild; a raid is one click.
- */
-interface HotSnapshot {
-  season: SeasonState;
-  speedIdx: number;
-  log: LogLine[];
-  wasMidRaid: boolean;
-}
-
-// `import.meta.hot` is also truthy under Vitest, where `.data` is undefined —
-// hence the optional chaining. It doubles as a guard against a snapshot leaking
-// between tests that re-import this module.
-if (import.meta.hot) {
-  const saved = import.meta.hot.data?.['snapshot'] as HotSnapshot | undefined;
-  if (saved) {
-    app.season = saved.season;
-    app.speedIdx = saved.speedIdx;
-    app.log = saved.log;
-    app.phase = 'build';
-    app.sim = null;
-    app.aftermath = null;
-    if (saved.wasMidRaid) {
-      app.error = 'Reloaded mid-raid — the raid was reset, your dungeon is intact.';
-    }
-  }
-
-  import.meta.hot.dispose((data) => {
-    stopTimer();
-    if (!data) return;
-    const snapshot: HotSnapshot = {
-      season: app.season,
-      speedIdx: app.speedIdx,
-      log: app.log,
-      wasMidRaid: app.phase === 'raid',
-    };
-    data['snapshot'] = snapshot;
-  });
-
-  import.meta.hot.accept();
-}
-
-render();
+  render();
 }
 
 // ─── Drag and drop ───────────────────────────────────────────────────────────
@@ -1471,66 +1058,7 @@ function raidPanel(): HTMLElement {
   const row = el('<div class="row"></div>');
   SPEEDS.forEach((sp, i) => {
     const b = el(`<button class="${app.speedIdx === i ? 'on' : ''}">${sp.label}</button>`);
-    b.onclick = () => { app.speedIdx = i; // ─── Hot module replacement ──────────────────────────────────────────────────
-
-/**
- * Keep the run alive across edits.
- *
- * Without this, every save is a full page reload: the season, the dungeon you
- * spent ten minutes building, and the log all vanish — which makes tuning by
- * feel impractical. Two things have to happen.
- *
- * 1. `dispose` MUST stop the playback timer. Module-level `setInterval` is not
- *    torn down by HMR, so without this each edit during a raid leaves another
- *    interval running against a dead module — the raid appears to accelerate.
- *
- * 2. The season is plain data (see §13.2 — the sim is engine-free), so it
- *    survives a module swap intact. `RaidSim` is a class *instance*, though, and
- *    after a sim edit the stashed one still closes over the OLD code. Carrying
- *    it would mean watching a raid resolve under rules that no longer exist, so
- *    an in-flight raid is dropped back to the Build Phase instead. The dungeon
- *    is the expensive thing to rebuild; a raid is one click.
- */
-interface HotSnapshot {
-  season: SeasonState;
-  speedIdx: number;
-  log: LogLine[];
-  wasMidRaid: boolean;
-}
-
-// `import.meta.hot` is also truthy under Vitest, where `.data` is undefined —
-// hence the optional chaining. It doubles as a guard against a snapshot leaking
-// between tests that re-import this module.
-if (import.meta.hot) {
-  const saved = import.meta.hot.data?.['snapshot'] as HotSnapshot | undefined;
-  if (saved) {
-    app.season = saved.season;
-    app.speedIdx = saved.speedIdx;
-    app.log = saved.log;
-    app.phase = 'build';
-    app.sim = null;
-    app.aftermath = null;
-    if (saved.wasMidRaid) {
-      app.error = 'Reloaded mid-raid — the raid was reset, your dungeon is intact.';
-    }
-  }
-
-  import.meta.hot.dispose((data) => {
-    stopTimer();
-    if (!data) return;
-    const snapshot: HotSnapshot = {
-      season: app.season,
-      speedIdx: app.speedIdx,
-      log: app.log,
-      wasMidRaid: app.phase === 'raid',
-    };
-    data['snapshot'] = snapshot;
-  });
-
-  import.meta.hot.accept();
-}
-
-render(); syncTimer(); };
+    b.onclick = () => { app.speedIdx = i; render(); syncTimer(); };
     row.append(b);
   });
   const inst = el('<button>Instant</button>');
@@ -1614,66 +1142,7 @@ function tauntModal(): HTMLElement {
   m.querySelectorAll('button').forEach((b) => {
     (b as HTMLElement).onclick = () => {
       for (const e of sim.resolveTaunt((b as HTMLElement).dataset['a'] === '1')) pushLog(e);
-      // ─── Hot module replacement ──────────────────────────────────────────────────
-
-/**
- * Keep the run alive across edits.
- *
- * Without this, every save is a full page reload: the season, the dungeon you
- * spent ten minutes building, and the log all vanish — which makes tuning by
- * feel impractical. Two things have to happen.
- *
- * 1. `dispose` MUST stop the playback timer. Module-level `setInterval` is not
- *    torn down by HMR, so without this each edit during a raid leaves another
- *    interval running against a dead module — the raid appears to accelerate.
- *
- * 2. The season is plain data (see §13.2 — the sim is engine-free), so it
- *    survives a module swap intact. `RaidSim` is a class *instance*, though, and
- *    after a sim edit the stashed one still closes over the OLD code. Carrying
- *    it would mean watching a raid resolve under rules that no longer exist, so
- *    an in-flight raid is dropped back to the Build Phase instead. The dungeon
- *    is the expensive thing to rebuild; a raid is one click.
- */
-interface HotSnapshot {
-  season: SeasonState;
-  speedIdx: number;
-  log: LogLine[];
-  wasMidRaid: boolean;
-}
-
-// `import.meta.hot` is also truthy under Vitest, where `.data` is undefined —
-// hence the optional chaining. It doubles as a guard against a snapshot leaking
-// between tests that re-import this module.
-if (import.meta.hot) {
-  const saved = import.meta.hot.data?.['snapshot'] as HotSnapshot | undefined;
-  if (saved) {
-    app.season = saved.season;
-    app.speedIdx = saved.speedIdx;
-    app.log = saved.log;
-    app.phase = 'build';
-    app.sim = null;
-    app.aftermath = null;
-    if (saved.wasMidRaid) {
-      app.error = 'Reloaded mid-raid — the raid was reset, your dungeon is intact.';
-    }
-  }
-
-  import.meta.hot.dispose((data) => {
-    stopTimer();
-    if (!data) return;
-    const snapshot: HotSnapshot = {
-      season: app.season,
-      speedIdx: app.speedIdx,
-      log: app.log,
-      wasMidRaid: app.phase === 'raid',
-    };
-    data['snapshot'] = snapshot;
-  });
-
-  import.meta.hot.accept();
-}
-
-render();
+      render();
       syncTimer();
     };
   });
@@ -1844,3 +1313,4 @@ if (import.meta.hot) {
 }
 
 render();
+
