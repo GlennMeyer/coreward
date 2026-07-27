@@ -24,14 +24,21 @@ import {
   aliveMembers, avgHpPct, avgResolvePct, generateParty, partyHasNamed,
 } from './adventurers';
 import type {
-  Adventurer, Dungeon, Mob, Party, RaidEvent, RaidOutcome, RaidResult,
-  RetreatReason,
+  Adventurer, Dungeon, Legend, Mob, MobRole, Party, RaidEvent, RaidOutcome,
+  RaidResult, RetreatReason, ThrillScore, Veteran,
 } from './types';
 
 export type RaidStatus = 'running' | 'awaiting-taunt' | 'complete';
 
 /** Safety valve: no raid may spin forever. */
 const MAX_TICKS = 3000;
+
+/** `variety` saturates here — four distinct roles is already a varied dungeon (§15.3). */
+const VARIETY_ROLE_CAP = 4;
+
+const ZERO_THRILL: ThrillScore = {
+  total: 0, peril: 0, depth: 0, variety: 0, comfort: 0, tedium: 0,
+};
 
 export class RaidSim {
   readonly party: Party;
@@ -62,13 +69,31 @@ export class RaidSim {
   private deepestFloor = 0;
   private outcome: RaidOutcome | null = null;
 
+  // Thrill inputs, tallied as the delve happens (§15.3).
+  private emptyRooms = 0;
+  private repeatedRooms = 0;
+  private lastRoomSig: string | null = null;
+  private rolesFaced = new Set<MobRole>();
+  private amenitiesUsed = new Set<string>();
+  private thrillScore: ThrillScore = ZERO_THRILL;
+  private retiredThisRaid: Legend[] = [];
+  private perAdvThrill = new Map<number, number>();
+
+  private readonly veterans: Veteran[];
+
   private pending: RaidEvent[] = [];
 
-  constructor(dungeon: Dungeon, tier: TierRow, seed: number) {
+  /**
+   * `veterans` is the season's persistent roster (§15.5) and is optional so
+   * every existing call site — tests, tools, the UI — keeps working without it.
+   * The sim only reads it, except for flipping `retired` on a retiree.
+   */
+  constructor(dungeon: Dungeon, tier: TierRow, seed: number, veterans: Veteran[] = []) {
     this.d = dungeon;
     this.tier = tier;
     this.rng = new Rng(seed);
-    this.party = generateParty(this.rng, tier);
+    this.veterans = veterans;
+    this.party = generateParty(this.rng, tier, veterans);
     this.emit({ t: 0, type: 'raid-start', tier: tier.tier, partySize: this.party.members.length });
     this.emit({ t: 0, type: 'floor-enter', floor: 0 });
   }
@@ -91,6 +116,15 @@ export class RaidSim {
 
   get tauntOffer(): { landing: number; reason: RetreatReason } | null {
     return this.pendingTaunt;
+  }
+
+  /**
+   * Thrill by adventurer id, for survivors only. `RaidResult.thrill` carries
+   * the party mean; the Aftermath needs the individual figures to update each
+   * Veteran's personal best (§15.5).
+   */
+  get survivorThrill(): ReadonlyMap<number, number> {
+    return this.perAdvThrill;
   }
 
   private emit(e: RaidEvent): void {
@@ -176,6 +210,7 @@ export class RaidSim {
     if (!this.roomEntered) {
       this.roomEntered = true;
       this.emit({ t: this.tick, type: 'room-enter', floor: this.floor, room: this.room });
+      this.noteRoomTraversed();
       this.initRoomCombatants();
       this.ambushRound();
       if (this.checkPartyState()) return;
@@ -210,6 +245,33 @@ export class RaidSim {
     }
 
     this.checkPartyState();
+  }
+
+  /**
+   * Tedium and variety bookkeeping, taken at the moment they walk in (§15.3).
+   *
+   * Sampling on entry rather than on clear is deliberate: a room that was
+   * emptied by a Ley intervention still threatened them when they arrived, and
+   * a room they died in still counts as content they saw.
+   */
+  private noteRoomTraversed(): void {
+    const mobs = mobsInRoom(this.d, this.floor, this.room);
+
+    if (mobs.length === 0) {
+      this.emptyRooms++;
+      // Empty rooms already pay tediumPerEmptyRoom; charging them the repeat
+      // penalty as well would double-bill the same corridor.
+      this.lastRoomSig = null;
+      return;
+    }
+
+    for (const m of mobs) this.rolesFaced.add(MOBS[m.defId]!.role);
+
+    // Same cast of monsters as the room before it — nine identical Ogre rooms
+    // is a bad dungeon by rule, not just by taste (§15.4).
+    const sig = mobs.map((m) => m.defId).sort().join(',');
+    if (sig === this.lastRoomSig) this.repeatedRooms++;
+    this.lastRoomSig = sig;
   }
 
   private initRoomCombatants(): void {
@@ -253,6 +315,9 @@ export class RaidSim {
 
     const dmg = Math.max(1, Math.round(raw - target.armor));
     target.hp = Math.max(0, target.hp - dmg);
+    // The low-water mark is the whole of `peril` (§15.3): what matters is how
+    // close they came, not what they limped out on.
+    target.lowestHpPct = Math.min(target.lowestHpPct, target.hp / target.maxHp);
     this.emit({
       t: this.tick, type: 'attack', source: 'mob',
       uid: mob.uid, targetId: target.id, dmg,
@@ -441,6 +506,7 @@ export class RaidSim {
     for (let slot = 0; slot < landing.amenities.length; slot++) {
       const a = landing.amenities[slot];
       if (!a || !isOpen(a)) continue;
+      const key = `${landingIdx}:${slot}`;
       // Hirelings have no Commerce track — that is what the monster is for.
       const staff = a.staffUid !== null ? getMob(this.d, a.staffUid) : undefined;
       if (a.staffUid !== null && (!staff || !staff.alive)) continue;
@@ -459,6 +525,7 @@ export class RaidSim {
           this.goldFromSales += price;
           const heal = Math.round(adv.maxHp * HOTSPRING_HEAL_PCT);
           adv.hp = Math.min(adv.maxHp, adv.hp + heal);
+          this.amenitiesUsed.add(key);
           this.recordSale(staff, landingIdx, a.defId, adv, price, `+${heal} HP`);
         } else {
           const need = aliveMembers(this.party).length * 1.5;
@@ -472,6 +539,7 @@ export class RaidSim {
           adv.gold -= spend;
           this.goldFromSales += spend;
           this.party.kit += qty;
+          this.amenitiesUsed.add(key);
           this.recordSale(staff, landingIdx, a.defId, adv, spend, `+${qty} Kit`);
         }
       }
@@ -529,9 +597,110 @@ export class RaidSim {
       this.emit({ t: this.tick, type: 'retreat', reason });
     }
     this.resolveDowned(outcome);
+    // Scored once, here, rather than in the `result` getter: retirement mutates
+    // the veteran roster, and the getter is read repeatedly by the UI.
+    this.scoreDelve();
     this.outcome = outcome;
     this._status = 'complete';
     this.emit({ t: this.tick, type: 'raid-end', outcome });
+  }
+
+  // ─── Thrill (§15.3) ────────────────────────────────────────────────────────
+
+  /**
+   * Amenities the party could have used, by the same open/staffed test the
+   * shopping pass uses — an amenity nobody can serve at is not on offer.
+   */
+  private openAmenityCount(): number {
+    let n = 0;
+    for (const landing of this.d.landings) {
+      for (const a of landing.amenities) {
+        if (!a || !isOpen(a)) continue;
+        const staff = a.staffUid !== null ? getMob(this.d, a.staffUid) : undefined;
+        if (a.staffUid !== null && (!staff || !staff.alive)) continue;
+        n++;
+      }
+    }
+    return n;
+  }
+
+  /**
+   * Thrill per survivor, meaned (§15.3). You are running an attraction, and
+   * the score is the quality of the ride: how close to death they came, how
+   * deep they got, how much of the bestiary they met, how well they were
+   * looked after — less the tedium of empty and repeated rooms.
+   */
+  private scoreDelve(): void {
+    const tedium =
+      TUNING.tediumPerEmptyRoom * this.emptyRooms
+      + TUNING.tediumPerRepeatedRoom * this.repeatedRooms;
+
+    const survivors = aliveMembers(this.party);
+    // Dead men tell no tales. A wipe scores nothing, which is the principled
+    // replacement for the old flat ×0.5 wipe multiplier (§15.3).
+    if (survivors.length === 0) {
+      this.thrillScore = { ...ZERO_THRILL, tedium };
+      return;
+    }
+
+    const depth = clamp01(this.deepestFloor / this.d.floors.length);
+    const variety = Math.min(this.rolesFaced.size, VARIETY_ROLE_CAP) / VARIETY_ROLE_CAP;
+    const open = this.openAmenityCount();
+    const comfort = open > 0 ? clamp01(this.amenitiesUsed.size / open) : 0;
+
+    const scored: { adv: Adventurer; thrill: number }[] = [];
+    let perilSum = 0;
+    let thrillSum = 0;
+
+    for (const adv of survivors) {
+      const peril = clamp01(1 - adv.lowestHpPct);
+      perilSum += peril;
+      const raw =
+        100 * (
+          TUNING.thrillPerilWeight * peril
+          + TUNING.thrillDepthWeight * depth
+          + TUNING.thrillVarietyWeight * variety
+          + TUNING.thrillComfortWeight * comfort
+        ) - tedium;
+      // Floored at zero: Renown is a ratchet that only goes up (§4.4), so a
+      // tedious delve pays nothing rather than costing you reputation.
+      const thrill = Math.max(0, raw);
+      thrillSum += thrill;
+      scored.push({ adv, thrill });
+      this.perAdvThrill.set(adv.id, thrill);
+    }
+
+    this.thrillScore = {
+      total: thrillSum / survivors.length,
+      peril: perilSum / survivors.length,
+      depth,
+      variety,
+      comfort,
+      tedium,
+    };
+    this.retiredThisRaid = this.resolveRetirements(scored);
+  }
+
+  /**
+   * A great delve can be somebody's last (§15.5). Retiring costs you the
+   * adventurer permanently — and their future gold — in exchange for a Legend
+   * on the wall.
+   */
+  private resolveRetirements(scored: { adv: Adventurer; thrill: number }[]): Legend[] {
+    const out: Legend[] = [];
+    for (const { adv, thrill } of scored) {
+      if (thrill < TUNING.retireThrill) continue;
+      const vet = adv.veteranId !== null
+        ? this.veterans.find((v) => v.id === adv.veteranId)
+        : undefined;
+      // +1 counts the delve they have just walked out of; season.ts does the
+      // actual increment during the Aftermath, after this runs.
+      if ((vet?.delves ?? 0) + 1 < TUNING.retireMinDelves) continue;
+      if (vet) vet.retired = true;
+      // `retiredOnRaid` is stamped by season.ts — the sim has no raid counter.
+      out.push({ name: adv.name, thrill: Math.round(thrill), retiredOnRaid: 0 });
+    }
+    return out;
   }
 
   /**
@@ -568,11 +737,21 @@ export class RaidSim {
       + namedKilled * SOULS_PER_NAMED,
     );
 
-    let renown =
-      escaped * RENOWN_PER_ESCAPEE
-      + this.killed * RENOWN_PER_KILL
-      + this.goldFromSales * RENOWN_PER_GOLD;
-    if (outcome === 'wiped') renown *= RENOWN_WIPE_MULT;
+    // The reframe (§15.3): reputation is the quality of the delve, not the
+    // headcount that walked out. The flag keeps the old flat formula reachable
+    // so tools/balance.ts can measure the two head to head.
+    let renown: number;
+    if (TUNING.thrillRenown) {
+      renown =
+        this.thrillScore.total * escaped * TUNING.renownPerThrill
+        + this.retiredThisRaid.length * TUNING.retireRenownBonus;
+    } else {
+      renown =
+        escaped * RENOWN_PER_ESCAPEE
+        + this.killed * RENOWN_PER_KILL
+        + this.goldFromSales * RENOWN_PER_GOLD;
+      if (outcome === 'wiped') renown *= RENOWN_WIPE_MULT;
+    }
 
     return {
       outcome,
@@ -582,9 +761,8 @@ export class RaidSim {
       goldFromCorpses: this.goldFromCorpses,
       souls,
       renown: Math.round(renown),
-      // TODO(§15.3): real Thrill scoring.
-      thrill: { total: 0, peril: 0, depth: 0, variety: 0, comfort: 0, tedium: 0 },
-      retired: [],       // TODO(§15.5)
+      thrill: this.thrillScore,
+      retired: this.retiredThisRaid,
       mobsDowned: this.mobsDowned,
       mobsLost: this.mobsLost,
       deepestFloorReached: this.deepestFloor,
@@ -596,6 +774,10 @@ export class RaidSim {
   get manaFromKills(): number {
     return this.killed * MANA_PER_KILL;
   }
+}
+
+function clamp01(x: number): number {
+  return Math.max(0, Math.min(1, x));
 }
 
 export { mobMaxHp };

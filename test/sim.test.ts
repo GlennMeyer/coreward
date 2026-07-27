@@ -1,8 +1,12 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   GEAR, MOBS, RENOWN_PER_ESCAPEE, RENOWN_WIPE_MULT, TIERS, TUNING,
-  XP_THRESHOLDS, mobMaxHp, roomCapacity, roomsOnFloor, tierForRenown,
+  XP_THRESHOLDS, mobMaxHp, resetTuning, roomCapacity, roomsOnFloor,
+  tierForRenown,
 } from '../src/sim/data';
+import { generateParty } from '../src/sim/adventurers';
+import { Rng } from '../src/sim/rng';
+import type { Veteran } from '../src/sim/types';
 import {
   assignStaff, buyMob, createDungeon, digFloor, equipGear, grantXp, hireStaff,
   mobEffectiveDmg, mobEffectiveHp, mobStripsKit, mobsInRoom, packMultiplier,
@@ -196,12 +200,6 @@ describe('raid resolution (§7)', () => {
     expect(sim.result.escaped).toBe(0);
   });
 
-  it('halves renown on a total wipe — nobody tells the tale', () => {
-    const { sim } = findWipe();
-    const r = sim.result;
-    expect(r.renown).toBe(Math.round(r.killed * 2 * RENOWN_WIPE_MULT));
-  });
-
   it('a wipe costs no hearts', () => {
     const { season, sim } = findWipe();
     expect(sim.result.outcome).toBe('wiped');
@@ -215,15 +213,6 @@ describe('raid resolution (§7)', () => {
     expect(carried).toBe(0);
     expect(sim.result.goldFromCorpses).toBeGreaterThan(0);
     expect(TUNING.goldRecoveredOnKill).toBe(0.25);
-  });
-
-  it('awards renown per escapee', () => {
-    const s = seasonWithFloors(6, 1);
-    const sim = startRaid(s);
-    sim.runToCompletion();
-    const r = sim.result;
-    // Breach: everyone escapes, nobody dies, nothing sold.
-    expect(r.renown).toBe(r.escaped * RENOWN_PER_ESCAPEE);
   });
 
   it('downs monsters that lose their room, and only sometimes slays them', () => {
@@ -478,6 +467,236 @@ describe('gear — the Gold sink (§6.5)', () => {
       return;
     }
     throw new Error('monster never died across 80 seeds');
+  });
+});
+
+/** One floor, three rooms, all holding the same monster. Isolates peril. */
+function threeRoomsOf(defId: string, seed: number) {
+  const s = seasonWithFloors(seed, 1);
+  for (let r = 0; r < 3; r++) addMob(s.dungeon, defId, 0, r);
+  return s;
+}
+
+describe('Thrill-based Renown (§15.3)', () => {
+  afterEach(resetTuning);
+
+  it('tracks each adventurer\'s low-water HP, not their exit HP', () => {
+    const s = threeRoomsOf('ogre', 300);
+    const sim = new RaidSim(s.dungeon, TIERS[0]!, 4);
+    sim.runToCompletion();
+
+    const hurt = sim.party.members.filter((m) => m.lowestHpPct < 1);
+    expect(hurt.length).toBeGreaterThan(0);
+    for (const m of sim.party.members) {
+      expect(m.lowestHpPct).toBeLessThanOrEqual(m.hp / m.maxHp);
+      expect(m.lowestHpPct).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('pays far more for a party that nearly died than one that strolled out', () => {
+    // Same shape, same depth, same variety, same tedium — only peril differs.
+    // Cave Rats chip; Ogres very nearly finish the job.
+    const measure = (defId: string) => {
+      let n = 0, peril = 0, renown = 0;
+      for (let seed = 0; seed < 40; seed++) {
+        const sim = new RaidSim(threeRoomsOf(defId, seed).dungeon, TIERS[0]!, seed);
+        sim.runToCompletion();
+        const r = sim.result;
+        if (r.escaped === 0) continue;   // wipes tell no tales; scored separately
+        n++; peril += r.thrill.peril; renown += r.renown;
+      }
+      return { peril: peril / n, renown: renown / n };
+    };
+
+    const stroll = measure('rat');
+    const brink = measure('ogre');
+
+    expect(stroll.peril).toBeLessThan(0.2);
+    expect(brink.peril).toBeGreaterThan(0.5);
+    // "The story everyone repeats" should be worth multiples of a quiet delve.
+    expect(brink.renown).toBeGreaterThan(stroll.renown * 2);
+  });
+
+  it('a wipe earns nothing at all — no survivors, no reputation', () => {
+    const { sim } = findWipe();
+    const r = sim.result;
+    expect(r.escaped).toBe(0);
+    expect(r.thrill.total).toBe(0);
+    expect(r.renown).toBe(0);
+  });
+
+  it('charges tedium for empty rooms', () => {
+    // Undefended: three empty rooms, then the Core.
+    const s = seasonWithFloors(301, 1);
+    const sim = startRaid(s);
+    sim.runToCompletion();
+    expect(sim.result.thrill.tedium).toBe(3 * TUNING.tediumPerEmptyRoom);
+  });
+
+  it('charges tedium for consecutive identical rooms, and not for varied ones', () => {
+    const same = new RaidSim(threeRoomsOf('rat', 302).dungeon, TIERS[0]!, 8);
+    same.runToCompletion();
+    // Rat, rat, rat — two repeats, no empty rooms.
+    expect(same.result.thrill.tedium).toBe(2 * TUNING.tediumPerRepeatedRoom);
+
+    const varied = seasonWithFloors(303, 1);
+    addMob(varied.dungeon, 'rat', 0, 0);
+    addMob(varied.dungeon, 'slime', 0, 1);
+    addMob(varied.dungeon, 'rat', 0, 2);
+    const mixed = new RaidSim(varied.dungeon, TIERS[0]!, 8);
+    mixed.runToCompletion();
+    expect(mixed.result.thrill.tedium).toBe(0);
+    // Two roles met instead of one, and no tedium: strictly the better dungeon.
+    expect(mixed.result.thrill.variety).toBeGreaterThan(same.result.thrill.variety);
+    expect(mixed.result.renown).toBeGreaterThan(same.result.renown);
+  });
+
+  it('tedium is what makes an empty corridor cost Renown', () => {
+    const paid = () => {
+      const sim = startRaid(seasonWithFloors(304, 1));
+      sim.runToCompletion();
+      return sim.result.renown;
+    };
+    const withTedium = paid();
+    TUNING.tediumPerEmptyRoom = 0;
+    expect(paid()).toBeGreaterThan(withTedium);
+  });
+
+  it('the thrillRenown flag falls back to the flat 6 × escapees formula', () => {
+    TUNING.thrillRenown = false;
+
+    const s = seasonWithFloors(305, 1);
+    const sim = startRaid(s);
+    sim.runToCompletion();
+    const r = sim.result;
+    // Breach: everyone escapes, nobody dies, nothing sold.
+    expect(r.renown).toBe(r.escaped * RENOWN_PER_ESCAPEE);
+
+    const { sim: wiped } = findWipe();
+    expect(wiped.result.renown)
+      .toBe(Math.round(wiped.result.killed * 2 * RENOWN_WIPE_MULT));
+  });
+});
+
+describe('Veterans, Retirement and Legends (§15.5)', () => {
+  afterEach(resetTuning);
+
+  it('fills party slots with returning faces instead of fresh rolls', () => {
+    const roster: Veteran[] = [
+      { id: 7, name: 'Kesta the Patient', cls: 'rogue', delves: 2, bestThrill: 40, retired: false },
+    ];
+    let returns = 0;
+    for (let seed = 0; seed < 60; seed++) {
+      const party = generateParty(new Rng(seed), TIERS[0]!, roster);
+      const back = party.members.filter((m) => m.veteranId === 7);
+      if (back.length === 0) continue;
+      returns++;
+      // One veteran cannot fill two slots in the same party.
+      expect(back).toHaveLength(1);
+      expect(back[0]!.name).toBe('Kesta the Patient');
+      expect(back[0]!.cls).toBe('rogue');
+      // Re-levelled to the current tier — the world scales, and so do they.
+      expect(back[0]!.level).toBeGreaterThanOrEqual(TIERS[0]!.levelMin);
+      expect(back[0]!.level).toBeLessThanOrEqual(TIERS[0]!.levelMax);
+    }
+    expect(returns).toBeGreaterThan(10);
+  });
+
+  it('never brings a retiree back', () => {
+    const roster: Veteran[] = [
+      { id: 7, name: 'Gone Fishing', cls: 'mage', delves: 9, bestThrill: 90, retired: true },
+    ];
+    for (let seed = 0; seed < 60; seed++) {
+      const party = generateParty(new Rng(seed), TIERS[0]!, roster);
+      expect(party.members.some((m) => m.veteranId !== null)).toBe(false);
+    }
+  });
+
+  it('records survivors on the roster and counts their delves', () => {
+    const s = seasonWithFloors(310, 1);
+    addMob(s.dungeon, 'rat', 0, 0);
+    s.dungeon.hearts = 99;
+
+    let escapedTotal = 0;
+    while (!s.over) {
+      const sim = startRaid(s);
+      sim.runToCompletion();
+      escapedTotal += sim.result.escaped;
+      applyAftermath(s, sim);
+    }
+
+    expect(s.veterans.length).toBeGreaterThan(0);
+    // Every survivor is on the roster once, and delves are cumulative.
+    const delves = s.veterans.reduce((n, v) => n + v.delves, 0);
+    expect(delves).toBe(escapedTotal);
+    expect(s.veterans.some((v) => v.delves > 1)).toBe(true);
+  });
+
+  it('retires a high-thrill regular and hangs them on the wall', () => {
+    // The mechanism is what is under test, not the threshold — at prototype
+    // tuning `retireThrill` 75 is barely reachable (see the balance notes).
+    TUNING.retireThrill = 10;
+    TUNING.retireMinDelves = 2;
+
+    const s = seasonWithFloors(311, 1);
+    addMob(s.dungeon, 'rat', 0, 0);
+    s.dungeon.hearts = 99;
+
+    let bonusRaids = 0;
+    while (!s.over) {
+      const sim = startRaid(s);
+      sim.runToCompletion();
+      const r = sim.result;
+      if (r.retired.length > 0) {
+        bonusRaids++;
+        for (const l of r.retired) expect(l.thrill).toBeGreaterThanOrEqual(10);
+      }
+      applyAftermath(s, sim);
+      for (const l of r.retired) expect(l.retiredOnRaid).toBeGreaterThan(0);
+    }
+
+    expect(bonusRaids).toBeGreaterThan(0);
+    expect(s.legends.length).toBeGreaterThan(0);
+    // Struck off the roster, permanently.
+    expect(s.veterans.filter((v) => v.retired).length).toBe(s.legends.length);
+    expect(s.legends.length).toBe(new Set(s.legends.map((l) => l.name)).size);
+  });
+
+  it('pays the retirement bonus and the Legend trickle on top of Thrill', () => {
+    TUNING.retireThrill = 10;
+    TUNING.retireMinDelves = 2;
+
+    const s = seasonWithFloors(312, 1);
+    addMob(s.dungeon, 'rat', 0, 0);
+    s.dungeon.hearts = 99;
+
+    let sawBonus = false, sawTrickle = false;
+    while (!s.over) {
+      const legendsBefore = s.legends.length;
+      const sim = startRaid(s);
+      sim.runToCompletion();
+      const r = sim.result;
+      const thrillPart = r.thrill.total * r.escaped * TUNING.renownPerThrill;
+      const expected = Math.round(
+        thrillPart
+        + r.retired.length * TUNING.retireRenownBonus
+        + legendsBefore * TUNING.legendRenownTrickle,
+      );
+      applyAftermath(s, sim);
+      // applyAftermath folds the trickle into the logged result.
+      expect(s.log[s.log.length - 1]!.renown).toBe(expected);
+      if (r.retired.length > 0) sawBonus = true;
+      if (legendsBefore > 0) sawTrickle = true;
+    }
+    expect(sawBonus).toBe(true);
+    expect(sawTrickle).toBe(true);
+  });
+
+  it('retires nobody on a tedious delve at default tuning', () => {
+    const s = seasonWithFloors(313, 1);
+    const sim = startRaid(s);
+    sim.runToCompletion();
+    expect(sim.result.retired).toEqual([]);
   });
 });
 

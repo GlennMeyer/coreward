@@ -932,3 +932,484 @@ cost of the income stream. Three dispositions now, not two:
    usability win and a big design commitment.
 4. Rival dungeons competing for a shared adventurer pool is the natural next layer of the
    tycoon framing. Almost certainly v2 — but it is where "market share" would live.
+
+---
+
+## 16. Excavation & Structure
+
+**Status: proposed, not implemented.** Depends on §15 landing first — half of this
+section's justification is Thrill, and if Thrill doesn't ship, most of this is just a tax.
+
+Today the *shape* of the dungeon is a lookup table. `roomsOnFloor()` and
+`roomCapacity(floorIndex) = 4 + floorIndex` hand the player a floor plan the moment they
+pay the dig cost. Digging is the only structural decision in the game, and it is a
+one-button decision: you can afford it or you can't.
+
+This section makes structure a thing you build: **room capacity is purchased per room, floor
+space is a finite spatial resource, and every excavation costs build time as well as Mana.**
+On top of that it adds **Shafts** — which look like connectivity plumbing and are actually
+the game's pacing control.
+
+**Two reference points, and the second is the closer one.** X-COM contributes build time:
+the thing you started is the thing you don't have yet. **Fallout Shelter** contributes
+almost everything else — a fixed-width vertical cross-section, rooms that occupy cells of
+it, identical adjacent rooms merging into larger and more efficient chambers, three upgrade
+tiers per room, elevators as placed structures that eat floor space, and a rush button with
+an incident attached. Coreward is already a vertical cross-section of stacked floors
+(§13.4). Fallout Shelter is what this game looks like from the outside, and we should steal
+from it deliberately rather than reinvent it badly.
+
+The one thing we do **not** steal is Fallout Shelter's answer to merging. There, merging is
+strictly good and the game is a puzzle about doing it optimally. Here it collides head-on
+with §15 — and that collision is the best thing in this section (§16.5).
+
+### 16.1 The four claims
+
+1. **Capacity should be bought, not granted.** A formula hands out capacity uniformly, so
+   every floor is the same shape and the only variable is what you put in it. Purchased
+   capacity lets floors be asymmetric — a wide killing chamber at the bottom of floor 3, a
+   line of narrow corridors above it — and asymmetry is what makes a dungeon read as
+   *designed* rather than *filled in*.
+2. **Floor space should be finite and contested.** Right now `ROOMS_BY_FLOOR` is an
+   abstract count with no spatial meaning. Making it a strip of **cells** that rooms,
+   merged chambers, and shaft heads all compete for gives every structural decision a cost
+   that isn't Mana — and gives §13.4's signature image something to actually draw.
+3. **Build time is the missing commitment.** X-COM base building is interesting because
+   the Workshop you started is a Workshop you don't have for four days. Coreward has no
+   equivalent: everything is instant. A dig that completes in three raids means playing two
+   raids with an unfinished dungeon, and that is a real decision in a way that "spend 110
+   mana" is not. **Rush** (§16.7) is the escape hatch, with Fallout Shelter's price attached.
+4. **Shafts shape the Thrill curve.** Under §15 you are selling a ride. A shaft that drops
+   a party two floors deeper produces high `peril` and high `depth` — a steep, perilous,
+   memorable delve. Walking them the long way past every Landing earns Gold and flattens
+   the curve. The shaft's Gate toggle (§16.8) is that choice, per raid.
+
+### 16.2 The currency question — recommendation: **no sixth currency**
+
+The brief asked whether excavation should introduce a sixth currency. It should not.
+Excavation spends **Mana + crew time**, and **Insight** is where structural permanence
+lives. Option (a).
+
+The reasoning, because "we have enough currencies already" is a vibe, not an argument:
+
+- **The scarce thing here is time, not money, and time already has a unit.** Crew-raids
+  are a genuinely new scarce axis and they are the one X-COM actually uses. Charging both a
+  new currency *and* build time double-taxes the same decision.
+- **Every source is taken.** A currency needs a source no other currency has. Kills →
+  Souls. Escapes → Renown. Sales → Gold. Passive trickle and depth → Mana. Season-end
+  milestones → Insight. The only unclaimed source is *time passing*, and a currency earned
+  purely by time passing is a clock with a wallet strapped to it. That is crew-raids.
+- **§14.3's lesson runs both ways.** A currency with no sink is a bug. A sink with no
+  distinct source is decoration.
+- **Mana already has the right shape.** §4 states the split plainly: *Mana builds the
+  dungeon, Gold improves it.* Mana is the currency that scales with floors (+40 each) and
+  whose primary existing sink is digging. Excavation **is** digging. Putting it anywhere
+  else would be a category error.
+
+**The honest steelman for (b), and why it still loses.** A sixth currency would make
+structure *non-fungible* with monsters: you could not raid your excavation budget to panic-
+buy an Ogre before a Tier-4 party. That is a real and desirable property — it is why
+X-COM's Engineers aren't just money. But crew-raids deliver exactly that property for free.
+You cannot convert Mana into crew time, and you cannot convert crew time into an Ogre. The
+non-fungibility we wanted is in the schedule, not the wallet. A currency would add the
+bookkeeping and none of the constraint.
+
+The concrete version we rejected, for the record: **Labor**, earned at a flat rate per raid
+(say 2/raid, +1 per floor), spendable only on build time. Cost it out and it is
+crew-raids with a denomination — the same integer, displayed twice, with a new HUD element
+and a new tutorial paragraph. Rejected.
+
+**Where Insight earns its keep.** Everything above resets at season end, which is correct
+for a roguelite — but it means a player who spent six raids building a Chamber loses it. The
+answer is not to make structure persist; it is to make *the ability to build it faster*
+persist. See §16.7. That is already what the Codex's Engineering branch (§10) promises
+("more room slots per floor"), so this is filling in an existing hole rather than opening a
+new one.
+
+### 16.3 Room capacity — purchased, in tiers
+
+Replace `roomCapacity(floorIndex)` with a per-room `capacityTier`.
+
+| Tier | Name | Capacity | Mana (base) | Build time | Notes |
+|---|---|---|---|---|---|
+| 0 | **Hewn** | 3 | — | — | Every room starts here, free |
+| 1 | **Widened** | 5 | 40 | 1 raid | |
+| 2 | **Hall** | 7 | 70 | 1 raid | |
+| 3 | **Chamber** | 10 | 120 | 2 raids | Codex-gated (§16.7) |
+
+Tiers are sequential — you cannot buy Hall without owning Widened. Mana is spent up front,
+at commit time, not on completion.
+
+**Depth multiplier.** Deeper rock is harder to move:
+
+```
+capacity_cost = base_cost × (1 + 0.30 × floorIndex)
+```
+
+| Floor | ×  | Widened | Hall | Chamber | Full stack |
+|---|---|---|---|---|---|
+| 1 | 1.0 | 40 | 70 | 120 | 230 |
+| 2 | 1.3 | 52 | 91 | 156 | 299 |
+| 3 | 1.6 | 64 | 112 | 192 | 368 |
+| 5 | 2.2 | 88 | 154 | 264 | 506 |
+
+This **inverts** the current rule, which gives deeper floors *more* capacity for free. That
+inversion is deliberate. Under the old formula the deepest floor is unconditionally the
+best place to put everything, so there is no reason to think about the upper ones. Under
+this one, depth is earned twice — once by the dig, once by the widening — and a wide room
+on floor 3 is a statement of intent. Deeper floors still get more *rooms* (`ROOMS_BY_FLOOR`
+is untouched), so the "digging is worth it" argument in §5.1 survives intact.
+
+**Why Hewn is 3 and not 4.** Two reasons. First, §6.2 already states rooms hold 3 slots —
+the `ROOM_CAPACITY_BASE = 4` in `data.ts` is drift, and this puts the doc and the code back
+in agreement at the base tier. Second, and more importantly: at 3, an Ogre (3 slots) exactly
+fills an unimproved room. That is the cleanest possible statement of what capacity means —
+*one big monster, or several small ones, and you may not have both until you pay.*
+
+With slot costs at Cave Rat / Slime / Cutpurse 1, Skeleton / Rust Ooze 2, Ogre 3:
+
+| Capacity | What fits |
+|---|---|
+| 3 (Hewn) | One Ogre. Or Skeleton + Rat. Or three Rats. |
+| 5 (Widened) | Ogre + Skeleton. Or Ooze + Cutpurse + Rat + Slime. |
+| 7 (Hall) | Ogre + Ooze + Skeleton. Three roles in one room. |
+| 10 (Chamber) | Ogre + Ooze + Skeleton + Cutpurse + Rat. A killing floor. |
+
+That table is the load-bearing argument for the whole system, because of what it does to
+§15's `variety` term. `variety = distinct monster roles faced / 4`. A Hewn room holds one
+role. A Hall holds three. **Capacity is now the primary variety lever in the game** — which
+means widening a room raises Thrill directly, not just raw damage output. Without §15 this
+system is a power purchase; with §15 it is a showmanship purchase, and that is a much
+better thing for it to be.
+
+> ⚠️ **Note for whoever implements this:** the slot costs in §6.3's table (Skeleton 1,
+> Ogre 2) do not match `src/sim/data.ts` (Skeleton 2, Ooze 2, Ogre 3). The code is right and
+> this section is costed against the code. §6.3 should be corrected — but not by this
+> section, which is not allowed to touch it.
+
+### 16.4 Build time and the Crew
+
+**One Crew. One project at a time.** This is the constraint that makes the system, and it
+should feel tight.
+
+- A **project** is one capacity tier on one room, or one shaft.
+- Committing a project spends its Mana immediately and occupies the Crew for N raids.
+- The project completes at Aftermath of its final raid, and is live for the raid after.
+- **Cancel** any time in the Build Phase for a **50% Mana refund** — the same rate as
+  dismissing a mob (§4.1). The Crew frees immediately. Progress is lost.
+- **A breach cancels every in-progress project** at the standard 50% refund. Losing a Heart
+  already slays every downed monster (§6.4); it should cost you the site as well. This is
+  §5.4's "losing is a death spiral by design, and it should be legible."
+
+At 8 raids (prototype) a single Crew gives you **8 crew-raids** for the entire season. At 12
+(full design), 12. That is the real budget, and it binds long before Mana does:
+
+```
+Season income, 3 floors, tier ~2, 8 raids:   ~1250 mana total (300 start + ~950 earned)
+Committed elsewhere:                          170 digging, ~350 monsters
+Available for structure:                      ~700 mana
+A plausible structural season:                ~300 mana / 6 crew-raids
+```
+
+You will run out of Crew with mana in the bank. That is the intended feeling and it is the
+single most important thing to preserve if these numbers get retuned: **if a season ends
+with unspent crew-raids, the costs are too high; if it ends with the queue backed up and
+mana idle, the system is working.**
+
+#### In-progress construction during a raid
+
+The brief asks whether a half-dug room is a liability. Answer: **not mechanically, but
+visibly.**
+
+| State | During a raid |
+|---|---|
+| **Scaffolded room** (capacity work) | Keeps its *current* capacity. Monsters in it fight normally. `tedium += 5` if the party traverses it. |
+| **Scaffolded Landing** (shaft work) | Amenities are **closed** — no sales, no Gold, no `comfort`. Rest and the Descent Decision still happen. |
+
+Widening a room does not weaken it — you are enlarging it from 3 to 5, and until the work
+lands it is a perfectly good room that holds 3. Punishing the player for the capacity they
+already paid for *and* haven't received yet would be punishing them twice, and would make
+the correct play "never build during a raid," which is the opposite of the point.
+
+The cost is that it **looks like a building site**, which is exactly the right cost in a
+game where reputation is the product. A scaffolded room traversed is +5 tedium, in the same
+units as §15's `4 × empty_rooms_traversed`. And a scaffolded *Landing* is the expensive
+one: a 3-raid shaft costs you three raids of that Landing's amenity revenue while its
+upkeep keeps ticking. That is the commitment. A commerce player thinks hard before boring a
+shaft under their best-selling Landing.
+
+**Does a scaffolded room count as empty for tedium?** No — it is scaffolded, not empty, and
+the two penalties do not stack. If it also happens to have no monsters in it, it takes the
+empty penalty (4) and not the scaffold penalty, whichever is larger, not both. Never charge
+9 for one boring room.
+
+### 16.5 Shafts — pacing control, not plumbing
+
+A **Shaft** is excavated at a Landing. It has three properties:
+
+| Property | Set when | Costs |
+|---|---|---|
+| **Target floor** | At commit | Re-boring to a different floor: 90 mana + 2 raids |
+| **Entry room index** | Any Build Phase | Free |
+| **Gate: Open / Sealed** | Any Build Phase | Free |
+
+```
+shaft_cost = 70 + 90 × floors_bypassed        mana
+shaft_time =  2 +  1 × floors_bypassed        raids
+```
+
+| Shaft | Mana | Raids | Compare |
+|---|---|---|---|
+| To the next floor down | 70 | 2 | ≈ one floor-2 dig (60) |
+| Bypassing 1 floor | 160 | 3 | |
+| Bypassing 2 floors | 250 | 4 | |
+
+**One Shaft per Landing, maximum.** This is not a budget rule, it is the anti-pillar rule —
+see §16.6.
+
+**What a Shaft does.** With the Gate **Open**, the party leaves that Landing by the shaft
+instead of the stair. They arrive at the target floor, at the chosen room index, and
+traverse from there to the end of the floor. Everything skipped is skipped completely:
+
+- **Skipped rooms** are never entered. No combat, no travel ticks, no `tedium`, no
+  `variety` contribution. Monsters in them do nothing and **still pay upkeep** — you can
+  reassign them for free in the Build Phase, and if you don't, that's on you.
+- **Bypassed Landings** are never reached. No rest, no shopping, **no Descent Decision**.
+
+That last line is the whole design. A bypassed Landing means the party cannot restore 40%
+of their HP, cannot buy Kit, and — critically — **cannot turn back**. §7.3's descent check
+is the party's off-ramp; a shaft removes it. They arrive deep, unhealed, and committed.
+
+Read that against §15.3:
+
+| Term | Shaft Open | Shaft Sealed |
+|---|---|---|
+| `peril` = 1 − lowest HP fraction | **Up hard.** No rest between floors. | Baseline |
+| `depth` = floors cleared / floors | **Up.** Bypassed floors count as cleared (see Q1) | Baseline |
+| `variety` = distinct roles / 4 | **Down.** Fewer rooms faced. | Baseline |
+| `comfort` = amenities used / available | **Down.** They walked past your shops. | Up |
+| `tedium` = 4 × empty rooms traversed | **Down.** A shaft erases your boring rooms. | Baseline |
+| Gold | **Zero from bypassed Landings.** | Full |
+| Souls | Up — fewer parties escape a floor they can't retreat from | Baseline |
+| Breach risk | **Up.** The shaft points at your Core. | Baseline |
+
+So the Gate is a per-raid dial with the same shape as the amenity pricing dial (§8.3), and
+it expresses pillar 4 more directly than anything else in the document:
+
+> **Sealed is commerce mode. Open is showmanship mode.** Sealed walks them past every shop
+> you own and sends them home comfortable and unimpressed. Open makes it a story and takes
+> their money out of the equation entirely.
+
+The tedium interaction deserves calling out on its own, because it is the most
+tycoon-correct thing here: **a shaft is how you cut the boring first act of a floor.** §15.4
+notes that empty rooms become a real cost. A shaft is the tool that lets you not pay it —
+you keep the rooms (they're free) and route past them. That is RCT's "the queue line is too
+long, add a second entrance," and it arrives in the design for free.
+
+**The Taunt interaction.** §7.4's Taunt forces a retreating party down one more floor.
+Taunting into an Open shaft sends a party that already wanted to leave somewhere they can't
+leave from. §15.4 already argues Taunt gets better under Thrill; this makes it a genuinely
+dangerous button, which is what §7.4 wants it to be.
+
+### 16.6 The anti-pillar — evaluated honestly
+
+§2: *"No lane-based pathing or maze-drawing. Depth replaces distance."*
+
+The brief's proposed resolution is that a shaft sets the *entry point* on the floor below,
+so the player chooses where the party arrives rather than drawing a route. **I think that
+holds, and here is the test I'd apply:**
+
+> The anti-pillar forbids the player from authoring a **graph** that the party then solves.
+> It does not forbid the player from choosing **where a linear sequence begins.**
+
+Under this design the party's route is always a strictly descending, non-branching
+sequence of rooms. There is no adjacency to author, no junctions, no choice made by the
+party, no pathfinding of any kind. What the player edits is an integer per floor (the entry
+index) and a boolean per shaft (the gate). You cannot draw a maze with an integer.
+
+Four rules keep it that way, and they are load-bearing, not tuning:
+
+1. **One shaft per Landing.** Two shafts from the same Landing means the party chooses, and
+   the moment the party chooses between routes we have pathfinding.
+2. **Shafts only go down.** No returning, no loops, no back-tracking.
+3. **No side-branches.** A shaft has one entry and one exit. It is a hole, not a corridor.
+4. **Entry index is set in the Build Phase only.** Not mid-raid, not by intervention.
+   Rerouting a party live is lane control by another name.
+
+**Where I think it genuinely does erode, and it should be written down:** with an entry
+index per floor, the player is authoring a *sequence* — and a sequence has an optimum that
+can be solved on paper. The risk is not that the UI becomes a maze editor; it is that the
+player's *head* becomes one, and the Build Phase turns into a constraint-satisfaction
+puzzle rather than a design exercise. The mitigations are structural: floors are small (3–7
+rooms), shafts are capped at one per Landing, and re-aiming is free — which means there is
+no wrong permanent answer to agonise over, only a per-raid preference. If playtesting shows
+people opening a spreadsheet, the fix is to cut the entry index entirely and let a shaft
+always arrive at room 1 of its target floor. That is a strictly weaker but completely
+anti-pillar-safe fallback, and it keeps the important half of the feature (bypassed
+Landings), so it is a cheap retreat if we need it.
+
+**The alternative I considered and rejected:** making the shaft's arrival depth a party-
+facing *temptation* rather than a player setting — "a suspiciously convenient hole, do they
+take it?" — with Greed deciding. It is more thematic and it dodges the anti-pillar
+completely. It also makes a 250-mana purchase resolve on a dice roll, which is a miserable
+thing to spend four crew-raids on. Rejected, but it is a good idea looking for a cheaper
+home; it might be the right shape for a *trap* (§5.2) rather than a structure.
+
+### 16.7 Insight — where permanence lives
+
+Structure resets each season. What persists is throughput. New **Engineering** unlocks:
+
+| Unlock | Insight | Effect |
+|---|---|---|
+| **Prospected Start** | 6 | Floor 1's rooms begin at Widened (5) |
+| **Deep Shoring** | 8 | Depth multiplier 0.30 → 0.20 |
+| **Second Crew** | 12 | Two concurrent projects, permanently |
+| **Vaulting** | 14 | Unlocks the Chamber tier. Without it, capacity caps at Hall. |
+| **Surveyed Shaft** | 10 | Start each season with a completed Shaft under Landing 1 |
+| **Third Crew** | 20 | |
+
+Against §4.5's yields (~1 per floor + 2 per tier + 10 for surviving the season, so roughly
+15–25 for a decent run), the Second Crew is about one good season of savings. That is the
+right price for the unlock that most changes how the system plays.
+
+Gating **Chamber** behind Insight is deliberate: it keeps the season-1 decision space to
+two tiers, which matters given §16.9's decision-load concern.
+
+**The Gold hook.** A **Sapper Gang** — a temporary second Crew for the rest of the season —
+is the natural Gold purchase here, and it would give commerce builds a structural advantage
+they badly need (§11 Q8). I am not putting a confident price on it, because §14.6 measures
+**25–37 Gold per season** and the existing Gold price list (gear at 60–110, Hired Staff at
+250) is already pricing against a Gold economy that does not exist yet. Provisional: **120
+Gold**, on the understanding that it is unbuyable until the Gold supply is rescaled.
+Flagging that mismatch is probably the most useful thing this section does for the current
+build — `HIRED_STAFF_COST = 250` against 37 Gold/season means §8.4's Hired Staff is
+decorative today.
+
+### 16.8 Interaction summary
+
+**With §5 (floors).** `DIG_COSTS` (0/60/110) and `ROOMS_BY_FLOOR` are untouched. Excavation
+is additive to digging, not a replacement for it. Digging buys you *rooms and mana income*;
+excavation buys you *what fits in them*. A player who only digs still has a working dungeon,
+just a uniformly narrow one.
+
+**With §8 (amenities).** Two contacts, both sharp. A shaft under construction closes that
+Landing's shops for 2–4 raids while upkeep keeps running. A shaft with the Gate Open sells
+nothing at every Landing it bypasses. Both mean commerce players build shafts late, at the
+bottom, or not at all — which is a real strategic identity rather than a penalty.
+
+**With §15 (Thrill).** Covered in §16.3 (capacity → `variety`) and §16.5 (the shaft table).
+The one-line version: **capacity is the variety lever, shafts are the peril and tedium
+levers, and the Gate is the comfort/Gold trade.** Every excavation decision now lands on the
+Thrill formula somewhere, which is the test I'd want any new system to pass.
+
+**With §6.4 (Downed → Slain).** A Chamber concentrates monsters, and a room that loses a
+fight loses everything in it. Wide rooms are higher-variance for mob survival, not just
+higher-power. Good — it gives the narrow corridor a reason to exist beyond being cheap.
+
+**With §11 Q5 (treasure caches).** This makes caches worse. Capacity improvements and
+caches now compete for the same room, and a cache was already the marginal option. If
+excavation ships, cut caches or fold them into Landings as §11 Q5 already suggests.
+
+### 16.9 What this costs us
+
+Stated plainly, because the rest of the section is advocacy:
+
+- **A whole new Build Phase panel.** A project queue with countdowns, per-room capacity
+  readouts, a shaft target picker, and a Gate toggle — in a build phase that already has
+  monsters, placement, gear, staffing, amenities, and pricing. This is the largest single
+  UI addition in the document.
+- **The Build Phase becomes a scheduling problem.** Deciding *what to build* is a game;
+  deciding *in what order, to arrive by which raid* is a different and drier game. Some
+  players will love it and some will experience it as homework.
+- **It nerfs the opening, which is where seasons die.** Floor 1 goes from 12 free slots to
+  9. §14.1 established that opening raids are the fragile part of the season; this is
+  exactly the kind of change that quietly makes the first three raids unsurvivable.
+- **It arrives before §11 Q3 is answered.** We still do not know whether auto-resolve is
+  satisfying to watch. Adding build-phase depth on top of an unproven watch loop is the
+  scope risk to be honest about — if the raid isn't fun, a richer build phase makes the
+  game *longer*, not better.
+- **It makes tedium harder to reason about.** Empty rooms, scaffolded rooms, skipped rooms
+  and repeated rooms all now feed one number, and §15.6 Q3 already asks whether that number
+  needs to be shown during the Build Phase. This makes the case for showing it much
+  stronger, and that is a large commitment.
+- **The commitment is asymmetric.** The shaft's *existence* is a heavy commitment; its
+  *aim* is free to change every raid. The expensive decision is therefore the boring one
+  ("do I want a hole here") and the interesting one is free. I don't think that's wrong —
+  free re-aiming is what stops the entry index becoming a puzzle — but it is not the X-COM
+  feeling the brief asked for, and it should be acknowledged rather than dressed up.
+- **The Crew is a second "your monster isn't fighting" system waiting to happen.** §8.4's
+  staffing cost is one of the design's best ideas. The obvious unification is to make the
+  Crew a monster too. That would be elegant and it would also mean a player running one shop
+  and one dig has two monsters behind counters and shovels — which is most of a prototype
+  roster. Left unresolved, see Q8.
+
+### 16.10 Open questions
+
+In the style of §11 — things I cannot settle from the desk.
+
+1. **Does a floor bypassed by a shaft count toward `depth`?** I ruled yes, because a shaft
+   that *lowered* Thrill would be pointless. But it makes shafts a pure depth accelerant
+   with a Gold cost and nothing else, which is probably too strong. Sweep it: count
+   bypassed floors at 1.0, 0.5, and 0.0.
+2. **Should `comfort` count amenities on bypassed Landings in its denominator?** As written,
+   `amenities_used / amenities_available` punishes a shaft twice — no sales *and* a comfort
+   penalty for shops they were never offered. I lean toward "available on the route taken."
+   Measure both; it may be that the double penalty is what keeps shafts honest.
+3. **Is Hewn = 3 survivable in raid 1?** This is §14.1's failure mode with a new cause.
+   Sweep `ROOM_CAPACITY_BASE` at 2/3/4 against raid-1 through raid-3 Heart loss rate before
+   committing. If 3 kills the opening, the fix is Prospected Start as a default rather than
+   a Codex unlock, not a higher base.
+4. **Is one Crew too few at 8 raids?** Eight crew-raits for a whole season may mean the
+   system barely gets used before the season ends. This interacts with §11 Q1 (is 12 raids
+   right?) — a longer season makes build times feel better and may be an argument for 12
+   or 15 independent of the reasons already listed there.
+5. **Under Thrill, does skipping rooms beat filling them?** `peril` is weighted 0.45 and
+   `variety` 0.20, which suggests the optimum is a very short, very lethal route. If the
+   runner finds "one Chamber and a shaft past everything else" dominant, either the variety
+   weight goes up or shafts need a floor on how much they can skip.
+6. **Should monsters in bypassed rooms still pay upkeep?** I ruled yes. If it turns out
+   players just leave rooms empty behind a shaft, the upkeep rule is doing nothing and
+   should be dropped for simplicity.
+7. **Is closing a Landing's amenities during shaft construction too harsh?** Commerce is
+   already at 8% season survival (§11 Q8). This adds a cost that lands almost entirely on
+   commerce builds. It may need to be a revenue *reduction* (say 50%) rather than a
+   blackout.
+8. **Should the Crew be a monster, like amenity staff?** Tempting for consistency with
+   §8.4 and it would give the Crew a real opportunity cost rather than an abstract one. The
+   risk is stacking two systems that both remove monsters from rooms, in a game whose
+   prototype roster is six species. Needs a human playing it, not a runner.
+9. **Does purchased capacity make the Build Phase better or just longer?** The one question
+   the balance runner cannot answer at all, and the one that decides whether this ships.
+
+### 16.11 Prototype slice
+
+In the spirit of §12 — the smallest version that tests whether this is fun, and nothing
+else.
+
+**In:**
+- Per-room `capacityTier`, two tiers only: **Hewn (3, free)** and **Widened (5)**.
+- Cost `40 × (1 + 0.30 × floorIndex)` — 40 / 52 / 64 on the prototype's three floors.
+- Build time **1 raid**. **One Crew**, one project at a time.
+- Cancel for 50% refund. Breach cancels all work.
+- The scaffolded-room tedium term (+5, not stacking with the empty-room penalty).
+
+**Out of the slice:** Hall, Chamber, shafts, Gates, entry indices, the Sapper Gang, and
+every Insight unlock in §16.7. All of it. Shafts are the more exciting half of this section
+and they are also the half that risks the anti-pillar, cost the most to build, and depend on
+§15 having shipped and been measured. They do not go in until capacity has justified itself.
+
+**Two code changes, and they are small:** `roomCapacity(floorIndex)` becomes
+`roomCapacity(room)`, and rooms gain a `capacityTier` field plus a project queue on the
+dungeon. Nothing in `raid.ts` changes except where capacity is read.
+
+**The one thing that will make this measure nothing:** the balance runner's scripted AI
+needs an excavation policy. §11 Q8 is the cautionary tale — the commerce strategy measures
+at 8% partly because the AI staffs shops with Cave Rats. An AI that never widens a room, or
+widens rooms at random, will report that this system does nothing. Write the policy before
+trusting the numbers.
+
+**The questions this slice answers:**
+1. Does paying for capacity make the Build Phase a better decision, or just a slower one?
+2. Is a 1-raid delay felt at all, or is it invisible noise?
+3. Does an asymmetric floor plan emerge on its own, or does everyone widen everything in
+   the same order?

@@ -16,6 +16,9 @@
   --adv: #6fd0e8;
   --mob: #c76a5c;
   --shop: #d6a83c;
+  /* Thrill (§15) borrows the Renown green — it is the same axis, one step back. */
+  --thrill: #57c98a;
+  --legend: #e8bd52;
 }
 
 * { box-sizing: border-box; }
@@ -114,6 +117,83 @@ h2 { font-size: 12px; margin: 0 0 8px; color: var(--dim); text-transform: upperc
 
 .meters { display: flex; gap: 14px; margin-bottom: 8px; font-size: 11px; }
 
+/* A returning face should be legible at a glance (§15.5). */
+.adv .vet {
+  display: inline-block; margin-right: 5px; padding: 0 3px; border-radius: 2px;
+  background: #2b2718; color: var(--legend); font-size: 10px;
+}
+.adv.returning .nm { color: var(--legend); }
+
+/* ─── Thrill (§15) ───────────────────────────────────────────────────────── */
+
+.thrill { margin-bottom: 10px; }
+.thrill-head { display: flex; align-items: baseline; gap: 12px; }
+.thrill-score b {
+  font-size: 34px; line-height: 1; color: var(--thrill); font-weight: 700;
+}
+.thrill-score span {
+  color: var(--dim); font-size: 10px; text-transform: uppercase;
+  letter-spacing: .12em; margin-left: 6px;
+}
+.thrill-verdict {
+  margin-left: auto; text-align: right; font-size: 12px; color: var(--ink);
+  text-transform: uppercase; letter-spacing: .1em;
+}
+.thrill-verdict .sub {
+  color: var(--dim); font-size: 10px; text-transform: none; letter-spacing: 0;
+}
+.thrill-track {
+  height: 6px; background: #2c2c38; border-radius: 3px; overflow: hidden;
+  margin: 8px 0 10px;
+}
+.thrill-track i { display: block; height: 100%; background: var(--thrill); }
+
+.thrill-parts td { padding: 2px 0; }
+.thrill-parts .pname { width: 62px; color: var(--dim); text-align: left; }
+.thrill-parts .pval { width: 38px; text-align: right; padding-right: 8px; }
+.thrill-parts .pbar { text-align: left; }
+.thrill-parts .pbar span {
+  display: block; height: 5px; background: #2c2c38; border-radius: 3px; overflow: hidden;
+}
+.thrill-parts .pbar i { display: block; height: 100%; background: var(--adv); }
+.thrill-parts .pbar span.bad i { background: var(--danger); }
+.thrill-parts td:last-child { width: 42px; }
+
+.warnings { margin-top: 8px; }
+.warn-line { font-size: 11px; padding: 1px 0; color: var(--warn); }
+.warn-line.bad { color: var(--danger); }
+
+/* ─── Legends (§15.5) ────────────────────────────────────────────────────── */
+
+.legends b { color: var(--legend); }
+
+.legend {
+  display: flex; align-items: center; gap: 8px; font-size: 11px;
+  padding: 3px 0; border-bottom: 1px solid #232230;
+}
+.legend .star { color: var(--legend); }
+.legend .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.legend .lbl { color: var(--dim); font-size: 10px; }
+.legend .th { color: var(--thrill); font-weight: 600; }
+
+.regulars { margin-top: 8px; font-size: 11px; color: var(--ink); }
+.regulars .lbl {
+  color: var(--dim); font-size: 10px; text-transform: uppercase;
+  letter-spacing: .08em; margin-right: 5px;
+}
+.regulars .vet { color: var(--legend); }
+
+.retirement {
+  background: #2b2718; border: 1px solid #5a4a1e; border-left: 3px solid var(--legend);
+  border-radius: 4px; padding: 8px 10px; margin: 4px 0 12px;
+}
+.rt-head {
+  color: var(--legend); font-size: 11px; text-transform: uppercase;
+  letter-spacing: .1em; margin-bottom: 4px;
+}
+.rt-line { font-size: 11px; padding: 1px 0; }
+.rt-foot { color: var(--dim); font-size: 10px; margin-top: 4px; }
+
 /* ─── Controls ───────────────────────────────────────────────────────────── */
 
 button {
@@ -165,6 +245,8 @@ button.on { background: #2c4a63; border-color: var(--adv); }
   background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
   padding: 18px; max-width: 460px; width: 100%;
 }
+/* The Aftermath carries the Thrill breakdown as well as the ledger. */
+.modal.wide { max-width: 520px; max-height: 88vh; overflow-y: auto; }
 .modal h3 { margin: 0 0 8px; font-size: 14px; }
 .modal p { color: var(--dim); margin: 0 0 14px; }
 .modal .row { justify-content: flex-end; }
@@ -175,6 +257,7 @@ td:last-child { text-align: right; }
 .tot { border-top: 1px solid var(--line); font-weight: 600; }
 .pos { color: var(--renown); }
 .neg { color: var(--danger); }
+.dimmed { color: var(--dim); }
 
 /* ─── Drag and drop ──────────────────────────────────────────────────────── */
 

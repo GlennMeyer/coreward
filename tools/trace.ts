@@ -53,8 +53,27 @@ while (!s.over) {
     `   → ${r.outcome.toUpperCase()} killed=${r.killed} escaped=${r.escaped} `
     + `deepest=F${r.deepestFloorReached} ticks=${r.ticks} `
     + `downed=${r.mobsDowned.length} slain=${r.mobsLost.length} sales=${r.goldFromSales}g corpses=${r.goldFromCorpses}g `
-    + `renown+${r.renown} mana${after.manaIncome >= 0 ? '+' : ''}${after.manaIncome}\n`,
+    + `renown+${r.renown} mana${after.manaIncome >= 0 ? '+' : ''}${after.manaIncome}`,
   );
+
+  // The Thrill line is the whole point of §15 — it says whether the delve was
+  // worth talking about, which is now what Renown is actually paying for.
+  const t = r.thrill;
+  console.log(
+    `   thrill ${t.total.toFixed(1)}  peril=${t.peril.toFixed(2)} depth=${t.depth.toFixed(2)} `
+    + `variety=${t.variety.toFixed(2)} comfort=${t.comfort.toFixed(2)} tedium=${t.tedium.toFixed(1)}`
+    + (TUNING.thrillRenown ? '' : '   (thrillRenown OFF — Renown is flat 6×escapees)'),
+  );
+  for (const legend of r.retired) {
+    console.log(`   ★ RETIRED: ${legend.name} at thrill ${legend.thrill.toFixed(0)} → Legend`);
+  }
+  console.log('');
 }
 
-console.log(`ENDING: ${s.ending}  raids=${s.log.length}  renown=${s.renown}  gold=${s.gold}  souls=${s.souls}`);
+console.log(
+  `ENDING: ${s.ending}  raids=${s.log.length}  renown=${s.renown}  gold=${s.gold}  souls=${s.souls}`
+  + `  veterans=${s.veterans.length}  legends=${s.legends.length}`,
+);
+if (s.legends.length > 0) {
+  console.log(`LEGENDS: ${s.legends.map((l) => `${l.name} (raid ${l.retiredOnRaid})`).join(', ')}`);
+}

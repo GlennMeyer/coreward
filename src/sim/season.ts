@@ -6,7 +6,7 @@ import {
 } from './data';
 import { createDungeon, healAllMobs, totalUpkeep } from './dungeon';
 import { RaidSim } from './raid';
-import type { RaidResult, SeasonState } from './types';
+import type { RaidResult, SeasonState, Veteran } from './types';
 
 export function createSeason(seed: number): SeasonState {
   return {
@@ -41,7 +41,9 @@ export function raidSeed(s: SeasonState): number {
 
 export function startRaid(s: SeasonState): RaidSim {
   healAllMobs(s.dungeon);
-  return new RaidSim(s.dungeon, currentTier(s), raidSeed(s));
+  // The roster goes in by reference: returning faces are drawn from it during
+  // party generation, and retirees are struck off it at raid end (§15.5).
+  return new RaidSim(s.dungeon, currentTier(s), raidSeed(s), s.veterans);
 }
 
 export interface Aftermath {
@@ -60,6 +62,49 @@ export interface Aftermath {
 }
 
 /**
+ * Fold the raid's survivors into the persistent roster (§15.5).
+ *
+ * Anyone who walks out becomes — or stays — a Veteran, so they can come back
+ * with a name you recognise. Anyone who retired is struck off and hung on the
+ * wall as a Legend instead. The dead are simply gone.
+ */
+function recordVeterans(s: SeasonState, sim: RaidSim, result: RaidResult): void {
+  const retiredNames = new Set(result.retired.map((l) => l.name));
+
+  for (const adv of sim.party.members) {
+    if (!adv.alive) continue;
+    const thrill = sim.survivorThrill.get(adv.id) ?? 0;
+
+    let vet: Veteran | undefined = adv.veteranId !== null
+      ? s.veterans.find((v) => v.id === adv.veteranId)
+      : undefined;
+
+    if (!vet) {
+      vet = {
+        id: s.nextVeteranId++,
+        name: adv.name,
+        cls: adv.cls,
+        delves: 0,
+        bestThrill: 0,
+        retired: false,
+      };
+      s.veterans.push(vet);
+    }
+
+    vet.delves++;
+    vet.bestThrill = Math.max(vet.bestThrill, Math.round(thrill));
+    // The sim already flipped `retired` for anyone it retired; belt and braces
+    // for a first-time face who somehow qualified without a Veteran record.
+    if (retiredNames.has(adv.name)) vet.retired = true;
+  }
+
+  for (const legend of result.retired) {
+    legend.retiredOnRaid = s.raidNumber;   // the sim has no raid counter
+    s.legends.push(legend);
+  }
+}
+
+/**
  * Apply a finished raid to the season. Mutates `s`.
  *
  * Note upkeep is charged whatever happens — a dungeon full of idle monsters
@@ -75,6 +120,13 @@ export function applyAftermath(s: SeasonState, sim: RaidSim): Aftermath {
   const tierBonus = currentTier(s).manaBonus;
   const upkeep = totalUpkeep(s.dungeon);
   const manaIncome = base + floors + kills + tierBonus - upkeep;
+
+  // Legends already on the wall pay out before this raid's retirees join them —
+  // you do not get the trickle on the same raid you earned the Legend (§15.5).
+  if (TUNING.thrillRenown) {
+    result.renown += s.legends.length * TUNING.legendRenownTrickle;
+  }
+  recordVeterans(s, sim, result);
 
   s.mana = Math.max(0, s.mana + manaIncome);
   s.souls += result.souls;

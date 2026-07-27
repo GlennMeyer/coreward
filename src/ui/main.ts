@@ -9,7 +9,7 @@
 import './styles.css';
 import {
   AMENITIES, GEAR, HIRED_STAFF_COST, MAX_GEAR_SLOTS, MOBS, PRICE_TIERS,
-  SEASON_RAIDS,
+  SEASON_RAIDS, TUNING,
 } from '../sim/data';
 import {
   assignStaff, buildAmenity, buyMob, demolishAmenity, digCost, digFloor,
@@ -17,9 +17,11 @@ import {
   roomSlotsUsed, setPrice, totalUpkeep,
 } from '../sim/dungeon';
 import { applyAftermath, createSeason, currentTier, startRaid } from '../sim/season';
+import { predictThrill, thrillRating, type ThrillPrediction } from './predict';
 import type { RaidSim } from '../sim/raid';
 import type {
-  Adventurer, Amenity, AmenityId, Mob, PriceTier, RaidEvent, SeasonState,
+  Adventurer, Amenity, AmenityId, Legend, Mob, PriceTier, RaidEvent,
+  SeasonState, ThrillScore,
 } from '../sim/types';
 import type { Aftermath as AftermathType } from '../sim/season';
 
@@ -63,10 +65,19 @@ let timer: number | null = null;
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const root = document.getElementById('app')!;
+
+/**
+ * Parse an HTML fragment into an element.
+ *
+ * Uses <template> rather than a <div>: the HTML parser silently DISCARDS
+ * table-scoped tags (<tr>, <td>) when they are set as a div's innerHTML,
+ * because they are only valid inside a table. Template content has no such
+ * restriction, so `el('<tr>…</tr>')` returns a row instead of null.
+ */
 const el = (html: string): HTMLElement => {
-  const d = document.createElement('div');
-  d.innerHTML = html.trim();
-  return d.firstElementChild as HTMLElement;
+  const t = document.createElement('template');
+  t.innerHTML = html.trim();
+  return t.content.firstElementChild as HTMLElement;
 };
 const esc = (s: string): string =>
   s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
@@ -355,6 +366,7 @@ function render(): void {
 function topbar(): HTMLElement {
   const s = app.season;
   const tier = currentTier(s);
+  const trickle = s.legends.length * TUNING.legendRenownTrickle;
   const bar = el(`
     <div class="topbar">
       <h1>Coreward</h1>
@@ -365,10 +377,66 @@ function topbar(): HTMLElement {
         <span class="stat mana"><span class="lbl">mana</span><b>${Math.round(s.mana)}</b></span>
         <span class="stat gold"><span class="lbl">gold</span><b>${s.gold}</b></span>
         <span class="stat souls"><span class="lbl">souls</span><b>${s.souls}</b></span>
+        <span class="stat legends" title="Retired adventurers — ${trickle} passive Renown per raid (§15.5)">
+          <span class="lbl">legends</span><b>★ ${s.legends.length}</b></span>
         <span class="stat renown"><span class="lbl">renown</span><b>${s.renown}</b></span>
       </div>
     </div>`);
   return bar;
+}
+
+// ─── Thrill (§15) ────────────────────────────────────────────────────────────
+
+/**
+ * The four positive components, with the weights they carry into the score.
+ * Read from TUNING so a balance sweep moves the readout with the formula.
+ */
+const THRILL_PARTS = [
+  { key: 'peril', label: 'Peril', weight: TUNING.thrillPerilWeight, note: 'how close to death' },
+  { key: 'depth', label: 'Depth', weight: TUNING.thrillDepthWeight, note: 'floors cleared' },
+  { key: 'variety', label: 'Variety', weight: TUNING.thrillVarietyWeight, note: 'roles faced' },
+  { key: 'comfort', label: 'Comfort', weight: TUNING.thrillComfortWeight, note: 'amenities used' },
+] as const;
+
+/**
+ * Thrill and its breakdown, as an RCT-style ride-stats block. Shared by the
+ * Aftermath (real score) and the Build Phase (predicted) so the player learns
+ * one readout, not two.
+ */
+function thrillCard(t: ThrillScore, opts: { caption: string }): HTMLElement {
+  const total = Math.round(t.total);
+  const card = el(`<div class="thrill"></div>`);
+  card.append(el(`
+    <div class="thrill-head">
+      <div class="thrill-score"><b>${total}</b><span>Thrill</span></div>
+      <div class="thrill-verdict">
+        ${thrillRating(t.total)}
+        <div class="sub">${esc(opts.caption)}</div>
+      </div>
+    </div>`));
+  card.append(el(`<div class="thrill-track"><i style="width:${Math.min(100, Math.max(0, total))}%"></i></div>`));
+
+  const table = el('<table class="thrill-parts"></table>');
+  for (const p of THRILL_PARTS) {
+    const v = Math.max(0, Math.min(1, t[p.key]));
+    const pts = Math.round(100 * p.weight * v);
+    table.append(el(`
+      <tr title="${esc(p.note)} — worth up to ${Math.round(p.weight * 100)}">
+        <td class="pname">${p.label}</td>
+        <td class="pval">${v.toFixed(2)}</td>
+        <td class="pbar"><span><i style="width:${v * 100}%"></i></span></td>
+        <td class="pos">+${pts}</td>
+      </tr>`));
+  }
+  table.append(el(`
+    <tr class="tot" title="Empty rooms and repeated rooms (§15.3)">
+      <td class="pname">Tedium</td>
+      <td class="pval"></td>
+      <td class="pbar"><span class="bad"><i style="width:${Math.min(100, t.tedium)}%"></i></span></td>
+      <td class="${t.tedium > 0 ? 'neg' : ''}">${t.tedium > 0 ? '−' : ''}${Math.round(t.tedium)}</td>
+    </tr>`));
+  card.append(table);
+  return card;
 }
 
 function dungeonPanel(): HTMLElement {
@@ -541,6 +609,9 @@ function buildPanel(): HTMLElement {
   actions.append(el(`<div class="hint">Drag monsters into rooms, or onto a shop to staff it. Clicking works too: select, then click a target.</div>`));
   wrap.append(actions);
 
+  wrap.append(predictionPanel());
+  wrap.append(legendsPanel());
+
   // Roster
   const idle = d.mobs.filter((m) => m.alive && m.placement.kind === 'unassigned');
   if (idle.length) {
@@ -603,6 +674,78 @@ function buildPanel(): HTMLElement {
   return wrap;
 }
 
+/**
+ * "Ride stats before you open" (§15.6 Q3). The estimate is computed in the UI
+ * (src/ui/predict.ts) and is explicitly an approximation of §15.3 — the panel
+ * says so, because a number the player trusts and the sim then contradicts is
+ * worse than no number.
+ */
+function predictionPanel(): HTMLElement {
+  const p = el('<div class="panel"></div>');
+  const tier = currentTier(app.season);
+  let est: ThrillPrediction;
+  try {
+    est = predictThrill(app.season.dungeon, tier);
+  } catch {
+    // A bad estimate must never cost the player their Build Phase.
+    return el('<div class="panel"><h2>Predicted Thrill</h2><div class="hint">unavailable</div></div>');
+  }
+
+  p.append(el(`<h2>Predicted Thrill — Tier ${tier.tier}</h2>`));
+  p.append(thrillCard(est, {
+    caption: `estimate · reaches floor ${est.floorsReached || 1} of ${app.season.dungeon.floors.length}`,
+  }));
+
+  if (est.warnings.length) {
+    const list = el('<div class="warnings"></div>');
+    for (const w of est.warnings) {
+      list.append(el(`<div class="warn-line ${w.level}">${w.level === 'bad' ? '!' : '·'} ${esc(w.text)}</div>`));
+    }
+    p.append(list);
+  }
+  p.append(el(`<div class="hint">A rough UI-side model of the real §15.3 formula — no dice, no Taunt, an average party. Treat it as a shape, not a forecast.</div>`));
+  return p;
+}
+
+/** Legends are permanent, so they get a permanent home in the Build Phase (§15.5). */
+function legendsPanel(): HTMLElement {
+  const s = app.season;
+  const trickle = s.legends.length * TUNING.legendRenownTrickle;
+  const p = el('<div class="panel"></div>');
+  p.append(el(`<h2>Legends (${s.legends.length}) &nbsp;·&nbsp; +${trickle} Renown/raid</h2>`));
+
+  if (!s.legends.length) {
+    p.append(el(`<div class="hint">Nobody has retired here yet. Send an adventurer home from
+      their ${TUNING.retireMinDelves}rd delve at Thrill ${TUNING.retireThrill}+ and they hang up
+      their sword — a permanent Renown trickle you never have to defend.</div>`));
+  } else {
+    for (const l of s.legends) p.append(legendRow(l));
+  }
+
+  // The recurring face is the point of §15.5 — surface the regulars even before
+  // any of them retire, so retirement reads as the end of a relationship.
+  const regulars = s.veterans.filter((v) => !v.retired);
+  if (regulars.length) {
+    const top = [...regulars].sort((a, b) => b.delves - a.delves).slice(0, 4);
+    p.append(el(`<div class="regulars">
+        <span class="lbl">regulars</span>
+        ${top.map((v) => `${esc(v.name)} <span class="vet">×${v.delves}</span>`).join(' · ')}
+        ${regulars.length > top.length ? ` <span class="lbl">+${regulars.length - top.length} more</span>` : ''}
+      </div>`));
+  }
+  return p;
+}
+
+function legendRow(l: Legend): HTMLElement {
+  return el(`
+    <div class="legend">
+      <span class="star">★</span>
+      <span class="nm">${esc(l.name)}</span>
+      <span class="lbl">raid ${l.retiredOnRaid}</span>
+      <span class="th">${Math.round(l.thrill)}</span>
+    </div>`);
+}
+
 // ─── Raid panel ──────────────────────────────────────────────────────────────
 
 function raidPanel(): HTMLElement {
@@ -651,9 +794,17 @@ function raidPanel(): HTMLElement {
 function advRow(a: Adventurer): HTMLElement {
   const hp = Math.max(0, (a.hp / a.maxHp) * 100);
   const res = Math.max(0, (a.resolve / a.maxResolve) * 100);
+  // A face the player recognises is the emotional core of §15.5 — a returning
+  // veteran should never be indistinguishable from a fresh roll.
+  const vet = a.veteranId === null
+    ? null
+    : app.season.veterans.find((v) => v.id === a.veteranId);
+  const mark = vet
+    ? `<span class="vet" title="Returning — ${vet.delves} previous delve${vet.delves === 1 ? '' : 's'}, best Thrill ${Math.round(vet.bestThrill)}">↩${vet.delves}</span>`
+    : '';
   return el(`
-    <div class="adv ${a.alive ? '' : 'dead'} ${a.namedId ? 'named' : ''}">
-      <span class="nm">${esc(a.name)} <span style="color:var(--dim)">${a.cls} ${a.level}</span></span>
+    <div class="adv ${a.alive ? '' : 'dead'} ${a.namedId ? 'named' : ''} ${vet ? 'returning' : ''}">
+      <span class="nm">${mark}${esc(a.name)} <span style="color:var(--dim)">${a.cls} ${a.level}</span></span>
       <span class="bar" title="HP"><i style="width:${hp}%"></i></span>
       <span class="bar res" title="Resolve"><i style="width:${res}%"></i></span>
     </div>`);
@@ -698,32 +849,67 @@ function tauntModal(): HTMLElement {
   return bg;
 }
 
+/**
+ * Thrill leads the Aftermath because it *is* the result now (§15.2): Renown is
+ * a function of it, and Renown is the difficulty dial. Mana and Gold are the
+ * consequences of the delve; Thrill is the delve.
+ */
 function aftermathModal(a: AftermathType): HTMLElement {
   const b = a.manaBreakdown;
   const r = a.result;
   const bg = el('<div class="modal-bg"></div>');
-  const m = el(`
-    <div class="modal">
-      <h3>Aftermath</h3>
-      <table>
-        <tr><td>Base</td><td class="pos">+${b.base}</td></tr>
-        <tr><td>Floors (${app.season.dungeon.floors.length})</td><td class="pos">+${b.floors}</td></tr>
-        <tr><td>Kills (${r.killed})</td><td class="pos">+${b.kills}</td></tr>
-        <tr><td>Tier bonus</td><td class="pos">+${b.tierBonus}</td></tr>
-        <tr><td>Upkeep</td><td class="neg">−${b.upkeep}</td></tr>
-        <tr class="tot"><td>Mana</td><td class="${a.manaIncome >= 0 ? 'pos' : 'neg'}">${a.manaIncome >= 0 ? '+' : ''}${a.manaIncome}</td></tr>
-        <tr><td>Gold — sales</td><td>+${r.goldFromSales}</td></tr>
-        <tr><td>Gold — corpses (25%)</td><td>+${r.goldFromCorpses}</td></tr>
-        <tr><td>Souls</td><td>+${r.souls}</td></tr>
-        <tr><td>Renown</td><td>+${r.renown}</td></tr>
-        ${a.tierAfter > a.tierBefore ? `<tr class="tot"><td colspan="2" class="neg">Threat Tier rises to ${a.tierAfter}</td></tr>` : ''}
-        ${r.mobsLost.length ? `<tr><td colspan="2" class="neg">Slain: ${r.mobsLost.map((x) => `${MOBS[x.defId]!.name} lv${x.level}`).join(', ')}</td></tr>` : ''}
-      </table>
-      <div class="row" style="margin-top:14px"><button class="primary">Continue →</button></div>
-    </div>`);
-  m.querySelector('button')!.onclick = nextRaid;
+  const m = el('<div class="modal wide"></div>');
+  m.append(el('<h3>Aftermath</h3>'));
+
+  const survivors = r.escaped;
+  m.append(thrillCard(r.thrill, {
+    caption: survivors
+      ? `mean across ${survivors} survivor${survivors === 1 ? '' : 's'}`
+      : 'no survivors — dead men tell no tales',
+  }));
+
+  if (r.retired.length) m.append(retirementBlock(r.retired));
+
+  // Renown is stated as a derivation, not a number out of nowhere.
+  const renownFrom = survivors
+    ? `${survivors} survivor${survivors === 1 ? '' : 's'} × Thrill ÷ ${Math.round(1 / TUNING.renownPerThrill)}`
+    : 'no survivors carried the story home';
+  const trickle = app.season.legends.length * TUNING.legendRenownTrickle;
+
+  m.append(el(`
+    <table>
+      <tr class="tot"><td>Renown — ${renownFrom}</td><td class="pos">+${r.renown}</td></tr>
+      ${r.retired.length ? `<tr><td class="dimmed">…including ${r.retired.length} retirement bonus${r.retired.length === 1 ? '' : 'es'}</td><td class="dimmed">+${r.retired.length * TUNING.retireRenownBonus}</td></tr>` : ''}
+      ${trickle ? `<tr><td class="dimmed">…and ${app.season.legends.length} Legend${app.season.legends.length === 1 ? '' : 's'} on the wall</td><td class="dimmed">+${trickle}</td></tr>` : ''}
+      <tr><td>Base</td><td class="pos">+${b.base}</td></tr>
+      <tr><td>Floors (${app.season.dungeon.floors.length})</td><td class="pos">+${b.floors}</td></tr>
+      <tr><td>Kills (${r.killed})</td><td class="pos">+${b.kills}</td></tr>
+      <tr><td>Tier bonus</td><td class="pos">+${b.tierBonus}</td></tr>
+      <tr><td>Upkeep</td><td class="neg">−${b.upkeep}</td></tr>
+      <tr class="tot"><td>Mana</td><td class="${a.manaIncome >= 0 ? 'pos' : 'neg'}">${a.manaIncome >= 0 ? '+' : ''}${a.manaIncome}</td></tr>
+      <tr><td>Gold — sales</td><td>+${r.goldFromSales}</td></tr>
+      <tr><td>Gold — corpses (25%)</td><td>+${r.goldFromCorpses}</td></tr>
+      <tr><td>Souls</td><td>+${r.souls}</td></tr>
+      ${a.tierAfter > a.tierBefore ? `<tr class="tot"><td colspan="2" class="neg">Threat Tier rises to ${a.tierAfter}</td></tr>` : ''}
+      ${r.mobsLost.length ? `<tr><td colspan="2" class="neg">Slain: ${r.mobsLost.map((x) => `${MOBS[x.defId]!.name} lv${x.level}`).join(', ')}</td></tr>` : ''}
+    </table>`));
+
+  const row = el('<div class="row" style="margin-top:14px"><button class="primary">Continue →</button></div>');
+  row.querySelector('button')!.onclick = nextRaid;
+  m.append(row);
   bg.append(m);
   return bg;
+}
+
+/** Retirement is a celebration, not a line item (§15.5). */
+function retirementBlock(retired: Legend[]): HTMLElement {
+  const box = el('<div class="retirement"></div>');
+  box.append(el(`<div class="rt-head">★ ${retired.length === 1 ? 'A Legend is made' : `${retired.length} Legends are made`}</div>`));
+  for (const l of retired) {
+    box.append(el(`<div class="rt-line"><b>${esc(l.name)}</b> hangs it up at Thrill ${Math.round(l.thrill)} — and never comes back.</div>`));
+  }
+  box.append(el(`<div class="rt-foot">+${TUNING.retireRenownBonus} Renown each, then +${TUNING.legendRenownTrickle} every raid from here on.</div>`));
+  return box;
 }
 
 function gameOverModal(): HTMLElement {
@@ -734,7 +920,9 @@ function gameOverModal(): HTMLElement {
     <div class="modal">
       <h3>${won ? 'The season ends. The dungeon holds.' : 'The Core has fallen.'}</h3>
       <p>${s.log.length} raids · renown ${s.renown} · gold ${s.gold} · souls ${s.souls}<br>
-         Killed ${s.log.reduce((a, r) => a + r.killed, 0)} · let ${s.log.reduce((a, r) => a + r.escaped, 0)} walk away.</p>
+         Killed ${s.log.reduce((a, r) => a + r.killed, 0)} · let ${s.log.reduce((a, r) => a + r.escaped, 0)} walk away.<br>
+         Best Thrill ${Math.round(s.log.reduce((a, r) => Math.max(a, r.thrill.total), 0))}
+         · ${s.legends.length} Legend${s.legends.length === 1 ? '' : 's'} on the wall.</p>
       <div class="row"><button class="primary">New Season</button></div>
     </div>`);
   m.querySelector('button')!.onclick = restart;

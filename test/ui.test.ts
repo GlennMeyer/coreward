@@ -5,7 +5,11 @@
  *
  * Runs in jsdom — see environmentMatchGlobs in vite.config.ts.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { TIERS } from '../src/sim/data';
+import { buildAmenity, buyMob, createDungeon, hireStaff, placeMobInRoom } from '../src/sim/dungeon';
+import { predictThrill, thrillRating } from '../src/ui/predict';
+import type { SeasonState } from '../src/sim/types';
 
 function click(node: Element | null | undefined): void {
   if (!node) throw new Error('tried to click a node that does not exist');
@@ -143,5 +147,184 @@ describe('UI smoke', () => {
     click(button('Begin Raid'));
     for (const label of ['II', '1x', '2x', '4x']) click(button(label));
     expect(document.querySelector('.log')).toBeTruthy();
+  });
+
+  // ─── Thrill (§15) ─────────────────────────────────────────────────────────
+
+  it('shows a predicted Thrill readout in the Build Phase', () => {
+    const panel = [...document.querySelectorAll('.panel')]
+      .find((p) => p.querySelector('h2')?.textContent?.includes('Predicted Thrill'));
+    expect(panel).toBeTruthy();
+    // All four §15.3 components, plus the Tedium penalty.
+    const rows = [...panel!.querySelectorAll('.thrill-parts .pname')].map((n) => n.textContent);
+    expect(rows).toEqual(['Peril', 'Depth', 'Variety', 'Comfort', 'Tedium']);
+    // A bare starting dungeon is three empty rooms and no shops — say so.
+    expect(panel!.textContent).toContain('Nothing is defending');
+    expect(panel!.textContent).toContain('empty rooms');
+    expect(panel!.textContent).toContain('No amenities');
+  });
+
+  it('the prediction reacts to what gets built', () => {
+    const before = document.querySelector('.thrill-score b')?.textContent;
+    const buy = [...document.querySelectorAll('.buy')]
+      .find((b) => b.textContent?.includes('Ogre'));
+    click(buy);
+    click(document.querySelectorAll('.room')[0]);
+    const panel = [...document.querySelectorAll('.panel')]
+      .find((p) => p.querySelector('h2')?.textContent?.includes('Predicted Thrill'))!;
+    expect(panel.textContent).not.toContain('Nothing is defending');
+    // Peril went from nothing to something, so the headline number moved.
+    expect(document.querySelector('.thrill-score b')?.textContent).not.toBe(before);
+  });
+
+  it('leads the Aftermath with the Thrill breakdown', () => {
+    click(button('Begin Raid'));
+    click(button('Instant'));
+    click(button('Aftermath'));
+
+    const modal = document.querySelector('.modal')!;
+    expect(modal.querySelector('.thrill-score')).toBeTruthy();
+    expect(modal.querySelector('.thrill-parts')).toBeTruthy();
+    for (const part of ['Peril', 'Depth', 'Variety', 'Comfort', 'Tedium']) {
+      expect(modal.textContent).toContain(part);
+    }
+    // Renown must read as a derivation of Thrill, not a bare number.
+    expect(modal.textContent).toMatch(/Renown — .*Thrill|Renown — no survivors/);
+  });
+
+  it('keeps a Legends panel and a top-bar count', () => {
+    expect(document.querySelector('.topbar .legends')?.textContent).toContain('legends');
+    const panel = [...document.querySelectorAll('.panel')]
+      .find((p) => p.querySelector('h2')?.textContent?.includes('Legends'))!;
+    expect(panel).toBeTruthy();
+    // Empty state still has to teach the mechanic.
+    expect(panel.querySelector('h2')?.textContent).toContain('Legends (0)');
+    expect(panel.textContent).toContain('Thrill 75+');
+  });
+});
+
+/**
+ * The sim does not populate veterans or legends yet (§15 is landing in parallel),
+ * so the season is stubbed to prove the renderer handles them when they arrive.
+ */
+describe('UI — returning faces and Legends', () => {
+  beforeEach(async () => {
+    document.body.innerHTML = '<div id="app"></div>';
+    vi.resetModules();
+    vi.doMock('../src/sim/season', async () => {
+      const actual = await vi.importActual<typeof import('../src/sim/season')>('../src/sim/season');
+      return {
+        ...actual,
+        createSeason: (seed: number): SeasonState => {
+          const s = actual.createSeason(seed);
+          s.veterans.push({
+            id: 7, name: 'Wren Threefingers', cls: 'rogue',
+            delves: 4, bestThrill: 68, retired: false,
+          });
+          s.legends.push({ name: 'Orla the Bold', thrill: 82, retiredOnRaid: 2 });
+          return s;
+        },
+        startRaid: (s: SeasonState) => {
+          const sim = actual.startRaid(s);
+          const first = sim.party.members[0];
+          if (first) first.veteranId = 7;
+          return sim;
+        },
+      };
+    });
+    await import('../src/ui/main');
+  });
+
+  afterEach(() => { vi.doUnmock('../src/sim/season'); });
+
+  it('marks a returning veteran in the party list with their delve count', () => {
+    click(button('Begin Raid'));
+    const vet = document.querySelector('.adv .vet');
+    expect(vet?.textContent).toContain('4');
+    expect(vet?.closest('.adv')?.classList.contains('returning')).toBe(true);
+    // Not asserting an exact count: this mock forces slot 0 to be veteran #7,
+    // but generateParty independently rolls returning faces at
+    // TUNING.veteranReturnChance, so other slots may legitimately be marked too.
+    // Fresh rolls must stay unmarked, though.
+    const marked = document.querySelectorAll('.adv .vet').length;
+    expect(marked).toBeGreaterThanOrEqual(1);
+    expect(marked).toBeLessThan(document.querySelectorAll('.adv').length);
+  });
+
+  it('lists Legends and their passive Renown trickle', () => {
+    const panel = [...document.querySelectorAll('.panel')]
+      .find((p) => p.querySelector('h2')?.textContent?.includes('Legends'))!;
+    expect(panel.querySelector('h2')?.textContent).toContain('Legends (1)');
+    expect(panel.querySelector('h2')?.textContent).toContain('Renown/raid');
+    expect(panel.querySelector('.legend .nm')?.textContent).toBe('Orla the Bold');
+    expect(panel.querySelector('.legend .th')?.textContent).toBe('82');
+    // Regulars appear before any of them retire — the recurring face (§15.5).
+    expect(panel.querySelector('.regulars')?.textContent).toContain('Wren Threefingers');
+    expect(document.querySelector('.topbar .legends b')?.textContent).toContain('1');
+  });
+});
+
+// ─── The estimator itself (src/ui/predict.ts) ────────────────────────────────
+
+describe('predicted Thrill', () => {
+  const tier1 = TIERS[0]!;
+
+  it('scores a bare dungeon as empty rooms and nothing else', () => {
+    const p = predictThrill(createDungeon(), tier1);
+    expect(p.emptyRooms).toBe(3);
+    expect(p.peril).toBe(0);
+    expect(p.comfort).toBe(0);
+    expect(p.tedium).toBe(12); // 3 rooms × 4
+    expect(p.warnings.some((w) => w.text.includes('Nothing is defending'))).toBe(true);
+    expect(p.warnings.some((w) => w.text.includes('No amenities'))).toBe(true);
+  });
+
+  it('penalises two identical rooms back to back', () => {
+    const d = createDungeon();
+    for (const room of [0, 1]) {
+      const m = buyMob(d, 'rat');
+      if (typeof m === 'string') throw new Error(m);
+      placeMobInRoom(d, m.uid, 0, room);
+    }
+    const p = predictThrill(d, tier1);
+    expect(p.repeatedRooms).toBe(1);
+    expect(p.warnings.some((w) => w.text.includes('identical to the one before'))).toBe(true);
+  });
+
+  it('does not call two different rooms a repeat', () => {
+    const d = createDungeon();
+    const rat = buyMob(d, 'rat');
+    const slime = buyMob(d, 'slime');
+    if (typeof rat === 'string' || typeof slime === 'string') throw new Error('buy failed');
+    placeMobInRoom(d, rat.uid, 0, 0);
+    placeMobInRoom(d, slime.uid, 0, 1);
+    const p = predictThrill(d, tier1);
+    expect(p.repeatedRooms).toBe(0);
+    expect(p.variety).toBeGreaterThan(0);
+  });
+
+  it('counts an open amenity as comfort and a closed one as nothing', () => {
+    const d = createDungeon();
+    buildAmenity(d, 0, 0, 'hotspring');
+    expect(predictThrill(d, tier1).comfort).toBe(0);
+    hireStaff(d, 0, 0);
+    expect(predictThrill(d, tier1).comfort).toBeGreaterThan(0);
+  });
+
+  it('flags a dungeon lethal enough to leave no survivors', () => {
+    const d = createDungeon();
+    for (let room = 0; room < 3; room++) {
+      const m = buyMob(d, 'ogre');
+      if (typeof m === 'string') throw new Error(m);
+      placeMobInRoom(d, m.uid, 0, room);
+    }
+    const p = predictThrill(d, tier1);
+    expect(p.lethal).toBe(true);
+    expect(p.warnings.some((w) => w.level === 'bad' && w.text.includes('lethal'))).toBe(true);
+  });
+
+  it('rates the score on the same scale retirement uses', () => {
+    expect(thrillRating(0)).toBe('Dull');
+    expect(thrillRating(80)).toBe('Legendary');
   });
 });
