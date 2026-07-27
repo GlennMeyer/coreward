@@ -2201,3 +2201,56 @@ cannot see is a rule they cannot play around.
 §27 landed within an hour of each other and both cut the same direction. **The next pass
 should be a survivability pass, measured against the evolver rather than the scripted
 strategies**, which §23.3 already showed understate the frontier by ~70%.
+
+
+---
+
+## 28. Survivability pass
+
+**Status: DONE (v0.13).** §26 and §27 landed within an hour and both cut the same way,
+leaving every strategy under 32% and the best evolved build at 33%.
+
+### 28.1 Two levers, and only one of them was the one
+
+**`breachSlayChance` 1.0 → 0.5.** A breach used to slay *every* downed monster,
+unconditionally. That was survivable while breaches were rare; §26 made them common — an
+emptied dungeon always breaches, and an emptied dungeon is one where everything is already
+down — so every breach wiped the whole roster and the player rebuilt from nothing.
+
+Measured, it barely moves survival at all (32% either way) but it transforms **monster
+levels: 0.4 → 4.7**. So it was never the survivability lever; it was the missing half of
+pillar 3, which §19.7 had been chasing for a long time.
+
+**`STARTING_HEARTS` 3 → 4.** This was the survivability lever, and it dominates everything:
+
+| Hearts | combat | balanced | swarm | wardens | showman |
+|---|---|---|---|---|---|
+| 3 | 32% | 28% | 12% | 12% | 7% |
+| **4** | **49%** | **49%** | 33% | 29% | 14% |
+| 5 | 81% | 83% | 57% | 57% | 39% |
+
+4 is the roguelite curve — good play wins about half, a weak build mostly loses. 5 is
+charity.
+
+### 28.2 Result
+
+| | before | after |
+|---|---|---|
+| combat | 32% | **49%** |
+| commerce | 35% | **62%** |
+| best monster level | 0.4 | **3.1–4.0** |
+| spread (best → worst) | 32→6% | 64→14% |
+
+Veterans exist for the first time in the project's history: best monster level went from
+"nothing ever reaches level 1" to 3–4 across every generalist build.
+
+### 28.3 A flaw in the evolver worth recording
+
+`tools/evolve.ts` scores fitness on **Renown alone**, and its fittest build now has **0%
+survival** — it pushes the tier as high as possible and dies rich. That is not a bug in the
+game; §15 says fame is dangerous and the search found the sharpest possible expression of
+it. But it means the evolver cannot be used to answer "is this survivable" — only "what
+scores highest". Those are different questions, and the survivability pass had to be
+measured against the scripted strategies instead.
+
+A second fitness mode (survival-weighted) would let it answer both. Not built.

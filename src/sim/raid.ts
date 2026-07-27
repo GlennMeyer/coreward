@@ -1837,7 +1837,9 @@ export class RaidSim {
     for (const entry of this.mobsDowned) {
       const mob = getMob(this.d, entry.uid);
       if (!mob || !mob.alive) continue;
-      const slain = outcome === 'breach' || this.rng.chance(TUNING.slayChance);
+      const slain = this.rng.chance(
+        outcome === 'breach' ? TUNING.breachSlayChance : TUNING.slayChance,
+      );
       if (!slain) continue;
       this.mobsLost.push(entry);
       this.emit({

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   AMENITIES, GEAR, MOBS, RENOWN_PER_ESCAPEE, RENOWN_WIPE_MULT, TIERS, TRAPS, TUNING,
-  XP_THRESHOLDS, mobMaxHp, resetTuning, roomCapacity, roomsOnFloor,
+  STARTING_HEARTS, XP_THRESHOLDS, mobMaxHp, resetTuning, roomCapacity, roomsOnFloor,
   tierForRenown, trapCost, trapRearmCost, MAX_TIER_PROTOTYPE,
 } from '../src/sim/data';
 import { generateParty } from '../src/sim/adventurers';
@@ -9,7 +9,7 @@ import { Rng } from '../src/sim/rng';
 import type { Veteran } from '../src/sim/types';
 import {
   assignStaff, buildAmenity, buyMob, isOpen, buyTrap, createDungeon, digFloor, equipGear, getTrap,
-  grantXp, hireStaff, mobEffectiveDmg, mobEffectiveHp, mobStripsKit,
+  grantXp, healAllMobs, hireStaff, mobEffectiveDmg, mobEffectiveHp, mobStripsKit,
   mobsInRoom, packMultiplier, placeMobInRoom, placeTrapInRoom, rearmAll,
   rearmAllPrice, removeTrap, roomSlotsUsed, totalUpkeep, unplace,
 } from '../src/sim/dungeon';
@@ -208,7 +208,7 @@ describe('raid resolution (§7)', () => {
     sim.runToCompletion();
 
     expect(sim.result.outcome).toBe('breach');
-    expect(s.dungeon.hearts).toBe(2);
+    expect(s.dungeon.hearts).toBe(STARTING_HEARTS - 1);
   });
 
   it('but a dungeon with something still standing gets a real decision', () => {
@@ -232,7 +232,7 @@ describe('raid resolution (§7)', () => {
     const sim = startRaid(s);
     sim.runToCompletion();
     expect(sim.result.outcome).toBe('breach');
-    expect(s.dungeon.hearts).toBe(2);
+    expect(s.dungeon.hearts).toBe(STARTING_HEARTS - 1);
   });
 
   it('breached parties all escape alive (§5.4)', () => {
@@ -253,7 +253,7 @@ describe('raid resolution (§7)', () => {
   it('a wipe costs no hearts', () => {
     const { season, sim } = findWipe();
     expect(sim.result.outcome).toBe('wiped');
-    expect(season.dungeon.hearts).toBe(3);
+    expect(season.dungeon.hearts).toBe(STARTING_HEARTS);
   });
 
   it('recovers only 25% of carried gold from corpses (§4.3, Q7)', () => {
@@ -276,19 +276,24 @@ describe('raid resolution (§7)', () => {
     expect(r.mobsLost.length).toBeLessThanOrEqual(r.mobsDowned.length);
   });
 
-  it('a breach slays every downed monster', () => {
-    // Scan for a breach where something actually fell.
-    for (let seed = 0; seed < 60; seed++) {
+  it('a breach slays downed monsters far more often than a repel does', () => {
+    let downed = 0, slain = 0;
+    for (let seed = 0; seed < 200; seed++) {
       const s = seasonWithFloors(700 + seed, 1);
       addMob(s.dungeon, 'rat', 0, 0);
       const sim = new RaidSim(s.dungeon, TIERS[1]!, seed);
       sim.runToCompletion();
       const r = sim.result;
       if (r.outcome !== 'breach' || r.mobsDowned.length === 0) continue;
-      expect(r.mobsLost.length).toBe(r.mobsDowned.length);
-      return;
+      downed += r.mobsDowned.length;
+      slain += r.mobsLost.length;
     }
-    throw new Error('no breach-with-casualties scenario found');
+    expect(downed).toBeGreaterThan(10);
+    // Losing a Heart hurts, but no longer wipes the roster outright: §26 made
+    // breaches common enough that a guaranteed cull was an inescapable spiral.
+    const rate = slain / downed;
+    expect(rate).toBeGreaterThan(TUNING.slayChance);
+    expect(rate).toBeLessThan(1);
   });
 
   it('most downed monsters survive a raid that was turned back', () => {
@@ -604,7 +609,7 @@ describe('season economy (§4.1)', () => {
 
   it('ends the season when hearts run out', () => {
     const s = seasonWithFloors(21, 1);
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < STARTING_HEARTS; i++) {
       const sim = startRaid(s);
       sim.runToCompletion();
       applyAftermath(s, sim);
@@ -716,7 +721,10 @@ describe('gear — the Gold sink (§6.5)', () => {
     const uid = addMob(s.dungeon, 'rat', 0, 0);
     equipGear(s.dungeon, uid, 'fangs');
 
-    for (let seed = 0; seed < 80; seed++) {
+    // Wider scan than it used to need: a breach no longer culls the roster
+    // outright (breachSlayChance 0.5), so a given monster survives more raids.
+    for (let seed = 0; seed < 400; seed++) {
+      healAllMobs(s.dungeon);
       const sim = new RaidSim(s.dungeon, TIERS[3]!, seed);
       sim.runToCompletion();
       const mob = s.dungeon.mobs.find((m) => m.uid === uid)!;
@@ -725,7 +733,7 @@ describe('gear — the Gold sink (§6.5)', () => {
       expect(mob.gear).toEqual([]);
       return;
     }
-    throw new Error('monster never died across 80 seeds');
+    throw new Error('monster never died across 400 seeds');
   });
 });
 

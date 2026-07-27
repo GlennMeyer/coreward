@@ -241,6 +241,18 @@ export const TUNING = {
    */
   breachLootEscalation: 0.2,
   slayChance: 0.25,
+  /**
+   * Chance a downed monster is slain when the Core is breached.
+   *
+   * Was an unconditional 1.0. That was survivable while breaches were rare, but
+   * §26 made them common — an emptied dungeon always breaches, and an emptied
+   * dungeon is one where everything is already down. So every breach wiped the
+   * entire roster and the player rebuilt from nothing, which is a death spiral
+   * with no way out rather than a setback.
+   *
+   * Still far worse than a repelled raid (0.25): losing a Heart should hurt.
+   */
+  breachSlayChance: 0.5,
 
   // ── Formation: the line (§7.2) ──
   /**
@@ -724,7 +736,18 @@ export function mobDmg(defId: string, level: number): number {
 export const DIG_COSTS = [0, 60, 110];
 export const MAX_FLOORS = 3;
 export const AMENITY_SLOTS_PER_LANDING = 2;
-export const STARTING_HEARTS = 3;
+/**
+ * Hearts the Core starts with (§5.4).
+ *
+ * 4, not the doc's 3. §26 made breaches far more common — an emptied dungeon
+ * now always breaches instead of being saved by the party's manners — and 3
+ * Hearts against that left every strategy under 32%. Measured across five
+ * builds: 3 gives 32/28/12/12/7%, 4 gives 49/49/33/29/14%, 5 gives 81/83/57.
+ *
+ * 4 is the roguelite curve: good play wins about half the time and a weak build
+ * mostly loses. 5 is charity.
+ */
+export const STARTING_HEARTS = 4;
 
 /**
  * Rooms per floor, by depth (§5.1). Deeper floors are bigger — this is half of
