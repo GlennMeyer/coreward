@@ -70,6 +70,8 @@ export interface Mob {
    * about what this creature becomes rather than an abstract level-up.
    */
   upgrades: Record<string, number>;
+  /** Reforge ranks per gear id (§6.5) — an unbounded Gold sink. */
+  reforge?: Record<string, number>;
   /** Placement: a room, an amenity, or unassigned. */
   placement: Placement;
 }

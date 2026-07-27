@@ -2,7 +2,7 @@
  * Season orchestration and the Aftermath economy (§3, §4).
  */
 import {
-  ENDLESS_RAIDS, ENDLESS_SAFETY_CAP, GRUDGE_TRAIT, TIERS, tierFloorFromRaids, MAX_TIER_PROTOTYPE, SEASON_RAIDS, TUNING,
+  ENDLESS_RAIDS, ENDLESS_SAFETY_CAP, GRUDGE_TRAIT, tierAt, tierFloorFromRaids, MAX_TIER_PROTOTYPE, SEASON_RAIDS, TUNING,
   tierForRenown,
   type TierRow,
 } from './data';
@@ -43,7 +43,7 @@ export function currentTier(s: SeasonState): TierRow {
   // whether it does. Without this, an endless run can be stalled indefinitely
   // by pricing the dungeon into obscurity.
   const floor = Math.min(tierFloorFromRaids(s.raidNumber), MAX_TIER_PROTOTYPE);
-  return byRenown.tier >= floor ? byRenown : TIERS[floor - 1]!;
+  return byRenown.tier >= floor ? byRenown : tierAt(floor);
 }
 
 /**

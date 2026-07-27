@@ -2330,3 +2330,42 @@ lasted** instead — depth is the score. Generalist builds reach 8.8–9.3 raids
 
 `createSeason(seed, endless = true)` is the default. Tests pass `false` for bounded
 fixtures, which is what a test wants.
+
+
+---
+
+## 30. Two things that were bounded had to scale
+
+Endless mode (§29) exposed both, and they are the same bug in different clothes: a system
+priced for an 8-raid season, running for ninety.
+
+### 30.1 The tier ceiling, again
+
+The tier table stops at 10. A depth build reached Tier 9 and sat there for **94 raids**
+without ever being threatened — §25's ceiling bug, four tiers higher.
+
+Tiers past the table are now **generated**: `renown +400`, `levels +4`, `gold ×1.18`,
+`manaBonus ×1.22` per tier beyond the last row. Party size holds at 5 — a room can only
+hold so many people (§18.2), so late pressure should come from quality, not a crowd.
+
+### 30.2 Gold had no sink at depth
+
+The same build finished on **17,978 Gold** — roughly forty times what anything in the game
+costs. Every Gold sink (traps, amenities, gear) is a flat early-run price, so a long run
+just accumulates a meaningless pile.
+
+**Reforging** (§6.5): gear can be re-forged repeatedly at `90 × 1.7^rank`, each rank
+amplifying that piece's effect by another 35%. It scales without bound, so Gold always has
+somewhere to go and the late-run decision becomes how much to pour into which monster.
+
+### 30.3 Result
+
+| | before | after |
+|---|---|---|
+| Survival-optimised run length | 93.8 raids | **45.0** |
+| Tier reached | 9.0 (capped out) | 7.8 (still climbing) |
+| Gold left unspent | **17,978** | **558** |
+| Best monster level | 2.2 | **4.4** |
+
+Run length halved because escalation no longer stops, the Gold pile is spent rather than
+hoarded, and monsters reach level 4+ — the veterans pillar 3 has wanted since §19.7.

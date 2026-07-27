@@ -833,6 +833,26 @@ export const GEAR: Record<string, GearDef> = {
 
 export const MAX_GEAR_SLOTS = 2;
 
+/**
+ * Gear can be reforged, repeatedly, at a rising price (§6.5).
+ *
+ * Every Gold sink in the game was priced for the early run — traps, amenities
+ * and gear are all flat costs — so a long run just accumulates. Measured under
+ * endless, a depth build finished on **17,978 Gold**, roughly forty times what
+ * it could spend on anything.
+ *
+ * Reforging scales without bound, so Gold always has somewhere to go and the
+ * player's late-run decision is how much to pour into which monster.
+ */
+export const REFORGE_BASE = 90;
+export const REFORGE_GROWTH = 1.7;
+/** Each rank multiplies the piece's effect by this much again. */
+export const REFORGE_EFFECT = 0.35;
+
+export function reforgeCost(rank: number): number {
+  return Math.round(REFORGE_BASE * REFORGE_GROWTH ** rank);
+}
+
 // ─── Admission (§20) ─────────────────────────────────────────────────────────
 
 /**
@@ -953,7 +973,7 @@ export const TIERS: TierRow[] = [
  * The Renown ratchet is the whole premise of §15. It cannot have a ceiling
  * below the top of the tier table.
  */
-export const MAX_TIER_PROTOTYPE = 10;
+export const MAX_TIER_PROTOTYPE = 40;
 
 /** Player-facing copy for each formation, shared by the UI and the forecast. */
 export const FORMATION_INFO: Record<Formation, {
@@ -980,10 +1000,47 @@ export function firstTierWithFormation(f: Formation): TierRow | undefined {
   return TIERS.find((t) => t.formation === f);
 }
 
+/**
+ * Threat Tiers past the end of the table (§4.4).
+ *
+ * The table stops at 10, and once a run maxes it escalation stops — a
+ * sufficiently upgraded dungeon then holds forever. That is the §25 ceiling
+ * bug again, four tiers higher: measured under endless, a depth build sat at
+ * Tier 9 for 94 raids without being threatened.
+ *
+ * Beyond the table, tiers are generated: levels keep climbing, purses keep
+ * growing, party size holds at 5 because a room can only hold so many people
+ * (§18.2) and the pressure should come from quality, not a crowd.
+ */
+function generatedTier(tier: number): TierRow {
+  const last = TIERS[TIERS.length - 1]!;
+  const over = tier - last.tier;
+  return {
+    tier,
+    renown: last.renown + over * 400,
+    partySize: last.partySize,
+    levelMin: last.levelMin + over * 4,
+    levelMax: last.levelMax + over * 4,
+    gold: Math.round(last.gold * 1.18 ** over),
+    manaBonus: Math.round(last.manaBonus * 1.22 ** over),
+    formation: last.formation,
+  };
+}
+
+export function tierAt(tier: number): TierRow {
+  return TIERS[tier - 1] ?? generatedTier(tier);
+}
+
 export function tierForRenown(renown: number, cap = MAX_TIER_PROTOTYPE): TierRow {
   let row = TIERS[0]!;
   for (const t of TIERS) {
     if (renown >= t.renown && t.tier <= cap) row = t;
+  }
+  // Past the table, keep generating. `cap` still bounds it so a caller that
+  // wants the prototype's ceiling can still ask for one.
+  for (let tier = TIERS.length + 1; tier <= cap; tier++) {
+    const gen = generatedTier(tier);
+    if (renown >= gen.renown) row = gen; else break;
   }
   return row;
 }

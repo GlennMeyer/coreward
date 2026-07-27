@@ -7,7 +7,8 @@
 import {
   AMENITIES, AMENITY_SLOTS_PER_LANDING, COMMERCE_XP_THRESHOLDS, DIG_COSTS,
   GEAR, HIRED_STAFF_COST, MAX_COMMERCE_LEVEL, MAX_FLOORS, MAX_GEAR_SLOTS,
-  MAX_UPGRADE_RANK, UPGRADE_EFFECT, upgradeRankCost, type UpgradeTrack,
+  MAX_UPGRADE_RANK, REFORGE_EFFECT, UPGRADE_EFFECT, reforgeCost,
+  upgradeRankCost, type UpgradeTrack,
   MAX_LEVEL, MOBS, STARTING_HEARTS, TRAPS, XP_THRESHOLDS, mobDmg, mobMaxHp,
   roomCapacity, roomsOnFloor, trapCost, trapRearmCost,
 } from './data';
@@ -393,9 +394,16 @@ export function isOpen(a: Amenity): boolean {
 // ─── Gear and hired staff — the Gold sinks (§6.5, §8.4) ──────────────────────
 
 /** Effective stats including gear. Always use these, never the raw MobDef. */
+/** A gear piece's multiplier, amplified by however often it has been reforged. */
+function gearMult(mob: Mob, id: string, base: number): number {
+  if (base === 1) return 1;
+  const rank = mob.reforge?.[id] ?? 0;
+  return 1 + (base - 1) * (1 + REFORGE_EFFECT * rank);
+}
+
 export function mobEffectiveHp(mob: Mob): number {
   let hp = mobMaxHp(mob.defId, mob.level);
-  for (const g of mob.gear) hp *= GEAR[g]?.hpMult ?? 1;
+  for (const g of mob.gear) hp *= gearMult(mob, g, GEAR[g]?.hpMult ?? 1);
   hp *= 1 + UPGRADE_EFFECT.vigor.hp * (mob.upgrades?.['vigor'] ?? 0);
   return Math.round(hp);
 }
@@ -430,7 +438,7 @@ export function buyUpgrade(d: Dungeon, uid: number, track: UpgradeTrack): BuildE
 
 export function mobEffectiveDmg(mob: Mob): number {
   let dmg = mobDmg(mob.defId, mob.level);
-  for (const g of mob.gear) dmg *= GEAR[g]?.dmgMult ?? 1;
+  for (const g of mob.gear) dmg *= gearMult(mob, g, GEAR[g]?.dmgMult ?? 1);
   dmg *= 1 + UPGRADE_EFFECT.bite.dmg * (mob.upgrades?.['bite'] ?? 0);
   return dmg;
 }
@@ -449,6 +457,25 @@ export function packMultiplier(mob: Mob, alliesInRoom: number): number {
 export function mobStripsKit(mob: Mob): boolean {
   if (MOBS[mob.defId]!.role === 'warden') return true;
   return mob.gear.some((g) => GEAR[g]?.stripsKit);
+}
+
+export function reforgeRank(mob: Mob, gearId: string): number {
+  return mob.reforge?.[gearId] ?? 0;
+}
+
+export function nextReforgeCost(mob: Mob, gearId: string): number {
+  return reforgeCost(reforgeRank(mob, gearId));
+}
+
+/** Reforge one piece a rank stronger. Cost is the caller's to deduct. */
+export function reforgeGear(d: Dungeon, uid: number, gearId: string): BuildError {
+  const mob = getMob(d, uid);
+  if (!mob || !mob.alive) return 'That monster is not available.';
+  if (!mob.gear.includes(gearId)) return 'It is not carrying that.';
+  mob.reforge ??= {};
+  mob.reforge[gearId] = (mob.reforge[gearId] ?? 0) + 1;
+  mob.hp = mobEffectiveHp(mob);
+  return null;
 }
 
 export function gearCost(gearId: string): number {

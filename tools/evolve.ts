@@ -14,10 +14,11 @@
  *
  *   npx tsx tools/evolve.ts [generations] [population] [seasonsPerEval]
  */
-import { AMENITIES, MOBS, TRAPS, roomCapacity } from '../src/sim/data';
+import { AMENITIES, GEAR, MAX_GEAR_SLOTS, MOBS, TRAPS, roomCapacity } from '../src/sim/data';
 import {
   assignStaff, buildAmenity, buyMob, buyTrap, buyUpgrade, digCost, digFloor,
-  livingMobs, placeMobInRoom, placeTrapInRoom, roomSlotsUsed, totalUpkeep,
+  equipGear, livingMobs, nextReforgeCost, placeMobInRoom, placeTrapInRoom,
+  reforgeGear, roomSlotsUsed, totalUpkeep,
   trapRearmPrice, rearmTrap,
 } from '../src/sim/dungeon';
 import { Rng } from '../src/sim/rng';
@@ -194,6 +195,26 @@ function buildPhase(s: SeasonState, g: Genome, rng: Rng): void {
     if (buyUpgrade(d, mob.uid, track) === null) {
       s.mana -= Math.round(price);
       upSpent += price;
+    }
+  }
+
+  // Gold: gear, then reforging it. The late-run sink (§6.5).
+  const gearBudget = s.gold * (1 - g.amenityShare);
+  let gearSpent = 0;
+  for (const mob of livingMobs(d)) {
+    if (mob.placement.kind !== 'room') continue;
+    for (const gid of Object.keys(GEAR)) {
+      if (!mob.gear.includes(gid)) {
+        const c = GEAR[gid]!.cost;
+        if (mob.gear.length < MAX_GEAR_SLOTS && s.gold >= c && gearSpent + c <= gearBudget) {
+          if (equipGear(d, mob.uid, gid) === null) { s.gold -= c; gearSpent += c; }
+        }
+        continue;
+      }
+      const c = nextReforgeCost(mob, gid);
+      if (s.gold >= c && gearSpent + c <= gearBudget) {
+        if (reforgeGear(d, mob.uid, gid) === null) { s.gold -= c; gearSpent += c; }
+      }
     }
   }
 

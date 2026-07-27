@@ -18,6 +18,7 @@ import {
 import {
   allTraps, assignStaff, buildAmenity, buyMob, buyTrap, demolishAmenity,
   buyUpgrade, digCost, digFloor, dismissMob, dismissValue, equipGear, getMob,
+  nextReforgeCost, reforgeGear, reforgeRank,
   getTrap, nextUpgradeCost, upgradeRank,
   hireStaff, isOpen, mobEffectiveHp, placeMobInRoom, placeTrapInRoom, rearmAll,
   rearmTrap, trapRearmPrice,
@@ -1103,8 +1104,28 @@ function selectionPanel(): HTMLElement | null {
     const owned = mob.gear.includes(g.id);
     const full = mob.gear.length >= MAX_GEAR_SLOTS;
     const off = owned || full || s.gold < g.cost;
+    if (owned) {
+      // Reforging: the one Gold sink that scales with a long run (§6.5).
+      const rank = reforgeRank(mob, g.id);
+      const cost = nextReforgeCost(mob, g.id);
+      const cant = s.gold < cost;
+      const b = el(`<div class="buy ${cant ? 'off' : ''}"
+          title="Amplifies this piece again. Costs rise each time.">
+          <span>${g.name} ✓<div class="meta">reforged ×${rank}</div></span>
+          <span class="cost g">${cost}g</span>
+        </div>`);
+      if (!cant) {
+        b.onclick = () => {
+          const err = reforgeGear(d, mob.uid, g.id);
+          if (!err) s.gold -= cost;
+          fail(err);
+        };
+      }
+      p.append(b);
+      continue;
+    }
     const b = el(`<div class="buy ${off ? 'off' : ''}">
-        <span>${g.name}${owned ? ' ✓' : ''}</span>
+        <span>${g.name}</span>
         <span class="cost g">${g.cost}g</span>
       </div>`);
     if (!off) {
