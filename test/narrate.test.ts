@@ -406,7 +406,9 @@ describe('narration finds what was distinctive', () => {
       } as never],
     }));
     expect(returning.text).toContain('Orla the Patient');
-    expect(returning.text).toContain('fifth');
+    // `delves` counts delves SURVIVED and increments after the raid, so a
+    // veteran arriving with 5 is here for their sixth time.
+    expect(returning.text).toContain('sixth');
   });
 });
 
