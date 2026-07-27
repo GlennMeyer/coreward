@@ -12,7 +12,7 @@ import {
   GRUDGE_TRAIT, LEY_CHARGES, MANA_PER_KILL, MOBS,
   PRICE_TIERS, PROVISIONER_MAX_KIT, RENOWN_PER_ESCAPEE, RENOWN_PER_GOLD,
   RENOWN_PER_KILL, RENOWN_WIPE_MULT, REST_RESOLVE_PCT, RESOLVE_ON_ALLY_DEATH,
-  SOULS_PER_KILL, SOULS_PER_NAMED, TRAPS, TUNING, XP_PER_DOWN, XP_PER_HIT,
+  SOULS_PER_KILL, SOULS_PER_NAMED, STAFFED_REVENUE_MULT, TRAPS, TUNING, XP_PER_DOWN, XP_PER_HIT,
   admissionPrice,
   XP_PER_KILL,
   CLASS_MODS, mobMaxHp, soulsTierMult, trapPower, type TierRow,
@@ -1054,7 +1054,14 @@ export class RaidSim {
    */
   private offerRescue(): void {
     for (const adv of this.party.members) {
-      if (!adv.alive || !adv.downed || adv.stable) continue;
+      if (!adv.alive) continue;
+      // Stabilised counts too. Stopping the bleeding is free and automatic;
+      // being carried out and put back on your feet is the service, and it is
+      // what §19.4 actually pays for — a casualty tells no story, a patched-up
+      // survivor does. Without this the rescue economy had no customers at all:
+      // measured 0.00 rescues/raid, because the free saves always resolved
+      // before the party reached a Landing.
+      if (!adv.downed && !adv.stable) continue;
       const payers = this.standingMembers();
       if (payers.length === 0) continue;
       // Nobody buys out a friend once their own nerve is gone.
@@ -1077,7 +1084,12 @@ export class RaidSim {
       this.goldFromRescues += fee;
       this.rescuedCount++;
       adv.downed = false;
-      adv.stable = true;
+      // Back on their feet, not merely breathing: they walk out under their own
+      // power and therefore pay Renown again (§19.4). That is what they bought.
+      adv.stable = false;
+      adv.saveSuccesses = 0;
+      adv.saveFailures = 0;
+      adv.hp = Math.max(1, Math.round(adv.maxHp * TUNING.rescueHpPct));
       this.emit({
         t: this.tick, type: 'adv-rescued',
         advId: adv.id, name: adv.name, fee,
@@ -1228,7 +1240,12 @@ export class RaidSim {
 
       const def = AMENITIES[a.defId];
       const pricing = PRICE_TIERS[a.price];
-      const commerceMult = 1 + COMMERCE_REVENUE_PER_LEVEL * ((staff?.commerceLevel ?? 1) - 1);
+      // Staffing is an upsell now, not a switch: an unattended shop trades at
+      // list, a monster behind the counter charges more and learns to charge
+      // more still (§8.4). Nobody is ever locked out of their own building.
+      const attended = a.hired || a.staffUid !== null;
+      const commerceMult = (attended ? STAFFED_REVENUE_MULT : 1)
+        * (1 + COMMERCE_REVENUE_PER_LEVEL * ((staff?.commerceLevel ?? 1) - 1));
       const list = def.basePrice * pricing.mult * commerceMult;
 
       for (const adv of aliveMembers(this.party)) {
@@ -1398,6 +1415,13 @@ export class RaidSim {
 
   private finish(outcome: RaidOutcome, reason: RetreatReason): void {
     if (this._status === 'complete') return;
+
+    // Last call for the rescue service (§19.3). A delve usually ends the moment
+    // somebody drops — the line breaks and they carry them out — so the party
+    // never reaches another Landing and the offer never came. Measured, that
+    // was the whole rescue economy: 0.00 rescues per raid. Walking out with a
+    // body on your shoulder is exactly when you would pay to have it carried.
+    if (outcome !== 'wiped') this.offerRescue();
     if (outcome === 'retreated') {
       this.emit({ t: this.tick, type: 'retreat', reason });
     }

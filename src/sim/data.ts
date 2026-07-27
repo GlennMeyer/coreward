@@ -215,6 +215,8 @@ export const TUNING = {
    * they carry (§4.3), so a corpse was worth less than a customer. Now dropping
    * someone can be *more* profitable than killing them.
    */
+  /** HP a bought-out adventurer is put back on their feet with. */
+  rescueHpPct: 0.25,
   rescueFee: 45,
   /**
    * Each rescue in the same delve costs this much more than the last.
@@ -656,12 +658,14 @@ export const AMENITIES: Record<AmenityId, AmenityDef> = {
   },
   apothecary: {
     id: 'apothecary', name: 'Apothecary', buildCost: 160, upkeep: 9, basePrice: 34,
-    blurb: 'Staffed. Heals to full, and will treat the walking wounded.',
+    blurb: 'Heals to full, and will treat the walking wounded.',
+    selfService: true,
     healPct: 1,
   },
   provisioner: {
     id: 'provisioner', name: 'Provisioner', buildCost: 70, upkeep: 3, basePrice: 6,
     blurb: 'Sells Kit, up to 3. Undermines drain builds.',
+    selfService: true,
   },
 };
 
@@ -727,8 +731,18 @@ export function admissionPrice(tier: number, mult: number): number {
   return Math.round(ADMISSION_BASE * tier * mult);
 }
 
-/** Hired NPC shopkeeper (§8.4). Lets a monster go back to fighting. */
-export const HIRED_STAFF_COST = 250;
+/**
+ * Hired NPC shopkeeper (§8.4). Purely optional revenue, never a requirement.
+ *
+ * Amenities used to be dead until staffed, which meant paying Mana to build a
+ * thing and then Gold to switch it on — two tolls for one shop, and the second
+ * one (250g) cost more than a whole season's income. Now every amenity trades
+ * the moment it is built; a body behind the counter is an upsell.
+ */
+export const HIRED_STAFF_COST = 70;
+
+/** Revenue multiplier for a staffed counter — the reason to bother (§8.4). */
+export const STAFFED_REVENUE_MULT = 1.35;
 
 /** @deprecated Read `AMENITIES[id].healPct` — kept so old callers still build. */
 export const HOTSPRING_HEAL_PCT = 0.3;

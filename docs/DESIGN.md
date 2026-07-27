@@ -522,6 +522,18 @@ Cutpurse not stripping Kit on floor 2.
 - Staff in an amenity **cannot be killed** by adventurers. Shops are neutral ground. This
   is a hard rule, not a soft one — see §11.4.
 
+### 8.4b Staffing is an upsell, never a gate
+
+**An amenity trades the moment it is built.** Paying Mana to build a shop and then Gold to
+switch it on is two tolls for one building, and the second one (250g) cost more than a
+whole season's income — measured, a season yields 141–196 gold. That is not an expensive
+choice, it is an unreachable one.
+
+A body behind the counter now **raises takings ×1.35** and starts a Commerce track, so
+staffing is worth doing and never required. Hirelings (70g) do the same without costing you
+a fighter. §8.4's opportunity cost still exists — a monster on a counter is off the line —
+but it buys extra revenue rather than permission to use your own building.
+
 ### 8.4a Self-service vs staffed — and a healing ladder
 
 **Not every amenity needs an attendant.** A Hot Spring is a hole in the rock with warm

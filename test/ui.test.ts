@@ -7,7 +7,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MOBS, TIERS, TRAPS, TUNING, roomCapacity } from '../src/sim/data';
-import { buildAmenity, buyMob, createDungeon, hireStaff, placeMobInRoom } from '../src/sim/dungeon';
+import { buildAmenity, buyMob, createDungeon, placeMobInRoom } from '../src/sim/dungeon';
 import { predictThrill, thrillRating } from '../src/ui/predict';
 import type { SeasonState } from '../src/sim/types';
 
@@ -70,13 +70,14 @@ describe('UI smoke', () => {
     click(document.querySelectorAll('.room')[0]);
 
     click(button('+ Provisioner'));
-    expect(document.querySelector('.amenity')).toBeTruthy();
-    // Amenity starts closed: nobody behind the counter.
-    expect(document.querySelector('.amenity')?.classList.contains('closed')).toBe(true);
+    const shop = document.querySelector('.amenity')!;
+    // Open on build — you paid Mana for it, it works (§8.4).
+    expect(shop.classList.contains('closed')).toBe(false);
+    expect(shop.textContent).toContain('unattended');
 
     click(document.querySelector('.room .mob'));      // select the monster
     click(document.querySelector('.amenity'));         // assign as staff
-    expect(document.querySelector('.amenity')?.classList.contains('closed')).toBe(false);
+    expect(document.querySelector('.amenity')?.textContent).not.toContain('unattended');
     // Staffing pulls it out of the room — the opportunity cost (§8.4).
     expect(document.querySelector('.room .mob')).toBeFalsy();
   });
@@ -485,10 +486,9 @@ describe('predicted Thrill', () => {
 
   it('counts an open amenity as comfort and a closed one as nothing', () => {
     const d = createDungeon();
-    // A shop, not the self-service Hot Spring — a spring is open on build.
-    buildAmenity(d, 0, 0, 'provisioner');
+    // Every amenity is open on build now, so comfort lands immediately.
     expect(predictThrill(d, tier1).comfort).toBe(0);
-    hireStaff(d, 0, 0);
+    buildAmenity(d, 0, 0, 'provisioner');
     expect(predictThrill(d, tier1).comfort).toBeGreaterThan(0);
   });
 

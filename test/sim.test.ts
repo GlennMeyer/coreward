@@ -122,16 +122,18 @@ describe('staffing (§8.4)', () => {
     const d = createDungeon();
     digFloor(d);
     const before = totalUpkeep(d);
-    // Provisioner is a shop: it needs someone behind the counter.
+    // Staffing is optional now, but an attended counter still bills upkeep.
     const staffUid = addStaffedAmenity(d, 0, 0, 'provisioner', 'rat');
     // Provisioner upkeep 3 + Cave Rat upkeep 1.
     expect(totalUpkeep(d)).toBe(before + 3 + 1);
 
+    // Pulling the monster off the counter frees the monster, but the building
+    // still costs what a building costs — it is open and trading either way.
     unplace(d, staffUid);
-    expect(totalUpkeep(d)).toBe(before);
+    expect(totalUpkeep(d)).toBe(before + 3);
   });
 
-  it('a Hot Spring is self-service — it needs no attendant (§8.4a)', () => {
+  it('every amenity trades the moment it is built — staffing is an upsell', () => {
     const d = createDungeon();
     expect(buildAmenity(d, 0, 0, 'hotspring')).toBeNull();
     const spring = d.landings[0]!.amenities[0]!;
@@ -140,8 +142,7 @@ describe('staffing (§8.4)', () => {
     expect(isOpen(spring)).toBe(true);
   });
 
-  it('an Apothecary is staffed, and heals far more than a soak', () => {
-    expect(AMENITIES['apothecary'].selfService).toBeUndefined();
+  it('an Apothecary heals far more than a soak', () => {
     expect(AMENITIES['apothecary'].healPct).toBe(1);
     expect(AMENITIES['hotspring'].healPct).toBe(0.3);
     // The ladder has to be worth climbing.

@@ -9,6 +9,7 @@
 import './styles.css';
 import {
   AMENITIES, FORMATION_INFO, GEAR, HIRED_STAFF_COST, MAX_GEAR_SLOTS, MOBS,
+  STAFFED_REVENUE_MULT,
   admissionPrice,
   PRICE_TIERS, SEASON_RAIDS, TRAPS, TUNING, roomCapacity, trapCost,
   trapRearmCost,
@@ -55,6 +56,10 @@ interface App {
    * away exactly the structure it needs.
    */
   events: RaidEvent[];
+  /** Last finished raid's log, kept so it can be re-read during the Build Phase. */
+  lastLog: LogLine[];
+  lastRaidNumber: number;
+  showLastLog: boolean;
   selectedMob: number | null;
   /**
    * Selected trap uid. Deliberately a second field rather than a tagged
@@ -76,6 +81,9 @@ const app: App = {
   speedIdx: 1,
   log: [],
   events: [],
+  lastLog: [],
+  lastRaidNumber: 0,
+  showLastLog: false,
   selectedMob: null,
   selectedTrap: null,
   aftermath: null,
@@ -286,6 +294,10 @@ function runInstant(): void {
 function beginRaid(): void {
   app.sim = startRaid(app.season);
   app.phase = 'raid';
+  if (app.log.length) {
+    app.lastLog = app.log;
+    app.lastRaidNumber = app.season.raidNumber - 1;
+  }
   app.log = [];
   app.events = [];
   app.narration = null;
@@ -739,10 +751,10 @@ function landingRow(idx: number, amenities: readonly (Amenity | null)[]): HTMLEl
 
     const def = AMENITIES[a.defId];
     const p = PRICE_TIERS[a.price];
-    const selfServe = AMENITIES[a.defId].selfService === true;
-    const staff = selfServe
-      ? 'self-service'
-      : a.hired ? 'hirelings' : a.staffUid !== null ? mobName(a.staffUid) : 'CLOSED';
+    const attended = a.hired || a.staffUid !== null;
+    const staff = a.hired
+      ? 'hirelings'
+      : a.staffUid !== null ? mobName(a.staffUid) : 'unattended';
     const chip = el(`
       <div class="amenity ${isOpen(a) ? '' : 'closed'}"
            data-landing="${idx}" data-slot="${slot}">
@@ -765,8 +777,14 @@ function landingRow(idx: number, amenities: readonly (Amenity | null)[]): HTMLEl
     row.append(chip);
 
     if (app.phase === 'build') {
-      if (!a.hired && !selfServe) {
-        const hire = el(`<button ${app.season.gold < HIRED_STAFF_COST ? 'disabled' : ''}>Hire ${HIRED_STAFF_COST}g</button>`);
+      if (!attended) {
+        row.append(el(
+          `<span class="staff-hint">open — staff it for +${Math.round((STAFFED_REVENUE_MULT - 1) * 100)}% takings</span>`,
+        ));
+      }
+      if (!a.hired) {
+        const hire = el(`<button ${app.season.gold < HIRED_STAFF_COST ? 'disabled' : ''}
+          title="Optional. A monster staffs it for free; hirelings do the same without costing you a fighter.">Hire ${HIRED_STAFF_COST}g</button>`);
         hire.onclick = () => {
           const err = hireStaff(d, idx, slot);
           if (!err) app.season.gold -= HIRED_STAFF_COST;
@@ -1001,6 +1019,8 @@ function buildPanel(): HTMLElement {
     '<div class="hint">A trap fires once on the threshold, before anything swings — then it needs re-arming. It softens; the monster behind it finishes.</div>',
   ));
   wrap.append(traps);
+  const replay = lastLogPanel();
+  if (replay) wrap.append(replay);
   wrap.append(legendsPanel());
   return wrap;
 }
@@ -1212,10 +1232,7 @@ function raidPanel(): HTMLElement {
   // Log
   const lp = el('<div class="panel"></div>');
   lp.append(el('<h2>Log</h2>'));
-  const log = el('<div class="log"></div>');
-  for (const line of app.log.slice(-160)) {
-    log.append(el(`<div class="${line.cls}"><span class="t">${line.t}</span>${esc(line.text)}</div>`));
-  }
+  const log = logList(app.log);
   lp.append(log);
   wrap.append(lp);
   queueMicrotask(() => { log.scrollTop = log.scrollHeight; });
@@ -1257,6 +1274,33 @@ function stageStrip(sim: RaidSim): HTMLElement {
  * One adventurer. `engaged` is null under `party` formation — everyone is in
  * the fight, so marking it would be noise.
  */
+/** Scrollable log list. Shared by the live raid view and the Build-Phase replay. */
+function logList(lines: LogLine[]): HTMLElement {
+  const log = el('<div class="log"></div>');
+  for (const line of lines.slice(-400)) {
+    log.append(el(`<div class="${line.cls}"><span class="t">${line.t}</span>${esc(line.text)}</div>`));
+  }
+  return log;
+}
+
+/** Last raid's combat log, collapsed by default so it does not crowd the build. */
+function lastLogPanel(): HTMLElement | null {
+  if (!app.lastLog.length) return null;
+  const p = el('<div class="panel"></div>');
+  const head = el(`<h2 class="clicky">Last Raid Log — raid ${app.lastRaidNumber}
+    <span class="chev">${app.showLastLog ? '▾' : '▸'}</span></h2>`);
+  head.onclick = () => { app.showLastLog = !app.showLastLog; render(); };
+  p.append(head);
+  if (app.showLastLog) {
+    const list = logList(app.lastLog);
+    list.classList.add('replay');
+    p.append(list);
+  } else {
+    p.append(el(`<div class="hint">${app.lastLog.length} lines — click to review what happened.</div>`));
+  }
+  return p;
+}
+
 function advRow(a: Adventurer, engaged: boolean | null = null): HTMLElement {
   const hp = Math.max(0, (a.hp / a.maxHp) * 100);
   const res = Math.max(0, (a.resolve / a.maxResolve) * 100);
