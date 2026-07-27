@@ -9,6 +9,7 @@
 import './styles.css';
 import {
   AMENITIES, FORMATION_INFO, GEAR, HIRED_STAFF_COST, MAX_GEAR_SLOTS, MOBS,
+  admissionPrice,
   PRICE_TIERS, SEASON_RAIDS, TRAPS, TUNING, roomCapacity, trapCost,
   trapRearmCost,
 } from '../sim/data';
@@ -194,6 +195,10 @@ function describe(e: RaidEvent): { cls: string; text: string } | null {
       return { cls: 'crit', text: `${MOBS[e.defId]!.name} is downed.` };
     case 'mob-slain':
       return { cls: 'crit', text: `${MOBS[e.defId]!.name} (lv ${e.level}) is slain for good.` };
+    case 'admission':
+      return e.turnedAway > 0
+        ? { cls: 'buy2', text: `${e.total}g at the gate — ${e.turnedAway} turned away, unable to pay ${e.each}g.` }
+        : { cls: 'buy2', text: `${e.total}g taken at the gate (${e.each}g a head).` };
     case 'adv-downed':
       return { cls: 'good', text: `${e.name} goes down, bleeding.` };
     case 'death-save':
@@ -794,6 +799,7 @@ function buildPanel(): HTMLElement {
   const wrap = el('<div></div>');
 
   const actions = el('<div class="panel"></div>');
+  const tier = currentTier(s);
   actions.append(el('<h2>Build Phase</h2>'));
   const cost = digCost(d);
   const digBtn = el(`<button ${cost === null || s.mana < cost ? 'disabled' : ''}>Dig Floor ${d.floors.length + 1}${cost !== null ? ` — ${cost}` : ' (max)'}</button>`);
@@ -824,6 +830,20 @@ function buildPanel(): HTMLElement {
     rowA.append(btn);
   }
   actions.append(rowA);
+  // Admission (§20). The one dial that pushes BACK on the Renown ratchet:
+  // gouging is safe, rich and obscure; a cheap gate is famous and dangerous.
+  const adm = el('<div class="row adm"></div>');
+  adm.append(el('<span class="adm-l">Admission</span>'));
+  for (const t of ['modest', 'standard', 'premium', 'gouge'] as PriceTier[]) {
+    const price = admissionPrice(tier.tier, PRICE_TIERS[t].mult);
+    const on = d.admission === t;
+    const b = el(`<button class="${on ? 'on' : ''}" title="${price}g a head · Renown ×${PRICE_TIERS[t].renownMult}">${t} ${price}g</button>`);
+    b.onclick = () => { d.admission = t; fail(null); };
+    adm.append(b);
+  }
+  actions.append(adm);
+  actions.append(el(`<div class="hint">Gate money is money they cannot spend on surviving — and a fleecing is remembered (Renown ×${PRICE_TIERS[d.admission ?? 'modest'].renownMult}).</div>`));
+
   actions.append(el(`<div class="hint">Drag monsters into rooms, or onto a shop to staff it. Clicking works too: select, then click a target.</div>`));
   if (rearmPrice > 0) {
     actions.append(el(

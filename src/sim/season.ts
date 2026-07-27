@@ -194,7 +194,8 @@ export function applyAftermath(s: SeasonState, sim: RaidSim): Aftermath {
 
   s.mana = Math.max(0, s.mana + manaIncome);
   s.souls += result.souls;
-  s.gold += result.goldFromSales + result.goldFromCorpses;
+  s.gold += result.goldFromSales + result.goldFromCorpses
+    + result.goldFromRescues + result.goldFromAdmission;
   s.renown += result.renown;
   s.log.push(result);
 

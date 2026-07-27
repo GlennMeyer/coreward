@@ -194,6 +194,8 @@ export interface Dungeon {
    */
   landings: Landing[];
   hearts: number;
+  /** Gate price tier (§20). Charged on entry, before they spend a coin inside. */
+  admission: PriceTier;
   mobs: Mob[];
   nextMobUid: number;
   /**
@@ -252,6 +254,8 @@ export interface Adventurer {
    * three failed saves. Downed adventurers cannot act and do not vote.
    */
   downed: boolean;
+  /** Priced out at the gate (§20). Never entered; counts as nothing. */
+  turnedAway: boolean;
   /** Successful death saves this delve. Three stabilises them. */
   saveSuccesses: number;
   /** Failed death saves. Three kills them. */
@@ -481,6 +485,7 @@ export type RaidEvent =
   | { t: number; type: 'death-save'; advId: number; name: string; success: boolean; successes: number; failures: number }
   | { t: number; type: 'adv-stable'; advId: number; name: string }
   | { t: number; type: 'adv-rescued'; advId: number; name: string; fee: number }
+  | { t: number; type: 'admission'; total: number; each: number; turnedAway: number }
   | { t: number; type: 'mob-levelup'; uid: number; level: number }
   | { t: number; type: 'room-clear'; floor: number; room: number }
   | { t: number; type: 'landing-enter'; landing: number }
@@ -528,6 +533,8 @@ export interface RaidResult {
   goldFromCorpses: number;
   /** Rescue fees (§19.3) — they pay us to drag them out alive. */
   goldFromRescues: number;
+  /** Gate takings (§20). Collected before they can spend it on surviving. */
+  goldFromAdmission: number;
   /** Dropped to 0 HP at some point, whether or not they survived it. */
   downedCount: number;
   /** Stabilised by their own saves, or bought out. */

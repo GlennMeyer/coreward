@@ -702,6 +702,31 @@ export const GEAR: Record<string, GearDef> = {
 
 export const MAX_GEAR_SLOTS = 2;
 
+// ─── Admission (§20) ─────────────────────────────────────────────────────────
+
+/**
+ * Base gate price, scaled by the Threat Tier they came for and the admission
+ * tier you set. A famous dungeon can charge more; a Tier 1 farmhand cannot pay
+ * what a Tier 4 company can.
+ *
+ * 3, not 10. At 10 the gate took roughly half of every purse and the rest of
+ * the economy died with it — measured 605g at the door against **9g** in shop
+ * sales, because they arrived broke. Admission has to be a slice, not the meal.
+ */
+export const ADMISSION_BASE = 3;
+
+/**
+ * Gold taken at the gate is gold they cannot spend on surviving your dungeon.
+ *
+ * That is the whole decision (§20): charge at the door and bank it before
+ * anything can go wrong, or leave it in their purse so they can buy healing,
+ * Kit and rescues — all of which are also your revenue, and all of which keep
+ * them alive to tell the story that pays Renown (§15.3, §19.4).
+ */
+export function admissionPrice(tier: number, mult: number): number {
+  return Math.round(ADMISSION_BASE * tier * mult);
+}
+
 /** Hired NPC shopkeeper (§8.4). Lets a monster go back to fighting. */
 export const HIRED_STAFF_COST = 250;
 

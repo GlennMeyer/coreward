@@ -1855,3 +1855,50 @@ reaching level 6 is not that.
 Real levers, none applied yet: lower `slayChance`, make Reconstitute affordable (§6.4
 prices it at `20 × level²`, which is unreachable), or let monsters retreat the way §18 lets
 adventurers fall back. **Unresolved, and it is the most important open item in the doc.**
+
+---
+
+## 20. Admission — charging at the gate
+
+**Status: IMPLEMENTED (v0.7).**
+
+Adventurers pay to come in, at a price the player sets. Base is `3 × threat_tier × price
+multiplier` (§8.3's tiers), so a famous dungeon charges more and a Tier 1 farmhand is not
+billed like a Tier 4 company. Anyone who cannot afford the gate does not descend — they
+count as nothing: not a kill, not a survivor, no story.
+
+### 20.1 The decision
+
+**Gate money is money they cannot spend on surviving your dungeon.** Kit, a soak, an
+Apothecary, buying a friend out (§19.3) — all of those are also your revenue, and all of
+them keep people alive to tell the story that pays Renown (§15.3, §19.4). So admission is
+front-loading: bank it at the door, or leave it in their purse and take it inside.
+
+A fleecing is also *remembered* — Renown is multiplied by the tier's `renownMult`
+(1.0 / 0.9 / 0.8 / 0.5). Without that, gouging was strictly dominant: it beat modest on
+gold, survival and reputation simultaneously, because a cheap gate prices nobody out and
+nothing else pushed back.
+
+### 20.2 Measured
+
+| Admission | Season survival | Renown | Gold | Gate takings |
+|---|---|---|---|---|
+| Modest | 66% | **210** | 117 | 197 |
+| Standard | 88% | 163 | 120 | 244 |
+| Premium | 95% | 136 | 148 | 363 |
+| Gouge | **100%** | 63 | 128 | **399** |
+
+A clean strategic spread: **gouge is safe, rich and obscure; a cheap gate is famous,
+dangerous and poorer.** Modest earns triple the reputation of Gouge and survives a third as
+often, because Renown *is* the difficulty ratchet.
+
+### 20.3 It answers §11 Q2
+
+§11 asked whether Renown should decay, since a pure ratchet can run away from the player.
+Admission is a better answer than decay: **a dial the player controls** that slows
+reputation without erasing it. Raise the gate when the tier is climbing faster than the
+dungeon, drop it when you want the crowds back.
+
+Tuning note: `ADMISSION_BASE` is **3**, not 10. At 10 the gate took roughly half of every
+purse and the rest of the economy died with it — measured 605g at the door against **9g**
+in shop sales, because they arrived broke. Admission has to be a slice, not the meal.

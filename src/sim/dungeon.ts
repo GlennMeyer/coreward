@@ -21,6 +21,7 @@ export function createDungeon(): Dungeon {
     floors: [{ rooms: emptyRooms(0) }],
     landings: [emptyLanding()],
     hearts: STARTING_HEARTS,
+    admission: 'modest',
     mobs: [],
     nextMobUid: 1,
     traps: [],

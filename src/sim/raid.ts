@@ -13,6 +13,7 @@ import {
   PRICE_TIERS, PROVISIONER_MAX_KIT, RENOWN_PER_ESCAPEE, RENOWN_PER_GOLD,
   RENOWN_PER_KILL, RENOWN_WIPE_MULT, REST_RESOLVE_PCT, RESOLVE_ON_ALLY_DEATH,
   SOULS_PER_KILL, SOULS_PER_NAMED, TRAPS, TUNING, XP_PER_DOWN, XP_PER_HIT,
+  admissionPrice,
   XP_PER_KILL,
   CLASS_MODS, mobMaxHp, soulsTierMult, trapPower, type TierRow,
 } from './data';
@@ -145,6 +146,7 @@ export class RaidSim {
   private goldFromSales = 0;
   private goldFromCorpses = 0;
   private goldFromRescues = 0;
+  private goldFromAdmission = 0;
   private downedCount = 0;
   private rescuedCount = 0;
   private killed = 0;
@@ -195,7 +197,42 @@ export class RaidSim {
       t: 0, type: 'raid-start', tier: tier.tier,
       partySize: this.party.members.length, formation: this.formation,
     });
+    this.chargeAdmission();
     this.emit({ t: 0, type: 'floor-enter', floor: 0 });
+  }
+
+  /**
+   * Take the gate money (§20).
+   *
+   * Charged before a single coin can be spent inside, which is exactly the
+   * tension: this is money they now cannot put toward Kit, a soak, or buying a
+   * friend out — all of which are also your revenue, and all of which keep them
+   * alive to tell the story that pays Renown (§19.4). Anyone who cannot afford
+   * the gate simply does not come down.
+   */
+  private chargeAdmission(): void {
+    const mult = PRICE_TIERS[this.d.admission ?? 'modest'].mult;
+    const each = admissionPrice(this.tier.tier, mult);
+    if (each <= 0) return;
+
+    let total = 0;
+    let turnedAway = 0;
+    for (const adv of this.party.members) {
+      if (adv.gold >= each) {
+        adv.gold -= each;
+        total += each;
+      } else {
+        // Priced out at the door. They never entered, so they are not a
+        // casualty, not a survivor, and tell nobody anything.
+        adv.alive = false;
+        adv.hp = 0;
+        adv.turnedAway = true;
+        turnedAway++;
+      }
+    }
+    this.goldFromAdmission = total;
+    this.line = this.line.filter((a) => a.alive);
+    this.emit({ t: 0, type: 'admission', total, each, turnedAway });
   }
 
   get status(): RaidStatus {
@@ -1697,6 +1734,12 @@ export class RaidSim {
         + this.goldFromSales * RENOWN_PER_GOLD;
       if (outcome === 'wiped') renown *= RENOWN_WIPE_MULT;
     }
+    // Word of mouth on the gate price (§20). Without this, gouging is strictly
+    // dominant — measured, it beat modest on gold AND survival AND reputation,
+    // because a cheap enough gate prices nobody out and nothing else pushed
+    // back. A dungeon that fleeces people at the door is talked about worse.
+    renown *= PRICE_TIERS[this.d.admission ?? 'modest'].renownMult;
+
     // Paid under either formula so the head-to-head stays a like-for-like
     // comparison of the Renown *rule*, not of who happened to kill a Nemesis.
     renown += bountyRenown;
@@ -1709,6 +1752,7 @@ export class RaidSim {
       goldFromSales: this.goldFromSales,
       goldFromCorpses: this.goldFromCorpses,
       goldFromRescues: this.goldFromRescues,
+      goldFromAdmission: this.goldFromAdmission,
       downedCount: this.downedCount,
       rescuedCount: this.rescuedCount,
       souls,
