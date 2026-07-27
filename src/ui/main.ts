@@ -731,20 +731,11 @@ function landingRow(idx: number, amenities: readonly (Amenity | null)[]): HTMLEl
   row.append(el(`<span class="tag">${deepest ? 'Core approach' : `Landing ${idx + 1}`}</span>`));
 
   amenities.forEach((a, slot) => {
-    if (!a) {
-      if (app.phase !== 'build') return;
-      for (const id of Object.keys(AMENITIES) as AmenityId[]) {
-        const def = AMENITIES[id];
-        const b = el(`<button ${app.season.mana < def.buildCost ? 'disabled' : ''}>+ ${def.name} ${def.buildCost}</button>`);
-        b.onclick = () => {
-          const err = buildAmenity(d, idx, slot, id);
-          if (!err) app.season.mana -= def.buildCost;
-          fail(err);
-        };
-        row.append(b);
-      }
-      return;
-    }
+    // Build buttons are rendered ONCE per landing, below — not once per empty
+    // slot. A landing has two slots, so per-slot rendering drew the whole
+    // amenity menu twice and read as a duplication bug.
+    if (!a) return;
+    void slot;
 
     const def = AMENITIES[a.defId];
     const p = PRICE_TIERS[a.price];
@@ -788,6 +779,26 @@ function landingRow(idx: number, amenities: readonly (Amenity | null)[]): HTMLEl
       row.append(del);
     }
   });
+
+  // One menu per landing, targeting the first free slot.
+  const free = amenities.findIndex((a) => a === null);
+  if (app.phase === 'build' && free !== -1) {
+    const spare = amenities.filter((a) => a === null).length;
+    row.append(el(`<span class="slot-free">${spare} slot${spare === 1 ? '' : 's'} free</span>`));
+    for (const id of Object.keys(AMENITIES) as AmenityId[]) {
+      const def = AMENITIES[id];
+      const b = el(`<button ${app.season.mana < def.buildCost ? 'disabled' : ''}
+        title="${esc(def.blurb)}">+ ${def.name} ${def.buildCost}</button>`);
+      b.onclick = () => {
+        const target = amenities.findIndex((x) => x === null);
+        if (target === -1) return fail('No free slot on this landing.');
+        const err = buildAmenity(d, idx, target, id);
+        if (!err) app.season.mana -= def.buildCost;
+        return fail(err);
+      };
+      row.append(b);
+    }
+  }
   return row;
 }
 

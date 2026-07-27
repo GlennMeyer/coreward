@@ -437,3 +437,4 @@ button.sell { width: 100%; margin-top: 8px; }
 .row.adm { margin-top: 8px; }
 .adm-l { color: var(--dim); font-size: 11px; align-self: center; margin-right: 2px; }
 .row.adm button { font-size: 10px; padding: 3px 6px; text-transform: capitalize; }
+.slot-free { color: var(--dim); font-size: 10px; align-self: center; }

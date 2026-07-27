@@ -81,6 +81,24 @@ describe('UI smoke', () => {
     expect(document.querySelector('.room .mob')).toBeFalsy();
   });
 
+  it('offers each amenity once per landing, not once per empty slot', () => {
+    // A landing has 2 slots; rendering the menu per-slot drew every amenity
+    // twice and read as a duplication bug.
+    const labels = [...document.querySelectorAll('.landing button')]
+      .map((b) => b.textContent ?? '')
+      .filter((t) => t.startsWith('+'));
+    expect(labels.length).toBe(new Set(labels).size);
+    expect(labels.filter((t) => t.includes('Hot Spring'))).toHaveLength(1);
+  });
+
+  it('still fills both landing slots, one after the other', () => {
+    click(button('+ Hot Spring'));
+    click(button('+ Provisioner'));
+    expect(document.querySelectorAll('.landing .amenity')).toHaveLength(2);
+    // Both slots used, so the menu is gone.
+    expect(button('+ Apothecary')).toBeFalsy();
+  });
+
   it('cycles amenity pricing', () => {
     click(button('+ Hot Spring'));
     const label = () => document.querySelector('.amenity')?.textContent ?? '';
