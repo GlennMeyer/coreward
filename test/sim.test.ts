@@ -425,9 +425,10 @@ describe('traps (§5.2)', () => {
     const hit = events.find((e) => e.type === 'trap-hit');
     expect(fire).toBeTruthy();
     expect(hit).toBeTruthy();
-    // Every member caught it — `damage` is a spread job.
+    // `damage` still spreads across everyone IN THE ROOM — which under
+    // single-file is one body (§18.2).
     expect(events.filter((e) => e.type === 'trap-hit'))
-      .toHaveLength(sim.party.members.length);
+      .toHaveLength(sim.engagedIds.length || 1);
     expect(getTrap(s.dungeon, uid)!.charges).toBe(TRAPS['darts']!.charges - 1);
   });
 
@@ -469,16 +470,20 @@ describe('traps (§5.2)', () => {
   });
 
   it('Resolve traps route through the traits that exist to stop Terror', () => {
-    const s = seasonWithFloors(904, 1);
-    addTrap(s.dungeon, 'shrieker', 0, 0);
-    const sim = new RaidSim(s.dungeon, TIERS[0]!, 11);
-    // 'steeled' halves Resolve damage (§9.3). Applied before the trap fires.
-    const victim = sim.party.members[0]!;
-    victim.traits.push('steeled');
-    const start = victim.resolve;
-    sim.step();
-    const other = sim.party.members[1]!;
-    expect(start - victim.resolve).toBeLessThan(other.maxResolve - other.resolve);
+    // Only the body in the room takes it now (§18.2), so this compares the
+    // SAME point man with and without the trait rather than two party members.
+    const lost = (steeled: boolean): number => {
+      const s = seasonWithFloors(904, 1);
+      addTrap(s.dungeon, 'shrieker', 0, 0);
+      const sim = new RaidSim(s.dungeon, TIERS[0]!, 11);
+      const victim = sim.party.members[0]!;
+      if (steeled) victim.traits.push('steeled');   // halves Resolve damage (§9.3)
+      const start = victim.resolve;
+      sim.step();
+      return start - victim.resolve;
+    };
+    expect(lost(true)).toBeLessThan(lost(false));
+    expect(lost(false)).toBeGreaterThan(0);
   });
 
   it('a delay trap costs the party turns while the room keeps swinging', () => {
@@ -1266,9 +1271,14 @@ describe('formation (§7.2)', () => {
     }
   });
 
-  it('a trap fills the room — it does not care who is in front', () => {
-    // The one defence single-file cannot screen, which is why the cheapest
-    // layer in the game stays relevant against a queue (§5.2, §17).
+  it('a trap fills the ROOM, and the queue is not in the room', () => {
+    // Traps used to hit every living member, so a party waiting in the corridor
+    // took dart fire it could not have been standing in front of. A mechanism
+    // fills the chamber it is installed in (§18.2).
+    //
+    // The cost is real and deliberate: traps were single-file's designed
+    // counter, the one layer a queue could not screen. They now hit harder per
+    // head and reach fewer heads.
     const s = seasonWithFloors(407, 1);
     addTrap(s.dungeon, 'darts', 0, 0);
     const sim = new RaidSim(s.dungeon, tierAs(0, 'single-file'), 9);
@@ -1276,7 +1286,10 @@ describe('formation (§7.2)', () => {
     const hit = new Set(
       events.filter((e) => e.type === 'trap-hit').map((e) => (e as { advId: number }).advId),
     );
-    expect(hit.size).toBe(sim.party.members.length);
+    // Under single-file exactly one body is in the room at a time; a rotation
+    // can put more than one through it, but never the whole party at once.
+    expect(hit.size).toBeGreaterThanOrEqual(1);
+    expect(hit.size).toBeLessThan(sim.party.members.length);
   });
 
   it('records the formation on the result', () => {

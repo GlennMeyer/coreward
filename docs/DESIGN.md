@@ -2163,3 +2163,41 @@ which is what it always should have done.
 Survival rates across the board are harsh (9–35%) and may need a pass. But they are honest
 now: they measure whether the dungeon can *stop* people, not whether it can inconvenience
 them until a threshold trips.
+
+
+---
+
+## 27. Only the room is the room
+
+**Status: IMPLEMENTED (v0.12).** Reported from play: *"damage was going out amongst the
+groups."*
+
+Two things reached past the engaged line:
+
+- **Traps hit every living member**, so a party queued in the corridor took dart fire it
+  could not have been standing in front of.
+- **Casters shot past the line** at the whole party (§18.3), by design — it was their
+  counter to single-file.
+
+Both now reach **only whoever is in the room**. A mechanism fills the chamber it is
+installed in; a caster's identity is now *who* it picks inside the room (the squishiest
+engaged body) rather than how far it can see.
+
+### 27.1 What it costs
+
+This is a real loss, taken deliberately. Traps were single-file's designed counter — the
+one layer a queue could not screen — and §17 leaned on that to keep the cheapest layer in
+the game relevant. Traps now hit harder per head and reach far fewer heads, so the trap
+build weakens against exactly the formation it was meant to answer.
+
+The gain is that the combat log now describes something physical. Damage landing on people
+standing two rooms back was the single most confusing thing in it, and a rule the player
+cannot see is a rule they cannot play around.
+
+### 27.2 Open
+
+`swarm` (9%), `wardens` (10%) and `showman` (7%) are all under 10% season survival, against
+`combat`/`commerce` around 30%. The spread is too wide and the floor is too low — §26 and
+§27 landed within an hour of each other and both cut the same direction. **The next pass
+should be a survivability pass, measured against the evolver rather than the scripted
+strategies**, which §23.3 already showed understate the frontier by ~70%.

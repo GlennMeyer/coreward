@@ -682,7 +682,7 @@ export class RaidSim {
   /** Everything armed in this room goes off, in installation order. */
   private fireRoomTraps(): void {
     for (const trap of armedTrapsInRoom(this.d, this.floor, this.room)) {
-      if (aliveMembers(this.party).length === 0) return;
+      if (this.engagedMembers().length === 0) return;
       this.fireTrap(trap, false);
     }
   }
@@ -712,7 +712,10 @@ export class RaidSim {
     this.trapJobsFaced.add(def.job);
 
     const power = trapPower(trap.defId, sprung);
-    const alive = aliveMembers(this.party);
+    // Only whoever is actually in the room. A mechanism fills the chamber it is
+    // installed in, not the corridor behind it — and a party queued outside was
+    // taking dart fire it could not possibly be standing in front of.
+    const alive = this.engagedMembers();
     if (alive.length === 0) return;
 
     switch (def.job) {
@@ -957,7 +960,12 @@ export class RaidSim {
    *   was always for.
    */
   private targetPool(role: MobRole): Adventurer[] {
-    if (role === 'caster') return aliveMembers(this.party);
+    // Everything reaches only what is in the room (§18.2). A Caster used to
+    // shoot past the line at the whole party, which meant damage landing on
+    // people standing in a corridor two rooms back — the single most confusing
+    // thing in the combat log. Its identity is now *who* it picks inside the
+    // room (the squishiest engaged body), not how far it can see.
+    void role;
     return this.engagedMembers();
   }
 
