@@ -26,9 +26,21 @@ function seasonDungeon(): import('../src/sim/types').Dungeon {
 }
 
 /** Current mana, read off the rendered top bar. */
-function app(): { mana: number } {
-  const txt = document.querySelector('.stat.mana b')?.textContent ?? '0';
-  return { mana: Number(txt) };
+function app(): { mana: number; gold: number } {
+  const num = (sel: string) => Number(document.querySelector(sel)?.textContent ?? '0');
+  return { mana: num('.stat.mana b'), gold: num('.stat.gold b') };
+}
+
+/**
+ * Force a repaint after poking sim state directly. The UI renders on its own
+ * events; a test that mutates the Dungeon behind its back has to ask for one.
+ */
+function render$(): void {
+  // Selecting a chip always repaints; clicking an empty room with nothing
+  // selected returns early and does not.
+  const chip = document.querySelector('.room .trap, .room .mob') as HTMLElement | null;
+  chip?.click();
+  chip?.click();  // and deselect, so the caller's state is unchanged
 }
 
 /** Find a button by its visible text. */
@@ -310,10 +322,32 @@ describe('UI smoke', () => {
 
     // Spend it, and the single-trap button appears.
     const d = seasonDungeon();
-    d.traps![0]!.charges = 0;
+    const trap = d.traps![0]!;
+    trap.charges = 0;
     click(document.querySelector('.room .trap'));
     click(document.querySelector('.room .trap'));
     expect(dock().textContent).toMatch(/Re-arm this one — \d+g/);
+
+    // ...and clicking it actually re-arms, and actually charges for it.
+    const goldBefore = app().gold;
+    click(button('Re-arm this one'));
+    expect(trap.charges).toBeGreaterThan(0);
+    expect(app().gold).toBeLessThan(goldBefore);
+  });
+
+  it('re-arm-all is a convenience, not the only route', () => {
+    const trapBuy = [...document.querySelectorAll('.buy')]
+      .find((b) => b.textContent?.includes('Dart Battery'));
+    click(trapBuy);
+    click(document.querySelectorAll('.room')[0]);
+    click(trapBuy);
+    click(document.querySelectorAll('.room')[1]);
+
+    const d = seasonDungeon();
+    for (const t of d.traps!) t.charges = 0;
+    render$();
+    click(button('Re-arm traps'));
+    expect(d.traps!.every((t) => t.charges > 0)).toBe(true);
   });
 
   it('nothing pushes the Monsters menu down when you buy things', () => {
