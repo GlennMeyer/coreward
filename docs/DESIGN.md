@@ -1914,3 +1914,53 @@ dungeon, drop it when you want the crowds back.
 Tuning note: `ADMISSION_BASE` is **3**, not 10. At 10 the gate took roughly half of every
 purse and the rest of the economy died with it — measured 605g at the door against **9g**
 in shop sales, because they arrived broke. Admission has to be a slice, not the meal.
+
+
+---
+
+## 22. Monsters hold a line too
+
+**Status: IMPLEMENTED (v0.8).** The mirror of §18, and a fix for a bug that made half
+the bestiary pointless.
+
+### 22.1 What was wrong
+
+Adventurers focus-fired the **lowest-HP monster** in the room. Traced tick by tick, an
+Ogre + Cave Rat room played out as:
+
+```
+tick 1:  MOB dmg 1    ← the Rat, once, then dead
+tick 2:  MOB dmg 13   ← the Ogre
+tick 3:  (nothing)
+tick 4:  MOB dmg 13
+```
+
+A Cave Rat has 8 HP and a Tier-2 adventurer swings for 8. **The rat died on tick one having
+dealt 1 damage**, so a four-slot room was really just the Ogre — 13 damage every other tick,
+7 effective DPS, against an adventurer doing 8. The room lost the damage race one-on-one,
+and every cheap body in the bestiary was worthless by construction. This is §17.6.1,
+finally diagnosed.
+
+### 22.2 The rule
+
+The sturdiest thing in the room stands in front; everything behind it keeps swinging.
+Bruisers step up first, then by slot cost, then by remaining HP.
+
+Same room now:
+
+```
+tick 1:  MOB 1                adv 8
+tick 2:  MOB 13, MOB 1, MOB 1 adv 8
+tick 3:  MOB 1                adv 8
+```
+
+The Rat survives behind the Ogre and contributes every tick. Room output goes from ~7 DPS
+to ~8, and — more importantly — **composition means something**. Screening is what makes a
+Skirmisher or Caster worth buying, and it is why a bruiser earns its slots: not damage, but
+the time it buys everything else.
+
+### 22.3 Result
+
+`balanced` season survival **46% → 61%**, Renown 228 → 294, best monster level steady.
+Kills fall (4.1 → 1.9) and escapes rise (22.6 → 27.0): rooms now wear parties down and turn
+them back rather than failing to threaten them at all.

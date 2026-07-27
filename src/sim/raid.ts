@@ -990,8 +990,7 @@ export class RaidSim {
 
     const mobs = mobsInRoom(this.d, this.floor, this.room);
     if (mobs.length === 0) return;
-    // Focus fire the weakest — standard party behavior.
-    const target = mobs.reduce((a, b) => (b.hp < a.hp ? b : a));
+    const target = this.frontMonster(mobs);
     const dmg = Math.max(1, Math.round(adv.dmg));
     target.hp = Math.max(0, target.hp - dmg);
     this.emit({
@@ -1133,6 +1132,34 @@ export class RaidSim {
         advId: adv.id, name: adv.name, fee,
       });
     }
+  }
+
+  /**
+   * What the party can actually reach in this room.
+   *
+   * Monsters hold a line too — the mirror of §18. Previously adventurers
+   * focus-fired the lowest-HP monster, which made every cheap body worthless:
+   * traced, a Cave Rat (8 HP) died to one swing having dealt 1 damage, so a
+   * four-slot room was really just the Ogre. Chaff could never contribute and
+   * room composition meant nothing.
+   *
+   * Now the sturdiest thing in the room stands in front and everything behind
+   * it keeps swinging. Screening is what makes a Skirmisher or a Caster worth
+   * buying, and it is why a bruiser earns its slots — it is not damage, it is
+   * the time it buys everything else.
+   */
+  private frontMonster(mobs: Mob[]): Mob {
+    let best = mobs[0]!;
+    let bestScore = -Infinity;
+    for (const m of mobs) {
+      const def = MOBS[m.defId]!;
+      // Bruisers step up first; among equals, whoever can still take a hit.
+      const score = (def.role === 'bruiser' ? 1_000_000 : 0)
+        + def.slots * 10_000
+        + m.hp;
+      if (score > bestScore) { bestScore = score; best = m; }
+    }
+    return best;
   }
 
   private killAdventurer(adv: Adventurer): void {
