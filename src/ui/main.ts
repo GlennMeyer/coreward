@@ -20,6 +20,7 @@ import {
   buyUpgrade, digCost, digFloor, dismissMob, dismissValue, equipGear, getMob,
   getTrap, nextUpgradeCost, upgradeRank,
   hireStaff, isOpen, mobEffectiveHp, placeMobInRoom, placeTrapInRoom, rearmAll,
+  rearmTrap, trapRearmPrice,
   rearmAllPrice, removeTrap, roomSlotsUsed, setPrice, totalUpkeep, trapsInRoom,
   trapSalvageValue,
 } from '../sim/dungeon';
@@ -498,6 +499,10 @@ function applyDrop(target: HTMLElement, uid: number): string | null {
 // ─── Render ──────────────────────────────────────────────────────────────────
 
 function render(): void {
+  // Read-only debug handle onto the live season, refreshed each frame so it
+  // survives a restart. The sim is the source of truth (§13.2); nothing in the
+  // app ever reads this back.
+  (globalThis as unknown as { __coreward: SeasonState }).__coreward = app.season;
   root.innerHTML = '';
   root.append(topbar());
 
@@ -1018,6 +1023,27 @@ function selectionPanel(): HTMLElement | null {
     tp.append(el(
       `<div class="hint">${trapRearmCost(trap.defId)}g per charge to re-arm. No upkeep, ever — and it cannot be killed.</div>`,
     ));
+
+    // Per-trap re-arming. Re-arm-all is a convenience, not the only option:
+    // when Gold is short the whole decision is WHICH traps to reset — the ones
+    // on the floor they will actually reach — and a single button took that
+    // choice away.
+    const price = trapRearmPrice(d, trap.uid);
+    if (price > 0) {
+      const arm = el(`<button class="${s.gold >= price ? 'primary' : ''}"
+        ${s.gold < price ? 'disabled' : ''}>Re-arm this one — ${price}g</button>`);
+      arm.onclick = () => {
+        const paid = rearmTrap(d, trap.uid, s.gold);
+        if (typeof paid === 'string') return fail(paid);
+        s.gold -= paid;
+        return fail(null);
+      };
+      const armRow = el('<div class="row"></div>');
+      armRow.append(arm);
+      tp.append(armRow);
+    } else {
+      tp.append(el('<div class="hint good-t">Fully armed.</div>'));
+    }
     const refund = trapSalvageValue(trap.defId);
     const rip = el(`<button class="danger sell">Rip out — refund ${refund}g</button>`);
     rip.onclick = () => {

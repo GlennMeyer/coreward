@@ -16,6 +16,15 @@ function click(node: Element | null | undefined): void {
   (node as HTMLElement).click();
 }
 
+/**
+ * The live Dungeon behind the rendered UI. jsdom gives us no handle on module
+ * state, so reach it through the season the UI is driving.
+ */
+function seasonDungeon(): import('../src/sim/types').Dungeon {
+  return (globalThis as unknown as { __coreward?: { dungeon: import('../src/sim/types').Dungeon } })
+    .__coreward!.dungeon;
+}
+
 /** Current mana, read off the rendered top bar. */
 function app(): { mana: number } {
   const txt = document.querySelector('.stat.mana b')?.textContent ?? '0';
@@ -286,6 +295,25 @@ describe('UI smoke', () => {
     expect(dock.textContent).toContain('Thicker Hide');
     expect(dock.textContent).toContain('Higher Metabolism');
     expect(dock.textContent).toContain('mana');
+  });
+
+  it('a spent trap can be re-armed on its own, not only via re-arm-all', () => {
+    const trapBuy = [...document.querySelectorAll('.buy')]
+      .find((b) => b.textContent?.includes('Dart Battery'));
+    click(trapBuy);
+    click(document.querySelectorAll('.room')[0]);
+
+    // Freshly installed: armed, so the dock offers no re-arm.
+    click(document.querySelector('.room .trap'));
+    const dock = () => document.querySelector('.col-left .panel.dock')!;
+    expect(dock().textContent).toContain('Fully armed');
+
+    // Spend it, and the single-trap button appears.
+    const d = seasonDungeon();
+    d.traps![0]!.charges = 0;
+    click(document.querySelector('.room .trap'));
+    click(document.querySelector('.room .trap'));
+    expect(dock().textContent).toMatch(/Re-arm this one — \d+g/);
   });
 
   it('nothing pushes the Monsters menu down when you buy things', () => {
