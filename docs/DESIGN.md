@@ -1830,3 +1830,28 @@ content. `h2h` passes; wardens unchanged at #2.
    41–44%. The early game is untouched; the late game got harder because the tier climbs
    faster. Whether that is good escalation or a runaway needs play, not simulation.
 3. `showman` fell 55% → 25%. Thrill builds depend on survivors, and casualties do not pay.
+4. **§19 suppresses `peril` structurally.** Peril is a mean over *standing* survivors, and
+   the member who came closest to dying is exactly the one most likely to have been downed
+   — so the delves that should score highest have their best evidence excluded. A
+   measured "brink" delve reads 0.38 where it read 0.5+ before. Options: count a downed
+   member's low-water mark anyway (they did experience it), or weight it. **Unresolved.**
+
+### 19.7 Monster levelling is starved, and XP was not the cause
+
+§19 made kills rare, and XP came only from hits and kills, so monsters stopped growing.
+Measured: **81% of surviving monsters were still level 1 at season end**; levels 8–10 were
+never reached by anything.
+
+`XP_PER_DOWN` (4) was added and the thresholds cut ~20% — downing someone is the fight the
+monster actually won. That helped the headline numbers (best monster level 1.9 → 2.2,
+monsters lost 11.9 → 10.9, season survival back to 71%) but **barely moved the
+distribution**: still ~81% level 1.
+
+The bottleneck is not XP, it is **mortality**. Roughly 11 monsters are lost per season and
+replaced by fresh level-1 stock, so the population is dominated by recruits no matter how
+fast the survivors grow. Pillar 3 asks for veterans worth mourning; a 2.6% chance of
+reaching level 6 is not that.
+
+Real levers, none applied yet: lower `slayChance`, make Reconstitute affordable (§6.4
+prices it at `20 × level²`, which is unreachable), or let monsters retreat the way §18 lets
+adventurers fall back. **Unresolved, and it is the most important open item in the doc.**

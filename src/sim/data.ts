@@ -584,9 +584,19 @@ export function resetTuning(): void {
 }
 
 /** XP thresholds for levels 2..10 (§6.4). */
-export const XP_THRESHOLDS = [10, 25, 45, 70, 100, 140, 190, 250, 320];
+export const XP_THRESHOLDS = [8, 20, 36, 56, 82, 114, 154, 202, 260];
 export const XP_PER_HIT = 1;
 export const XP_PER_KILL = 5;
+/**
+ * XP for putting an adventurer on the floor (§19.1).
+ *
+ * §19 made kills rare by design, and XP came only from hits and kills — so
+ * monsters stopped levelling almost entirely. Measured before this: **81% of
+ * surviving monsters were still level 1 at season end** and levels 8–10 were
+ * unreachable, which quietly killed pillar 3 (there was no veteran to lose).
+ * Downing someone is the fight the monster actually won.
+ */
+export const XP_PER_DOWN = 4;
 export const MAX_LEVEL = 10;
 
 /** Reconstitute cost in Souls: 20 × level². Deliberately brutal (§6.4). */

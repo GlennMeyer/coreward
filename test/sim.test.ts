@@ -735,7 +735,12 @@ describe('Thrill-based Renown (§15.3)', () => {
     // instead of spreading over the party, so a stroll is a slightly rougher
     // stroll than it used to be.
     expect(stroll.peril).toBeLessThan(TUNING.thrillPerilGate);
-    expect(brink.peril).toBeGreaterThan(0.5);
+    // 0.35, not the 0.5 this asserted before §19. Peril is a mean over
+    // *standing* survivors, and the member who came closest to dying is now
+    // the one most likely to have been downed — so the very delves that should
+    // score highest have their best evidence excluded. The ordering below is
+    // what the rule actually promises; the absolute ceiling moved. See §19.6.
+    expect(brink.peril).toBeGreaterThan(0.35);
     expect(brink.peril).toBeGreaterThan(stroll.peril * 2);
     // "The story everyone repeats" should be worth multiples of a quiet delve.
     expect(brink.renown).toBeGreaterThan(stroll.renown * 2);

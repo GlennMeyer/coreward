@@ -12,7 +12,8 @@ import {
   GRUDGE_TRAIT, LEY_CHARGES, MANA_PER_KILL, MOBS,
   PRICE_TIERS, PROVISIONER_MAX_KIT, RENOWN_PER_ESCAPEE, RENOWN_PER_GOLD,
   RENOWN_PER_KILL, RENOWN_WIPE_MULT, REST_RESOLVE_PCT, RESOLVE_ON_ALLY_DEATH,
-  SOULS_PER_KILL, SOULS_PER_NAMED, TRAPS, TUNING, XP_PER_HIT, XP_PER_KILL,
+  SOULS_PER_KILL, SOULS_PER_NAMED, TRAPS, TUNING, XP_PER_DOWN, XP_PER_HIT,
+  XP_PER_KILL,
   CLASS_MODS, mobMaxHp, soulsTierMult, trapPower, type TierRow,
 } from './data';
 import {
@@ -840,8 +841,12 @@ export class RaidSim {
     });
 
     if (target.hp <= 0) {
+      const killed = !target.alive;
       this.dropAdventurer(target, Math.max(0, excess));
-      if (grantXp(mob, XP_PER_KILL)) {
+      // Credit for the drop even when it is not a kill — §19 made kills rare,
+      // and a monster that puts someone on the floor has won that fight.
+      const gained = target.alive && !killed ? XP_PER_DOWN : XP_PER_KILL;
+      if (grantXp(mob, gained)) {
         this.emit({ t: this.tick, type: 'mob-levelup', uid: mob.uid, level: mob.level });
       }
     } else if (grantXp(mob, XP_PER_HIT)) {
