@@ -382,6 +382,7 @@ export function totalUpkeep(d: Dungeon): number {
 
 /** An amenity trades only when someone is behind the counter. */
 export function isOpen(a: Amenity): boolean {
+  if (AMENITIES[a.defId].selfService) return true;
   return a.hired || a.staffUid !== null;
 }
 

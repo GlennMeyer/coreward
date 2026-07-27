@@ -467,9 +467,16 @@ describe('predicted Thrill', () => {
 
   it('counts an open amenity as comfort and a closed one as nothing', () => {
     const d = createDungeon();
-    buildAmenity(d, 0, 0, 'hotspring');
+    // A shop, not the self-service Hot Spring — a spring is open on build.
+    buildAmenity(d, 0, 0, 'provisioner');
     expect(predictThrill(d, tier1).comfort).toBe(0);
     hireStaff(d, 0, 0);
+    expect(predictThrill(d, tier1).comfort).toBeGreaterThan(0);
+  });
+
+  it('a self-service Hot Spring counts as comfort with no staff at all', () => {
+    const d = createDungeon();
+    buildAmenity(d, 0, 0, 'hotspring');
     expect(predictThrill(d, tier1).comfort).toBeGreaterThan(0);
   });
 

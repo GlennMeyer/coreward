@@ -640,7 +640,14 @@ export function roomCapacity(floorIndex: number): number {
 export const AMENITIES: Record<AmenityId, AmenityDef> = {
   hotspring: {
     id: 'hotspring', name: 'Hot Spring', buildCost: 90, upkeep: 4, basePrice: 8,
-    blurb: 'Restores 30% HP. Undermines burst builds.',
+    blurb: 'Self-service. Restores 30% HP — a soak, not a cure.',
+    selfService: true,
+    healPct: 0.3,
+  },
+  apothecary: {
+    id: 'apothecary', name: 'Apothecary', buildCost: 160, upkeep: 9, basePrice: 34,
+    blurb: 'Staffed. Heals to full, and will treat the walking wounded.',
+    healPct: 1,
   },
   provisioner: {
     id: 'provisioner', name: 'Provisioner', buildCost: 70, upkeep: 3, basePrice: 6,
@@ -688,6 +695,7 @@ export const MAX_GEAR_SLOTS = 2;
 /** Hired NPC shopkeeper (§8.4). Lets a monster go back to fighting. */
 export const HIRED_STAFF_COST = 250;
 
+/** @deprecated Read `AMENITIES[id].healPct` — kept so old callers still build. */
 export const HOTSPRING_HEAL_PCT = 0.3;
 export const PROVISIONER_MAX_KIT = 3;
 /** Commerce level grants +10% revenue each (§8.4). */

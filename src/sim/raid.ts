@@ -9,7 +9,7 @@
 import {
   AMENITIES, COMMERCE_REVENUE_PER_LEVEL, COMMERCE_XP_PER_SALE,
   DESCEND_HP_THRESHOLD, DESCEND_KIT_PER_MEMBER, DESCEND_RESOLVE_THRESHOLD,
-  GRUDGE_TRAIT, HOTSPRING_HEAL_PCT, LEY_CHARGES, MANA_PER_KILL, MOBS,
+  GRUDGE_TRAIT, LEY_CHARGES, MANA_PER_KILL, MOBS,
   PRICE_TIERS, PROVISIONER_MAX_KIT, RENOWN_PER_ESCAPEE, RENOWN_PER_GOLD,
   RENOWN_PER_KILL, RENOWN_WIPE_MULT, REST_RESOLVE_PCT, RESOLVE_ON_ALLY_DEATH,
   SOULS_PER_KILL, SOULS_PER_NAMED, TRAPS, TUNING, XP_PER_HIT, XP_PER_KILL,
@@ -24,7 +24,7 @@ import {
   aliveMembers, avgHpPct, avgResolvePct, generateParty, partyHasNamed,
 } from './adventurers';
 import type {
-  Adventurer, Dungeon, Formation, GrudgeReason, Legend, Mob, MobRole, Party,
+  Adventurer, AmenityId, Dungeon, Formation, GrudgeReason, Legend, Mob, MobRole, Party,
   RaidEvent, RaidOutcome, RaidResult, RetreatReason, RivalNote, ThrillScore,
   Trap, TrapJob, Veteran,
 } from './types';
@@ -1191,15 +1191,32 @@ export class RaidSim {
 
       for (const adv of aliveMembers(this.party)) {
         const price = this.priceFor(adv, list);
-        if (a.defId === 'hotspring') {
-          const wants = adv.hp / adv.maxHp < 0.85;
+        if (def.healPct !== undefined) {
+          // A soak is for the merely battered; an Apothecary will also put a
+          // stabilised casualty back on their feet, which is the whole reason
+          // to pay four times the price (§8.4a).
+          const treatsCasualties = def.healPct >= 1;
+          if (adv.downed) continue;
+          if (adv.stable && !treatsCasualties) continue;
+          const wants = adv.stable || adv.hp / adv.maxHp < 0.85;
           if (!wants || adv.gold < price) continue;
           if (!this.rng.chance(pricing.usage + adv.greed)) continue;
           this.takePayment(adv, price);
-          const heal = Math.round(adv.maxHp * HOTSPRING_HEAL_PCT);
-          adv.hp = Math.min(adv.maxHp, adv.hp + heal);
+          const before = adv.hp;
+          adv.hp = Math.min(adv.maxHp, adv.hp + Math.round(adv.maxHp * def.healPct));
+          const heal = adv.hp - before;
+          let detail = `+${heal} HP`;
+          if (adv.stable && treatsCasualties) {
+            // Back on the roster: they walk out under their own power, and so
+            // they tell the story again (§19.4).
+            adv.stable = false;
+            adv.saveSuccesses = 0;
+            adv.saveFailures = 0;
+            this.rescuedCount++;
+            detail = `patched up (+${heal} HP)`;
+          }
           this.amenitiesUsed.add(key);
-          this.recordSale(staff, landingIdx, a.defId, adv, price, `+${heal} HP`);
+          this.recordSale(staff, landingIdx, a.defId, adv, price, detail);
         } else {
           const need = aliveMembers(this.party).length * 1.5;
           if (this.party.kit >= need) break;
@@ -1259,7 +1276,7 @@ export class RaidSim {
   }
 
   private recordSale(
-    staff: Mob | undefined, landing: number, amenity: 'hotspring' | 'provisioner',
+    staff: Mob | undefined, landing: number, amenity: AmenityId,
     adv: Adventurer, gold: number, detail: string,
   ): void {
     if (staff) grantCommerceXp(staff, COMMERCE_XP_PER_SALE);

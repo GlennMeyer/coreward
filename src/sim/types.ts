@@ -133,7 +133,7 @@ export type TrapPlacement =
 
 // ─── Dungeon ─────────────────────────────────────────────────────────────────
 
-export type AmenityId = 'hotspring' | 'provisioner';
+export type AmenityId = 'hotspring' | 'provisioner' | 'apothecary';
 
 export type PriceTier = 'modest' | 'standard' | 'premium' | 'gouge';
 
@@ -144,6 +144,17 @@ export interface AmenityDef {
   upkeep: number;
   basePrice: number;
   blurb: string;
+  /**
+   * Trades with nobody behind the counter (§8.4a).
+   *
+   * A Hot Spring is a hole in the rock with warm water in it — it does not
+   * need an attendant, and demanding one made the cheapest comfort in the game
+   * cost a monster off the line. Shops and clinics still need staffing; that
+   * opportunity cost is the point of them.
+   */
+  selfService?: boolean;
+  /** Fraction of max HP restored. Undefined for non-healing amenities. */
+  healPct?: number;
 }
 
 export interface Amenity {

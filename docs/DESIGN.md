@@ -522,6 +522,33 @@ Cutpurse not stripping Kit on floor 2.
 - Staff in an amenity **cannot be killed** by adventurers. Shops are neutral ground. This
   is a hard rule, not a soft one — see §11.4.
 
+### 8.4a Self-service vs staffed — and a healing ladder
+
+**Not every amenity needs an attendant.** A Hot Spring is a hole in the rock with warm
+water in it; demanding a monster stand next to it made the cheapest comfort in the game
+cost a body off the line, which is why nobody ever built one.
+
+Amenities now split:
+
+| Amenity | Staffed? | Build | Price | Effect |
+|---|---|---|---|---|
+| **Hot Spring** | **No** — self-service | 90 | 8 | +30% HP. A soak, not a cure. |
+| **Provisioner** | Yes | 70 | 6 | Kit, up to 3 |
+| **Apothecary** | Yes | 160 | 34 | **Heals to full**, and treats stabilised casualties (§19) |
+
+The staffing opportunity cost (§8.4) is the point of a *shop* — someone has to be behind
+the counter. It was never the point of a spring.
+
+The healing ladder gives the player a real choice about how much recovery to sell. A soak
+patches the merely battered; an **Apothecary** is four times the price and will also put a
+stabilised casualty back on their feet — which under §19.4 means they walk out under their
+own power and tell the story again. Selling a full cure is selling your own difficulty
+back to yourself, at a price you set.
+
+**Not yet measured.** The scripted strategies in `tools/strategy.ts` only build Provisioner
+and Hot Spring, so the Apothecary is unvalidated by simulation — balance is unchanged
+because no AI builds one. It needs either a strategy that uses it or human play.
+
 ### 8.5 Active enticement — *stub, expand later*
 
 Renown is currently a **passive** attractor: you do things, word spreads, better parties

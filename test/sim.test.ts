@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  GEAR, MOBS, RENOWN_PER_ESCAPEE, RENOWN_WIPE_MULT, TIERS, TRAPS, TUNING,
+  AMENITIES, GEAR, MOBS, RENOWN_PER_ESCAPEE, RENOWN_WIPE_MULT, TIERS, TRAPS, TUNING,
   XP_THRESHOLDS, mobMaxHp, resetTuning, roomCapacity, roomsOnFloor,
   tierForRenown, trapCost, trapRearmCost, MAX_TIER_PROTOTYPE,
 } from '../src/sim/data';
@@ -8,7 +8,7 @@ import { generateParty } from '../src/sim/adventurers';
 import { Rng } from '../src/sim/rng';
 import type { Veteran } from '../src/sim/types';
 import {
-  assignStaff, buyMob, buyTrap, createDungeon, digFloor, equipGear, getTrap,
+  assignStaff, buildAmenity, buyMob, isOpen, buyTrap, createDungeon, digFloor, equipGear, getTrap,
   grantXp, hireStaff, mobEffectiveDmg, mobEffectiveHp, mobStripsKit,
   mobsInRoom, packMultiplier, placeMobInRoom, placeTrapInRoom, rearmAll,
   rearmAllPrice, removeTrap, roomSlotsUsed, totalUpkeep, unplace,
@@ -122,12 +122,31 @@ describe('staffing (§8.4)', () => {
     const d = createDungeon();
     digFloor(d);
     const before = totalUpkeep(d);
-    const staffUid = addStaffedAmenity(d, 0, 0, 'hotspring', 'rat');
-    // Hot Spring upkeep 4 + Cave Rat upkeep 1.
-    expect(totalUpkeep(d)).toBe(before + 4 + 1);
+    // Provisioner is a shop: it needs someone behind the counter.
+    const staffUid = addStaffedAmenity(d, 0, 0, 'provisioner', 'rat');
+    // Provisioner upkeep 3 + Cave Rat upkeep 1.
+    expect(totalUpkeep(d)).toBe(before + 3 + 1);
 
     unplace(d, staffUid);
     expect(totalUpkeep(d)).toBe(before);
+  });
+
+  it('a Hot Spring is self-service — it needs no attendant (§8.4a)', () => {
+    const d = createDungeon();
+    expect(buildAmenity(d, 0, 0, 'hotspring')).toBeNull();
+    const spring = d.landings[0]!.amenities[0]!;
+    expect(spring.staffUid).toBeNull();
+    // Open for business with nobody standing next to it.
+    expect(isOpen(spring)).toBe(true);
+  });
+
+  it('an Apothecary is staffed, and heals far more than a soak', () => {
+    expect(AMENITIES['apothecary'].selfService).toBeUndefined();
+    expect(AMENITIES['apothecary'].healPct).toBe(1);
+    expect(AMENITIES['hotspring'].healPct).toBe(0.3);
+    // The ladder has to be worth climbing.
+    expect(AMENITIES['apothecary'].basePrice)
+      .toBeGreaterThan(AMENITIES['hotspring'].basePrice * 3);
   });
 
   it('does not charge upkeep for unassigned monsters', () => {

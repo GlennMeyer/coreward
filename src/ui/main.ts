@@ -743,7 +743,10 @@ function landingRow(idx: number, amenities: readonly (Amenity | null)[]): HTMLEl
 
     const def = AMENITIES[a.defId];
     const p = PRICE_TIERS[a.price];
-    const staff = a.hired ? 'hirelings' : a.staffUid !== null ? mobName(a.staffUid) : 'CLOSED';
+    const selfServe = AMENITIES[a.defId].selfService === true;
+    const staff = selfServe
+      ? 'self-service'
+      : a.hired ? 'hirelings' : a.staffUid !== null ? mobName(a.staffUid) : 'CLOSED';
     const chip = el(`
       <div class="amenity ${isOpen(a) ? '' : 'closed'}"
            data-landing="${idx}" data-slot="${slot}">
@@ -766,7 +769,7 @@ function landingRow(idx: number, amenities: readonly (Amenity | null)[]): HTMLEl
     row.append(chip);
 
     if (app.phase === 'build') {
-      if (!a.hired) {
+      if (!a.hired && !selfServe) {
         const hire = el(`<button ${app.season.gold < HIRED_STAFF_COST ? 'disabled' : ''}>Hire ${HIRED_STAFF_COST}g</button>`);
         hire.onclick = () => {
           const err = hireStaff(d, idx, slot);
