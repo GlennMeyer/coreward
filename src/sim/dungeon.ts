@@ -558,6 +558,17 @@ export function dismissMob(
   return { mana, gear };
 }
 
+/** Buy a monster one level outright (§6.4). Cost is the caller's to deduct. */
+export function trainMob(d: Dungeon, uid: number): BuildError {
+  const mob = getMob(d, uid);
+  if (!mob || !mob.alive) return 'That monster is not available.';
+  if (mob.level >= MAX_LEVEL) return 'Already fully grown.';
+  mob.level++;
+  // Carry the XP bar so training does not erase field experience.
+  mob.hp = mobEffectiveHp(mob);
+  return null;
+}
+
 export function reconstitute(d: Dungeon, uid: number): BuildError {
   const mob = getMob(d, uid);
   if (!mob) return 'No such monster.';

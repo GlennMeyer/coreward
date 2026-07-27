@@ -19,7 +19,7 @@ export function createSeason(seed: number): SeasonState {
     totalRaids: SEASON_RAIDS,
     mana: TUNING.startingMana,
     souls: 0,
-    gold: 0,
+    gold: TUNING.startingGold,
     renown: 0,
     dungeon: createDungeon(),
     veterans: [],

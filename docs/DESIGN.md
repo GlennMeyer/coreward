@@ -522,6 +522,33 @@ Cutpurse not stripping Kit on floor 2.
 - Staff in an amenity **cannot be killed** by adventurers. Shops are neutral ground. This
   is a hard rule, not a soft one — see §11.4.
 
+### 8.4c Mana builds the dungeon, Gold runs the business
+
+Amenities are bought with **Gold**, not Mana. Paying the dungeon's build currency for a
+shop meant taking defence off the board to sell potions — two things competing for one
+purse with no relationship to each other.
+
+The split is now clean:
+
+| Currency | Buys |
+|---|---|
+| **Mana** | Floors, monsters, traps, **monster training** |
+| **Gold** | Amenities, monster gear, hirelings |
+
+A **starting float of 150 Gold** comes with it: Gold begins at zero and income is ~32/raid,
+so without capital you could not open a single shop until raid 3 — most of a prototype
+season. You are opening a business; you have a purse.
+
+Amenity prices were repriced for the Gold economy (Hot Spring 90→55, Provisioner 70→45,
+Apothecary 160→110); the old numbers were tuned against Mana income and were roughly
+double what Gold can carry.
+
+**Monster training** (§6.4) is the other half: `30 × 1.55^(level-1)` Mana buys a level
+outright. XP is the earned path and it mostly does not happen — 81% of monsters never leave
+level 1 because they die and get replaced. Training gives a player who *wants* a veteran a
+way to make one instead of waiting on a lottery, and rises steeply enough that it never
+replaces earning it in the field.
+
 ### 8.4b Staffing is an upsell, never a gate
 
 **An amenity trades the moment it is built.** Paying Mana to build a shop and then Gold to

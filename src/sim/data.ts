@@ -150,6 +150,14 @@ export const TUNING = {
   restHealPct: 0.4,
   /** Opening budget. Must buy a floor 1 that can actually threaten tier 1. */
   startingMana: 300,
+  /**
+   * Opening capital (§8.4c).
+   *
+   * Amenities are bought with Gold now, and Gold starts at zero — so without a
+   * float you cannot open a single shop until raid 3, which is most of a
+   * prototype season. You are opening a business; you have a purse.
+   */
+  startingGold: 150,
   /** Flat mana per raid (§4.1). */
   manaBaseIncome: 55,
   /** Mana per raid per floor dug (§4.1). */
@@ -602,6 +610,19 @@ export const XP_PER_DOWN = 4;
 export const MAX_LEVEL = 10;
 
 /**
+ * Mana to train a monster up one level (§6.4).
+ *
+ * XP is the slow, earned path and it mostly does not happen — measured, 81% of
+ * monsters never leave level 1 because they die and get replaced by recruits.
+ * Training is the deliberate one: Mana raises the dungeon's own creatures, and
+ * it gives a player who *wants* a veteran a way to make one instead of waiting
+ * on a lottery. Rises steeply so it never replaces earning it in the field.
+ */
+export function upgradeCost(level: number): number {
+  return Math.round(30 * 1.55 ** (level - 1));
+}
+
+/**
  * Souls to bring a slain monster back, per level.
  *
  * Was `20 × level²` — 500 Souls for a level 5 against a season income of ~10.
@@ -662,19 +683,19 @@ export function roomCapacity(floorIndex: number): number {
 
 export const AMENITIES: Record<AmenityId, AmenityDef> = {
   hotspring: {
-    id: 'hotspring', name: 'Hot Spring', buildCost: 90, upkeep: 4, basePrice: 8,
+    id: 'hotspring', name: 'Hot Spring', buildCost: 55, upkeep: 4, basePrice: 8,
     blurb: 'Self-service. Restores 30% HP — a soak, not a cure.',
     selfService: true,
     healPct: 0.3,
   },
   apothecary: {
-    id: 'apothecary', name: 'Apothecary', buildCost: 160, upkeep: 9, basePrice: 34,
+    id: 'apothecary', name: 'Apothecary', buildCost: 110, upkeep: 9, basePrice: 34,
     blurb: 'Heals to full, and will treat the walking wounded.',
     selfService: true,
     healPct: 1,
   },
   provisioner: {
-    id: 'provisioner', name: 'Provisioner', buildCost: 70, upkeep: 3, basePrice: 6,
+    id: 'provisioner', name: 'Provisioner', buildCost: 45, upkeep: 3, basePrice: 6,
     blurb: 'Sells Kit, up to 3. Undermines drain builds.',
     selfService: true,
   },

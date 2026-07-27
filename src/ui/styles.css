@@ -444,3 +444,9 @@ h2.clicky:hover { color: var(--ink); }
 h2 .chev { float: right; color: var(--dim); }
 .log.replay { height: 200px; }
 .staff-hint { color: var(--dim); font-size: 10px; align-self: center; font-style: italic; }
+
+/* ─── Docked selection panel ─────────────────────────────────────────────── */
+.panel.dock { border-color: var(--gold); }
+.panel.dock h2 { color: var(--ink); }
+.panel.dock .chev.close { cursor: pointer; }
+.panel.dock .chev.close:hover { color: var(--danger); }

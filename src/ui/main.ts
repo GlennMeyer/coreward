@@ -8,7 +8,8 @@
  */
 import './styles.css';
 import {
-  AMENITIES, FORMATION_INFO, GEAR, HIRED_STAFF_COST, MAX_GEAR_SLOTS, MOBS,
+  AMENITIES, FORMATION_INFO, GEAR, HIRED_STAFF_COST, MAX_GEAR_SLOTS, MAX_LEVEL,
+  MOBS, upgradeCost,
   INSURANCE_BASE, STAFFED_REVENUE_MULT,
   admissionPrice,
   PRICE_TIERS, SEASON_RAIDS, TRAPS, TUNING, roomCapacity, trapCost,
@@ -16,7 +17,7 @@ import {
 } from '../sim/data';
 import {
   allTraps, assignStaff, buildAmenity, buyMob, buyTrap, demolishAmenity,
-  digCost, digFloor, dismissMob, dismissValue, equipGear, getMob, getTrap,
+  digCost, digFloor, dismissMob, dismissValue, equipGear, getMob, getTrap, trainMob,
   hireStaff, isOpen, mobEffectiveHp, placeMobInRoom, placeTrapInRoom, rearmAll,
   rearmAllPrice, removeTrap, roomSlotsUsed, setPrice, totalUpkeep, trapsInRoom,
   trapSalvageValue,
@@ -508,6 +509,8 @@ function render(): void {
   info.append(predictionPanel());
   left.append(dungeonPanel());
   right.append(app.phase === 'raid' ? raidPanel() : buildPanel());
+  const sel = selectionPanel();
+  if (sel) left.append(sel);
   cols.append(info, left, right);
   root.append(cols);
 
@@ -809,13 +812,16 @@ function landingRow(idx: number, amenities: readonly (Amenity | null)[]): HTMLEl
     row.append(el(`<span class="slot-free">${spare} slot${spare === 1 ? '' : 's'} free</span>`));
     for (const id of Object.keys(AMENITIES) as AmenityId[]) {
       const def = AMENITIES[id];
-      const b = el(`<button ${app.season.mana < def.buildCost ? 'disabled' : ''}
-        title="${esc(def.blurb)}">+ ${def.name} ${def.buildCost}</button>`);
+      const b = el(`<button ${app.season.gold < def.buildCost ? 'disabled' : ''}
+        title="${esc(def.blurb)}">+ ${def.name} ${def.buildCost}g</button>`);
       b.onclick = () => {
         const target = amenities.findIndex((x) => x === null);
         if (target === -1) return fail('No free slot on this landing.');
         const err = buildAmenity(d, idx, target, id);
-        if (!err) app.season.mana -= def.buildCost;
+        // Gold, not Mana (§8.4c): Mana digs and buys monsters, Gold runs the
+        // business. Paying the dungeon's build currency for a shop was taking
+        // defence off the board to sell potions.
+        if (!err) app.season.gold -= def.buildCost;
         return fail(err);
       };
       row.append(b);
@@ -940,55 +946,6 @@ function buildPanel(): HTMLElement {
     }
   }
 
-  // Selected monster: gear
-  if (app.selectedMob !== null) {
-    const mob = getMob(d, app.selectedMob);
-    if (mob) {
-      const p = el('<div class="panel"></div>');
-      p.append(el(`<h2>${esc(MOBS[mob.defId]!.name)} — lv ${mob.level} · ${mob.xp} xp</h2>`));
-      for (const g of Object.values(GEAR)) {
-        const owned = mob.gear.includes(g.id);
-        const full = mob.gear.length >= MAX_GEAR_SLOTS;
-        const off = owned || full || s.gold < g.cost;
-        const b = el(`<div class="buy ${off ? 'off' : ''}">
-            <span>${g.name}${owned ? ' ✓' : ''}</span>
-            <span class="cost g">${g.cost}g</span>
-          </div>`);
-        if (!off) {
-          b.onclick = () => {
-            const err = equipGear(d, mob.uid, g.id);
-            if (!err) s.gold -= g.cost;
-            fail(err);
-          };
-        }
-        p.append(b);
-      }
-      p.append(el(`<div class="hint">Gear survives its wearer — slain monsters return it to the armory.</div>`));
-
-      // Dismiss (§4.1). Half of BASE cost, so selling a levelled monster
-      // throws its levels away — worth saying out loud before they click.
-      const refund = dismissValue(mob);
-      const sell = el(`<button class="danger sell">Dismiss — refund ${refund} mana</button>`);
-      sell.onclick = () => {
-        const res = dismissMob(d, mob.uid);
-        if (typeof res === 'string') return fail(res);
-        s.mana += res.mana;
-        app.selectedMob = null;
-        return fail(null);
-      };
-      const sellRow = el('<div class="row"></div>');
-      sellRow.append(sell);
-      p.append(sellRow);
-      if (mob.level > 1) {
-        p.append(el(`<div class="hint warn-t">Dismissing loses ${mob.level - 1} level${mob.level === 2 ? '' : 's'} permanently — the refund is on base cost only.</div>`));
-      }
-      if (mob.gear.length) {
-        p.append(el(`<div class="hint">Its gear returns to the armory.</div>`));
-      }
-      wrap.append(p);
-    }
-  }
-
   // Monster shop
   const shop = el('<div class="panel"></div>');
   shop.append(el('<h2>Monsters</h2>'));
@@ -1044,6 +1001,78 @@ function buildPanel(): HTMLElement {
   if (replay) wrap.append(replay);
   wrap.append(legendsPanel());
   return wrap;
+}
+
+/**
+ * Detail for the selected monster, rendered as a docked panel rather than
+ * inline: inline it sat above the shop and shoved the whole menu down the page
+ * every time you clicked a monster, which made buying two things in a row a
+ * game of chase-the-button.
+ */
+function selectionPanel(): HTMLElement | null {
+  if (app.phase !== 'build' || app.selectedMob === null) return null;
+  const d = app.season.dungeon;
+  const s = app.season;
+  const mob = getMob(d, app.selectedMob);
+  if (!mob) return null;
+
+  const def = MOBS[mob.defId]!;
+  const p = el('<div class="panel dock"></div>');
+  const head = el(`<h2>${esc(def.name)} — lv ${mob.level} · ${mob.xp} xp
+    <span class="chev close">×</span></h2>`);
+  head.querySelector('.close')!.addEventListener('click', () => {
+    app.selectedMob = null;
+    render();
+  });
+  p.append(head);
+
+  // Mana upgrade: the dungeon's own currency raises its own creatures.
+  const upCost = upgradeCost(mob.level);
+  const capped = mob.level >= MAX_LEVEL;
+  const up = el(`<button class="primary" ${capped || s.mana < upCost ? 'disabled' : ''}
+    >${capped ? 'Fully grown' : `Train to lv ${mob.level + 1} — ${upCost} mana`}</button>`);
+  up.onclick = () => {
+    const err = trainMob(d, mob.uid);
+    if (!err) s.mana -= upCost;
+    fail(err);
+  };
+  const upRow = el('<div class="row"></div>');
+  upRow.append(up);
+  p.append(upRow);
+  p.append(el('<div class="hint">Mana raises the monster; Gold equips it.</div>'));
+
+  for (const g of Object.values(GEAR)) {
+    const owned = mob.gear.includes(g.id);
+    const full = mob.gear.length >= MAX_GEAR_SLOTS;
+    const off = owned || full || s.gold < g.cost;
+    const b = el(`<div class="buy ${off ? 'off' : ''}">
+        <span>${g.name}${owned ? ' ✓' : ''}</span>
+        <span class="cost g">${g.cost}g</span>
+      </div>`);
+    if (!off) {
+      b.onclick = () => {
+        const err = equipGear(d, mob.uid, g.id);
+        if (!err) s.gold -= g.cost;
+        fail(err);
+      };
+    }
+    p.append(b);
+  }
+
+  const refund = dismissValue(mob);
+  const sell = el(`<button class="danger sell">Dismiss — refund ${refund} mana</button>`);
+  sell.onclick = () => {
+    const res = dismissMob(d, mob.uid);
+    if (typeof res === 'string') return fail(res);
+    s.mana += res.mana;
+    app.selectedMob = null;
+    return fail(null);
+  };
+  p.append(sell);
+  if (mob.level > 1) {
+    p.append(el(`<div class="hint warn-t">Dismissing loses ${mob.level - 1} level${mob.level === 2 ? '' : 's'} — the refund is on base cost only.</div>`));
+  }
+  return p;
 }
 
 /**
