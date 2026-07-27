@@ -940,6 +940,79 @@ cost of the income stream. Three dispositions now, not two:
 
 ---
 
+## 15.7 What Measurement Changed
+
+§15 was written at the desk and then run through `tools/balance.ts`. Four of its numbers
+were wrong, and two of them were wrong in ways that mattered more than tuning.
+
+### 15.7.1 The peril gate was necessary but not sufficient
+
+The proposal assumed peril-weighting alone would demote the wardens exploit (§15.1). It
+did not. Adding a gate — `min(1, peril / 0.6)` multiplying depth, variety and comfort, so
+length only converts into reputation once the dungeon is actually frightening — cut
+wardens from 89 Renown to 49, **and they still ranked #1 at every gate value swept from
+0 to 1.2.**
+
+Two other things were holding the exploit open.
+
+### 15.7.2 `depth` was a completion ratio, which punished digging
+
+`floors_cleared / floors_in_dungeon` is maximised by owning the **smallest possible
+dungeon**. Every measured strategy sat on one floor and scored `depth 1.00` — a free 25
+Thrill each, and a standing penalty for the one structural investment the game is built
+around. Now absolute: `floors_cleared / 3`.
+
+### 15.7.3 `variety` could never reach full marks
+
+The cap counted four roles; the prototype bestiary fields three (skirmisher, bruiser,
+warden). A component permanently stuck at 0.75 silently deflated every score. Cap is 3
+until caster/terror/ambusher monsters ship.
+
+### 15.7.4 Retirement was unreachable content
+
+`retireThrill: 75` qualified **0.04% of raids** — across 600 measured seasons the Legends
+system fired essentially never, despite being built, tested and surfaced in the UI. The
+measured distribution over 2,783 raids with survivors:
+
+| p50 | p75 | p90 | p95 | max |
+|---|---|---|---|---|
+| 11.6 | 28.0 | 44.2 | 51.0 | 75.5 |
+
+`retireThrill` is now **45** — genuine top-decile. `retireMinDelves` dropped 3 → **2**,
+because at 3 an 8-raid season produced 0.03 Legends (a ~15× cut), and
+`veteranReturnChance` rose 0.35 → **0.55** so recurring faces actually recur.
+
+Result: showman earns **0.61 Legends/season**, wardens **0.07**. Showmanship is rewarded
+with Legends; the drain build is not. That is the design working as intended.
+
+### 15.7.5 Verdict
+
+```
+                flat 6×escapees      Thrill (shipped)
+wardens         162  #1  ← exploit    70  #2
+showman          90  #2               95  #1
+combat           58  #6               60  #5
+```
+
+The reframe demotes the boring optimum. `npx tsx tools/balance.ts h2h` re-checks this and
+prints `FAIL:` if wardens ever ranks #1 again.
+
+### 15.7.6 Still open
+
+1. **`thrillComfortWeight: 0.1` cannot pay for a 90-mana amenity.** Measured across a
+   54-cell grid search, `comfort` stayed at 0.00–0.02 at every defence reserve tried;
+   forcing a build cost 13 points of survival and 24 Renown. **§15.4's claim that "the Hot
+   Spring earns its keep" is false at these weights.** Fixing it means comfort ≈0.25 or a
+   cheaper amenity, and either moves `commerce` too.
+2. **`tediumPerEmptyRoom: 4` may now be too harsh.** It is a flat per-room cost, so it
+   scales with dungeon size while Thrill does not — digging is partly self-punishing.
+   Tedium ran 4–8/raid on one floor and runs 13–19 now.
+3. **wardens still survives 99% at #2 Renown**, so risk-adjusted it may remain the
+   strongest play. It is no longer the harmless build (peril 0.25 — it does hurt people),
+   but volume does a lot of work.
+
+---
+
 ## 16. Excavation & Structure
 
 **Status: proposed, not implemented.** Depends on §15 landing first — half of this
@@ -1418,77 +1491,3 @@ trusting the numbers.
 2. Is a 1-raid delay felt at all, or is it invisible noise?
 3. Does an asymmetric floor plan emerge on its own, or does everyone widen everything in
    the same order?
-
-
----
-
-## 15.7 What Measurement Changed
-
-§15 was written at the desk and then run through `tools/balance.ts`. Four of its numbers
-were wrong, and two of them were wrong in ways that mattered more than tuning.
-
-### 15.7.1 The peril gate was necessary but not sufficient
-
-The proposal assumed peril-weighting alone would demote the wardens exploit (§15.1). It
-did not. Adding a gate — `min(1, peril / 0.6)` multiplying depth, variety and comfort, so
-length only converts into reputation once the dungeon is actually frightening — cut
-wardens from 89 Renown to 49, **and they still ranked #1 at every gate value swept from
-0 to 1.2.**
-
-Two other things were holding the exploit open.
-
-### 15.7.2 `depth` was a completion ratio, which punished digging
-
-`floors_cleared / floors_in_dungeon` is maximised by owning the **smallest possible
-dungeon**. Every measured strategy sat on one floor and scored `depth 1.00` — a free 25
-Thrill each, and a standing penalty for the one structural investment the game is built
-around. Now absolute: `floors_cleared / 3`.
-
-### 15.7.3 `variety` could never reach full marks
-
-The cap counted four roles; the prototype bestiary fields three (skirmisher, bruiser,
-warden). A component permanently stuck at 0.75 silently deflated every score. Cap is 3
-until caster/terror/ambusher monsters ship.
-
-### 15.7.4 Retirement was unreachable content
-
-`retireThrill: 75` qualified **0.04% of raids** — across 600 measured seasons the Legends
-system fired essentially never, despite being built, tested and surfaced in the UI. The
-measured distribution over 2,783 raids with survivors:
-
-| p50 | p75 | p90 | p95 | max |
-|---|---|---|---|---|
-| 11.6 | 28.0 | 44.2 | 51.0 | 75.5 |
-
-`retireThrill` is now **45** — genuine top-decile. `retireMinDelves` dropped 3 → **2**,
-because at 3 an 8-raid season produced 0.03 Legends (a ~15× cut), and
-`veteranReturnChance` rose 0.35 → **0.55** so recurring faces actually recur.
-
-Result: showman earns **0.61 Legends/season**, wardens **0.07**. Showmanship is rewarded
-with Legends; the drain build is not. That is the design working as intended.
-
-### 15.7.5 Verdict
-
-```
-                flat 6×escapees      Thrill (shipped)
-wardens         162  #1  ← exploit    70  #2
-showman          90  #2               95  #1
-combat           58  #6               60  #5
-```
-
-The reframe demotes the boring optimum. `npx tsx tools/balance.ts h2h` re-checks this and
-prints `FAIL:` if wardens ever ranks #1 again.
-
-### 15.7.6 Still open
-
-1. **`thrillComfortWeight: 0.1` cannot pay for a 90-mana amenity.** Measured across a
-   54-cell grid search, `comfort` stayed at 0.00–0.02 at every defence reserve tried;
-   forcing a build cost 13 points of survival and 24 Renown. **§15.4's claim that "the Hot
-   Spring earns its keep" is false at these weights.** Fixing it means comfort ≈0.25 or a
-   cheaper amenity, and either moves `commerce` too.
-2. **`tediumPerEmptyRoom: 4` may now be too harsh.** It is a flat per-room cost, so it
-   scales with dungeon size while Thrill does not — digging is partly self-punishing.
-   Tedium ran 4–8/raid on one floor and runs 13–19 now.
-3. **wardens still survives 99% at #2 Renown**, so risk-adjusted it may remain the
-   strongest play. It is no longer the harmless build (peril 0.25 — it does hurt people),
-   but volume does a lot of work.
