@@ -9,7 +9,7 @@
 import './styles.css';
 import {
   AMENITIES, FORMATION_INFO, GEAR, HIRED_STAFF_COST, MAX_GEAR_SLOTS,
-  MAX_UPGRADE_RANK, MOBS, upgradeName, type UpgradeTrack,
+  MAX_UPGRADE_RANK, MOBS, STARTING_HEARTS, upgradeName, type UpgradeTrack,
   INSURANCE_BASE, STAFFED_REVENUE_MULT,
   admissionPrice,
   PRICE_TIERS, TRAPS, TUNING, roomCapacity, trapCost,
@@ -26,6 +26,11 @@ import {
   trapSalvageValue,
 } from '../sim/dungeon';
 import { applyAftermath, createSeason, currentTier, startRaid } from '../sim/season';
+import {
+  CODEX, applyProfile, applyRun, nextCodexCost, rankOf, buyCodex,
+  startingBonuses, type CodexId, type InsightBreakdown, type Profile,
+} from '../sim/meta';
+import { loadProfile, saveProfile } from './storage';
 import { narrateRaid, type Narration } from '../sim/narrate';
 import { forecast, predictThrill, thrillRating, type ThrillPrediction } from './predict';
 import type { RaidSim } from '../sim/raid';
@@ -49,6 +54,10 @@ const SPEEDS = [
 interface LogLine { t: number; cls: string; text: string; }
 
 interface App {
+  /** Persistent meta-progression (§10). Survives the run and the tab. */
+  profile: Profile;
+  /** Insight earned by the run that just ended, for the summary screen. */
+  lastInsight: InsightBreakdown | null;
   /** Endless: raid until the Core falls, rather than stopping at 8 (§12a). */
   endless: boolean;
   season: SeasonState;
@@ -80,9 +89,17 @@ interface App {
   error: string;
 }
 
+// Loaded before `app` exists: the first season needs the Codex applied, and
+// `newSeason()` reads `app`, which is not initialised yet.
+const bootProfile = loadProfile();
+const bootSeason = createSeason(Math.floor(Date.now() % 100000), true);
+applyProfile(bootSeason, bootProfile);
+
 const app: App = {
+  profile: bootProfile,
+  lastInsight: null,
   endless: true,
-  season: createSeason(Math.floor(Date.now() % 100000), true),
+  season: bootSeason,
   phase: 'build',
   sim: null,
   speedIdx: 1,
@@ -345,6 +362,12 @@ function finishRaid(): void {
     raidNumber,
     formationDebut,
   });
+  if (app.season.over && !app.lastInsight) {
+    // Souls, Legends and Renown had no sink; they are a run's residue, and
+    // residue is what a meta-currency should be made of (§10).
+    app.lastInsight = applyRun(app.profile, app.season, currentTier(app.season).tier);
+    saveProfile(app.profile);
+  }
   app.phase = app.season.over ? 'over' : 'aftermath';
   render();
 }
@@ -357,10 +380,18 @@ function nextRaid(): void {
   render();
 }
 
+/** A season with the Codex applied (§10). */
+function newSeason(seed: number): SeasonState {
+  const s = createSeason(seed, app.endless);
+  applyProfile(s, app.profile);
+  return s;
+}
+
 function restart(): void {
   stopTimer();
+  app.lastInsight = null;
   Object.assign(app, {
-    season: createSeason(Math.floor(Math.random() * 100000), app.endless),
+    season: newSeason(Math.floor(Math.random() * 100000)),
     phase: 'build', sim: null, speedIdx: 1, log: [], events: [],
     selectedMob: null, selectedTrap: null, aftermath: null, narration: null, error: '',
   });
@@ -1581,28 +1612,60 @@ function retirementBlock(retired: Legend[]): HTMLElement {
 
 function gameOverModal(): HTMLElement {
   const s = app.season;
-  const won = s.ending === 'survived';
+  const p = app.profile;
+  const gained = app.lastInsight;
   const bg = el('<div class="modal-bg"></div>');
-  const m = el(`
-    <div class="modal">
-      <h3>${won ? 'The season ends. The dungeon holds.' : 'The Core has fallen.'}</h3>
-      <p>${s.log.length} raids · renown ${s.renown} · gold ${s.gold} · souls ${s.souls}<br>
-         Killed ${s.log.reduce((a, r) => a + r.killed, 0)} · let ${s.log.reduce((a, r) => a + r.escaped, 0)} walk away.<br>
-         Best Thrill ${Math.round(s.log.reduce((a, r) => Math.max(a, r.thrill.total), 0))}
-         · ${s.legends.length} Legend${s.legends.length === 1 ? '' : 's'} on the wall.</p>
-      <div class="row">
-        <button class="endless ${app.endless ? 'on' : ''}">Endless: ${app.endless ? 'on' : 'off'}</button>
-        <button class="primary">New Season</button>
-      </div>
-    </div>`);
-  const endlessBtn = m.querySelector('button.endless') as HTMLElement | null;
-  if (endlessBtn) {
-    endlessBtn.onclick = () => { app.endless = !app.endless; render(); };
+  const m = el('<div class="modal wide"></div>');
+
+  m.append(el(`<h3>The Core has fallen — ${s.log.length} raids, Tier ${currentTier(s).tier}</h3>`));
+
+  if (gained) {
+    // The whole point of §10: a lost run still moved you forward.
+    m.append(el(`
+      <div class="insight-won">
+        <b>+${gained.total}</b> Insight
+        <span class="sub">depth ${gained.depth} · renown ${gained.tier}
+          · legends ${gained.legends} · souls ${gained.souls}${gained.bonus ? ` · memory +${gained.bonus}` : ''}</span>
+      </div>`));
   }
-  (m.querySelector('button.primary') as HTMLElement).onclick = restart;
+  m.append(el(`<p>Best run: ${p.bestRaids} raids, Tier ${p.bestTier} · ${p.runs} run${p.runs === 1 ? '' : 's'} · <b>${p.insight}</b> Insight banked</p>`));
+
+  m.append(el('<h2>The Codex</h2>'));
+  for (const def of Object.values(CODEX)) {
+    const rank = rankOf(p, def.id as CodexId);
+    const cost = nextCodexCost(p, def.id as CodexId);
+    const maxed = cost === null;
+    const cant = maxed || p.insight < cost;
+    const pips = '●'.repeat(rank) + '○'.repeat(def.maxRank - rank);
+    const b = el(`<div class="buy ${cant ? 'off' : ''}" title="${esc(def.blurb)}">
+        <span>${def.name}<div class="meta">${pips} — ${esc(def.blurb)}</div></span>
+        <span class="cost i">${maxed ? 'max' : `${cost}`}</span>
+      </div>`);
+    if (!cant) {
+      b.onclick = () => {
+        const err = buyCodex(p, def.id as CodexId);
+        if (!err) saveProfile(p);
+        fail(err);
+      };
+    }
+    m.append(b);
+  }
+
+  const bonus = startingBonuses(p);
+  m.append(el(`<div class="hint">Next run starts with ${STARTING_HEARTS + bonus.hearts} Hearts, ${TUNING.startingMana + bonus.mana} Mana, ${TUNING.startingGold + bonus.gold} Gold.</div>`));
+
+  const row = el('<div class="row" style="margin-top:14px"></div>');
+  const endlessBtn = el(`<button class="${app.endless ? 'on' : ''}">Endless: ${app.endless ? 'on' : 'off'}</button>`);
+  endlessBtn.onclick = () => { app.endless = !app.endless; render(); };
+  const again = el('<button class="primary">Delve Again →</button>');
+  again.onclick = restart;
+  row.append(endlessBtn, again);
+  m.append(row);
+
   bg.append(m);
   return bg;
 }
+
 
 // ─── Hot module replacement ──────────────────────────────────────────────────
 

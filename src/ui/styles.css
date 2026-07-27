@@ -451,3 +451,13 @@ h2 .chev { float: right; color: var(--dim); }
 .panel.dock .chev.close { cursor: pointer; }
 .panel.dock .chev.close:hover { color: var(--danger); }
 .buy.up .meta { color: var(--gold); letter-spacing: 2px; font-size: 11px; }
+
+/* ─── Codex / meta-progression ───────────────────────────────────────────── */
+.modal.wide { max-width: 560px; }
+.insight-won {
+  background: #241f2e; border: 1px solid var(--souls); border-radius: 6px;
+  padding: 10px 12px; margin-bottom: 10px;
+}
+.insight-won b { color: var(--souls); font-size: 20px; }
+.insight-won .sub { display: block; color: var(--dim); font-size: 11px; margin-top: 3px; }
+.cost.i { color: var(--souls); }

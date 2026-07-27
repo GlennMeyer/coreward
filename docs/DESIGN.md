@@ -2369,3 +2369,54 @@ somewhere to go and the late-run decision becomes how much to pour into which mo
 
 Run length halved because escalation no longer stops, the Gold pile is spent rather than
 hoarded, and monsters reach level 4+ — the veterans pillar 3 has wanted since §19.7.
+
+
+---
+
+## 31. Insight and the Codex — meta-progression
+
+**Status: IMPLEMENTED (v0.15).** The piece §24.1, §28 and §29 all pointed at.
+
+100% of runs end overrun and nothing carried forward, so failure was pure loss. This is
+the dying-with-the-unlocking.
+
+### 31.1 Souls, Legends and Renown finally have a use
+
+All three accumulated with no sink. They are now **a run's residue**, and residue is what a
+meta-currency should be made of — whatever you built up and then lost when the Core fell:
+
+```
+insight = raids_survived
+        + renown / 120
+        + 4 × legends
+        + souls / 8
+        × (1 + 0.15 per rank of Long Memory)
+```
+
+### 31.2 The Codex
+
+| Entry | Effect | First rank | Ranks |
+|---|---|---|---|
+| **Deeper Foundations** | +1 Heart | 14 | 4 |
+| **Ley Reservoir** | +60 starting Mana | 8 | 6 |
+| **Opening Float** | +80 starting Gold | 8 | 6 |
+| **Long Memory** | +15% Insight from every run | 20 | 4 |
+
+Costs grow per rank (×1.7–2.4), so early ranks land in two or three runs and the last rank
+of anything is a long-term goal.
+
+These are deliberately **starting conditions, not power** — the three the owner named, plus
+one that compounds. The tier ratchet scales with what the player does (§25, §29), so raw
+power-creep would simply be absorbed by a harder tier; a better *opening* is what actually
+changes how a run plays.
+
+### 31.3 Persistence
+
+`localStorage`, not `sessionStorage` — meta-progression that dies with the tab is not
+meta-progression. It lives in `src/ui/storage.ts` so `src/sim` stays headless (§13.2) and
+the balance runner and evolver can drive a Profile with no browser in sight.
+
+Every read and write is guarded: private browsing, disabled storage and a full quota all
+fall back to an in-memory profile rather than costing the player their run. A save written
+by an older build is merged over a fresh profile, so a missing field loads instead of
+crashing.

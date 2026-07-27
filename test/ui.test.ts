@@ -208,6 +208,32 @@ describe('UI smoke', () => {
     expect(stage!.querySelector('.queued')?.textContent).toMatch(/\+\d+ at the door/);
   });
 
+  it('a finished run banks Insight and offers the Codex', () => {
+    // Play until the Core falls.
+    for (let guard = 0; guard < 60; guard++) {
+      const start = button('Begin Raid');
+      if (!start) break;
+      click(start);
+      click(button('Instant'));
+      click(button('Aftermath'));
+      const cont = button('Continue') ?? button('Delve Again');
+      if (!cont) break;
+      const ended = cont.textContent?.includes('Delve Again');
+      if (ended) {
+        const modal = document.querySelector('.modal')!;
+        expect(modal.textContent).toContain('Insight');
+        expect(modal.textContent).toContain('The Codex');
+        expect(modal.textContent).toContain('Deeper Foundations');
+        // Something was earned — a lost run still moved the player forward.
+        expect(modal.querySelector('.insight-won b')?.textContent)
+          .toMatch(/^\+?\d+$/);
+        return;
+      }
+      click(cont);
+    }
+    throw new Error('run never ended');
+  });
+
   it('speed controls do not throw', () => {
     click(button('Begin Raid'));
     for (const label of ['II', '1x', '2x', '4x']) click(button(label));
