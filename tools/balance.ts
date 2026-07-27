@@ -75,7 +75,7 @@ export interface SeasonOutcome {
 }
 
 export function runSeason(seed: number, strat: Strategy): SeasonOutcome {
-  const s = createSeason(seed);
+  const s = createSeason(seed, true);
   const rng = new Rng(seed ^ 0xc0ffee);
 
   let killed = 0, escaped = 0, breaches = 0, mobsLost = 0;
@@ -284,7 +284,7 @@ function strategyReport(n: number): void {
   const aggs = Object.values(STRATEGY_LIST).map((s) => [s, runBatch(s, n)] as const);
 
   header([
-    'strategy'.padEnd(11), 'survive'.padStart(8), 'tier'.padStart(6),
+    'strategy'.padEnd(11), 'raids'.padStart(7), 'tier'.padStart(6),
     'renown'.padStart(8), 'gold'.padStart(7), 'souls'.padStart(7),
     'sales%'.padStart(8), 'killed'.padStart(8), 'escaped'.padStart(8),
     'breach'.padStart(8), 'mobLv'.padStart(7), 'lost'.padStart(6),
@@ -292,7 +292,7 @@ function strategyReport(n: number): void {
   ]);
   for (const [strat, a] of aggs) {
     console.log([
-      strat.name.padEnd(11), pct(a.survivalRate).padStart(8),
+      strat.name.padEnd(11), f1(a.avgRaids).padStart(7),
       f1(a.avgTier).padStart(6), a.avgRenown.toFixed(0).padStart(8),
       a.avgGold.toFixed(0).padStart(7), a.avgSouls.toFixed(0).padStart(7),
       pct(a.salesShare).padStart(8), f1(a.avgKilled).padStart(8),
@@ -489,7 +489,7 @@ function sweep<K extends keyof Tuning>(
     + `${baseNote ? `, with ${baseNote}` : ''}) ═══\n`,
   );
   header([
-    String(key).padEnd(22), 'survive'.padStart(8), 'tier'.padStart(6),
+    String(key).padEnd(22), 'raids'.padStart(7), 'tier'.padStart(6),
     'renown'.padStart(8), 'thrill'.padStart(8), 'killed'.padStart(8),
     'escaped'.padStart(8), 'breach'.padStart(8), 'gold'.padStart(7),
     'sales%'.padStart(8), 'mobLv'.padStart(7), 'retire/s'.padStart(9),
@@ -499,7 +499,7 @@ function sweep<K extends keyof Tuning>(
     const a = withTuning({ ...base, [key]: v } as Partial<Tuning>, () =>
       runBatch(STRATEGY_LIST[stratName], n));
     console.log([
-      String(v).padEnd(22), pct(a.survivalRate).padStart(8),
+      String(v).padEnd(22), f1(a.avgRaids).padStart(7),
       f1(a.avgTier).padStart(6), a.avgRenown.toFixed(0).padStart(8),
       f1(a.avgThrill).padStart(8), f1(a.avgKilled).padStart(8),
       f1(a.avgEscaped).padStart(8), f1(a.avgBreaches).padStart(8),

@@ -2290,3 +2290,43 @@ been true in this project.
 
 **Reporting fix:** the one-line summary shows only the top two weights, which reads like a
 build order and is not one. The full weight profile is now printed alongside it.
+
+
+---
+
+## 29. Endless is the default
+
+**Status: IMPLEMENTED (v0.14).** A run ends when the Core falls, not when a counter expires.
+The 8-raid season was always a prototype convenience (§12); everything built since — the
+Renown ratchet, the tier table to 10, breach looting — assumes a run that keeps escalating.
+
+### 29.1 It immediately found a stall
+
+The first survival-mode search under endless returned **`raids = 200`** — the safety cap.
+The build never died. It got there by setting **admission to gouge**, which suppresses
+Renown (§20), which froze the Threat Tier at 3.0, and then spent 44% of its Mana on
+upgrades until its monsters were level 8.
+
+§20.3 offered admission as a brake on the ratchet, and that was right for a bounded season.
+Over an unbounded one, **a brake that reaches zero is a permanent stall.**
+
+### 29.2 Time pushes too
+
+`TIER_FLOOR_RAIDS` (6): every six raids the Threat Tier floor rises by one, whatever Renown
+says. The gate price now changes **how fast** word spreads, not whether it does — a dungeon
+open for thirty raids is known about whether or not anyone enjoyed it.
+
+| | before | after |
+|---|---|---|
+| Survival-optimised run length | **200** (capped) | **35.8 raids** |
+| Runs that end | 25% | **100%** |
+| Tier reached | 3.0 (frozen) | 6.5 |
+
+### 29.3 Reporting
+
+"Survival %" is meaningless when every run ends, so `tools/balance.ts` reports **raids
+lasted** instead — depth is the score. Generalist builds reach 8.8–9.3 raids and Tier ~5;
+`showman` is shortest at 7.3, `commerce` deepest at 9.3.
+
+`createSeason(seed, endless = true)` is the default. Tests pass `false` for bounded
+fixtures, which is what a test wants.

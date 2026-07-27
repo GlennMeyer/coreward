@@ -619,7 +619,7 @@ describe('season economy (§4.1)', () => {
     expect(s.ending).toBe('overrun');
   });
 
-  it('ends the season as survived after the full raid count', () => {
+  it('a fixed-length season still ends as survived after its raid count', () => {
     const s = seasonWithFloors(22, 1);
     for (let room = 0; room < 3; room++) addMob(s.dungeon, 'ogre', 0, room);
     s.dungeon.hearts = 99;

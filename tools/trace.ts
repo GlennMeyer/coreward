@@ -15,7 +15,7 @@ const seed = Number(process.argv[2] ?? 1);
 const stratName = (process.argv[3] ?? 'combat') as StrategyName;
 const strat = STRATEGY_LIST[stratName];
 
-const s = createSeason(seed);
+const s = createSeason(seed, true);
 const rng = new Rng(seed ^ 0xc0ffee);
 
 console.log(`seed=${seed} strategy=${stratName} startingMana=${TUNING.startingMana}\n`);

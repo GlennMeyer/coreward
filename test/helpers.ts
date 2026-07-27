@@ -41,8 +41,15 @@ export function addStaffedAmenity(
 }
 
 /** A season with `floors` floors dug and nothing placed. */
-export function seasonWithFloors(seed: number, floors: number): SeasonState {
-  const s = createSeason(seed);
+/**
+ * A season with `floors` dug. **Bounded by default**: runs are endless in the
+ * game (§12a), but a test wants a fixture that terminates. Pass `endless: true`
+ * for the real thing.
+ */
+export function seasonWithFloors(
+  seed: number, floors: number, endless = false,
+): SeasonState {
+  const s = createSeason(seed, endless);
   for (let i = 1; i < floors; i++) {
     const err = digFloor(s.dungeon);
     if (err) throw new Error(err);

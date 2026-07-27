@@ -157,7 +157,8 @@ describe('UI smoke', () => {
     click(button('Continue'));
     // Back in the Build Phase for the next raid.
     expect(button('Begin Raid')).toBeTruthy();
-    expect(document.querySelector('.topbar')?.textContent).toContain('2/8');
+    // Endless is the default (§12a), so the raid counter has no denominator.
+    expect(document.querySelector('.topbar')?.textContent).toMatch(/raid\s*2/);
   });
 
   it('survives an entire season without throwing', () => {

@@ -1227,3 +1227,31 @@ export const SEASON_RAIDS = 8;
  * you, which is the only honest test of whether the ratchet is tuned.
  */
 export const ENDLESS_RAIDS = Number.POSITIVE_INFINITY;
+
+/**
+ * Hard stop for an endless run.
+ *
+ * Not a design limit — a safety rail so tooling cannot spin forever on a build
+ * the ratchet never catches. If a run reaches this, the ratchet is broken, and
+ * that is worth knowing rather than hanging on.
+ */
+export const ENDLESS_SAFETY_CAP = 200;
+
+/**
+ * Raids before the Threat Tier floor rises by one, regardless of Renown.
+ *
+ * Renown is the player's dial (§20.3) and that is the point — but in an endless
+ * run a dial that can be turned to zero is a permanent stall. Measured: gouging
+ * the gate froze the tier at 3.0 and a build with level-8 monsters ran to the
+ * 200-raid safety cap without ever being threatened.
+ *
+ * A dungeon that has been open for thirty raids is known about whether or not
+ * anyone enjoyed it. Word gets around on its own; the dial changes how fast,
+ * not whether.
+ */
+export const TIER_FLOOR_RAIDS = 6;
+
+/** The tier a run is at least at, from how long it has been running. */
+export function tierFloorFromRaids(raidNumber: number): number {
+  return 1 + Math.floor((raidNumber - 1) / TIER_FLOOR_RAIDS);
+}

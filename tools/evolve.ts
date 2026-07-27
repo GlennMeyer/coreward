@@ -279,7 +279,9 @@ type FitnessMode = 'renown' | 'survival';
  * question: what does a build that actually holds look like?
  */
 function score(f: Omit<Fitness, 'score'>, mode: FitnessMode): number {
-  if (mode === 'survival') return f.survival * 1000 + f.renown * 0.1;
+  // Runs are endless (§12a), so "survived the season" no longer exists —
+  // every run ends overrun. Depth is the score: how many raids you lasted.
+  if (mode === 'survival') return f.raids * 100 + f.renown * 0.1;
   return f.renown;
 }
 
@@ -289,7 +291,7 @@ function evaluate(
   let renown = 0, survived = 0, tier = 0, raids = 0, gold = 0, bestLv = 0;
   for (let i = 0; i < seasons; i++) {
     const seed = seedBase + i * 7919;
-    const s = createSeason(seed);
+    const s = createSeason(seed, true);
     const rng = new Rng(seed ^ 0x5eed);
     while (!s.over) {
       buildPhase(s, g, rng);

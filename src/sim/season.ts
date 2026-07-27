@@ -2,7 +2,7 @@
  * Season orchestration and the Aftermath economy (§3, §4).
  */
 import {
-  ENDLESS_RAIDS, GRUDGE_TRAIT, MAX_TIER_PROTOTYPE, SEASON_RAIDS, TUNING,
+  ENDLESS_RAIDS, ENDLESS_SAFETY_CAP, GRUDGE_TRAIT, TIERS, tierFloorFromRaids, MAX_TIER_PROTOTYPE, SEASON_RAIDS, TUNING,
   tierForRenown,
   type TierRow,
 } from './data';
@@ -13,7 +13,12 @@ import { createDungeon, healAllMobs, totalUpkeep } from './dungeon';
 import { RaidSim } from './raid';
 import type { Adventurer, RaidResult, SeasonState, Veteran } from './types';
 
-export function createSeason(seed: number, endless = false): SeasonState {
+/**
+ * A run. Endless by default (§12a): it ends when the Core falls, not when a
+ * counter expires. Pass `endless: false` for the fixed 8-raid prototype season,
+ * which some tests still rely on for a bounded fixture.
+ */
+export function createSeason(seed: number, endless = true): SeasonState {
   return {
     seed,
     raidNumber: 1,
@@ -33,7 +38,12 @@ export function createSeason(seed: number, endless = false): SeasonState {
 }
 
 export function currentTier(s: SeasonState): TierRow {
-  return tierForRenown(s.renown, MAX_TIER_PROTOTYPE);
+  const byRenown = tierForRenown(s.renown, MAX_TIER_PROTOTYPE);
+  // Time pushes too (§20.3): the gate price changes how fast word spreads, not
+  // whether it does. Without this, an endless run can be stalled indefinitely
+  // by pricing the dungeon into obscurity.
+  const floor = Math.min(tierFloorFromRaids(s.raidNumber), MAX_TIER_PROTOTYPE);
+  return byRenown.tier >= floor ? byRenown : TIERS[floor - 1]!;
 }
 
 /**
@@ -217,7 +227,7 @@ export function applyAftermath(s: SeasonState, sim: RaidSim): Aftermath {
   if (s.dungeon.hearts <= 0) {
     s.over = true;
     s.ending = 'overrun';
-  } else if (s.raidNumber >= s.totalRaids) {
+  } else if (s.raidNumber >= Math.min(s.totalRaids, ENDLESS_SAFETY_CAP)) {
     s.over = true;
     s.ending = 'survived';
   } else {

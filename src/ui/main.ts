@@ -80,8 +80,8 @@ interface App {
 }
 
 const app: App = {
-  endless: false,
-  season: createSeason(Math.floor(Date.now() % 100000)),
+  endless: true,
+  season: createSeason(Math.floor(Date.now() % 100000), true),
   phase: 'build',
   sim: null,
   speedIdx: 1,
