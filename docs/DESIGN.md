@@ -2704,3 +2704,30 @@ for a counter ticking over.
 **The lesson is the one from §25 and §35 in a new place:** changing a default changes
 everything that reads it. Endless was a *game* decision, and it silently became a *tooling*
 decision because the evaluator asked for a season the same way the game did.
+
+
+---
+
+## 37. The dungeon condenses as it grows
+
+A ten-floor dungeon at full cell size is a page a mile long, and scrolling destroys exactly
+what you need to see: **where the party is, and which rooms are thin.**
+
+Density now scales with the dungeon rather than being a setting nobody finds:
+
+| Total rooms | Mode | What it does |
+|---|---|---|
+| ≤ 15 | full | As before |
+| 16–30 | **compact** | Smaller cells, gear and charge pips dropped, tighter landings |
+| 30+ | **tiny** | Monsters and traps collapse to coloured bars — red for monsters, gold for traps |
+
+At `tiny` you are reading the *shape* of the dungeon, not individual monsters: which rooms
+are stacked, which are nearly empty, where the line will break. Hover still names anything,
+and the active room keeps a heavy inset outline so it stays findable at a glance.
+
+Rooms also lay out one grid column per room, so floors with 3 and floors with 7 both fill
+the width instead of the wider ones overflowing a fixed three-column grid.
+
+This is a stopgap on top of a renderer that still rebuilds the whole tree on every paint
+(§36). Condensing means fewer nodes, which helps — it does not make a rebuild cheap, and
+the real fix is to mutate the DOM rather than reconstruct it.

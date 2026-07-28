@@ -518,3 +518,38 @@ button.wipe:hover { background: #2a1a1e; border-color: var(--danger); }
   margin-left: 6px; background: var(--gold); color: #1a1710;
   border-radius: 8px; padding: 0 6px; font-size: 10px; font-weight: 600;
 }
+
+/* ─── Dungeon density (§37) ──────────────────────────────────────────────── */
+/* Rooms already lay out one column per room; density shrinks the cells so a
+   deep dungeon stays on one screen instead of becoming a scroll. */
+.dungeon h2 .dens { float: right; color: var(--dim); font-weight: 400; }
+
+.dungeon.compact .room { min-height: 46px; padding: 3px; gap: 2px; }
+.dungeon.compact .mob,
+.dungeon.compact .trap { font-size: 9px; padding: 1px 3px; }
+.dungeon.compact .mob .gear,
+.dungeon.compact .trap .ch { display: none; }
+.dungeon.compact .floor-label { font-size: 10px; margin-bottom: 2px; }
+.dungeon.compact .floor { margin-bottom: 3px; }
+.dungeon.compact .landing { padding: 3px 6px; margin: 3px 0; font-size: 10px; }
+.dungeon.compact .rooms { gap: 3px; }
+
+/* Deeper still: chips collapse to coloured bars — you are reading the shape of
+   the dungeon at this size, not individual monsters. Hover still names them. */
+.dungeon.tiny .room { min-height: 26px; padding: 2px; gap: 1px; }
+.dungeon.tiny .rooms { gap: 2px; }
+.dungeon.tiny .slots,
+.dungeon.tiny .hpbar,
+.dungeon.tiny .stage { display: none; }
+.dungeon.tiny .mob,
+.dungeon.tiny .trap {
+  font-size: 0; padding: 0; height: 5px; border-left-width: 0;
+  border-radius: 2px; background: var(--mob);
+}
+.dungeon.tiny .trap { background: var(--gold); }
+.dungeon.tiny .floor-label { font-size: 9px; margin-bottom: 1px; }
+.dungeon.tiny .floor { margin-bottom: 2px; }
+.dungeon.tiny .landing { padding: 1px 4px; margin: 2px 0; font-size: 9px; }
+.dungeon.tiny .landing .tag { font-size: 8px; }
+/* The active room still has to be findable at a glance. */
+.dungeon.tiny .room.active { box-shadow: 0 0 0 2px var(--adv) inset; }

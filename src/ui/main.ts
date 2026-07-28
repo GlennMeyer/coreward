@@ -1240,13 +1240,21 @@ function dungeonPanel(): HTMLElement {
   const s = app.season;
   const d = s.dungeon;
   const sim = app.sim;
-  const panel = el('<div class="panel"></div>');
-  panel.append(el(`<h2>The Dungeon &nbsp;·&nbsp; upkeep ${totalUpkeep(d)}/raid</h2>`));
+  // Condense as it grows (§37). A ten-floor dungeon at full size is a page a
+  // mile long, and the thing you need to see — where the party is, which rooms
+  // are thin — is exactly what scrolling destroys. Density scales with the
+  // dungeon rather than being a setting nobody finds.
+  const totalRooms = d.floors.reduce((n, f) => n + f.rooms.length, 0);
+  const density = totalRooms > 30 ? 'tiny' : totalRooms > 15 ? 'compact' : '';
+
+  const panel = el(`<div class="panel dungeon ${density}"></div>`);
+  panel.append(el(`<h2>The Dungeon &nbsp;·&nbsp; upkeep ${totalUpkeep(d)}/raid
+    ${density ? `<span class="dens">${d.floors.length} floors · ${totalRooms} rooms</span>` : ''}</h2>`));
 
   d.floors.forEach((floor, fi) => {
     const wrap = el(`<div class="floor"></div>`);
     wrap.append(el(`<div class="floor-label">Floor ${fi + 1}</div>`));
-    const rooms = el('<div class="rooms"></div>');
+    const rooms = el(`<div class="rooms" style="grid-template-columns:repeat(${floor.rooms.length},1fr)"></div>`);
 
     floor.rooms.forEach((_, ri) => {
       const isActive = app.phase === 'raid' && sim?.status !== 'complete'

@@ -40,6 +40,11 @@ function seedGenome(): import('../src/ui/idlerBrain').Genome {
   } as unknown as import('../src/ui/idlerBrain').Genome;
 }
 
+/** The live season, for tests that need to top up a currency. */
+function app$(): { mana: number } {
+  return (globalThis as unknown as { __coreward: { mana: number } }).__coreward;
+}
+
 /** Current mana, read off the rendered top bar. */
 function app(): { mana: number; gold: number } {
   const num = (sel: string) => Number(document.querySelector(sel)?.textContent ?? '0');
@@ -685,6 +690,29 @@ describe('UI smoke', () => {
     expect(dock.textContent).toContain('Thicker Hide');
     expect(dock.textContent).toContain('Higher Metabolism');
     expect(dock.textContent).toContain('mana');
+  });
+
+  it('the dungeon condenses as it grows', () => {
+    const panel = () => document.querySelector('.panel.dungeon')!;
+    // Small: full size.
+    expect(panel().className).not.toContain('compact');
+    expect(panel().className).not.toContain('tiny');
+
+    // Dig until it crosses the thresholds. Rooms per floor grow with depth
+    // (§5.1), so this passes 15 and then 30 total rooms.
+    const seen = new Set<string>();
+    for (let i = 0; i < 12; i++) {
+      app$().mana += 5000;          // fund the dig
+      render$();                     // repaint so the button reflects it
+      const dig = button('Dig Floor');
+      if (!dig || dig.hasAttribute('disabled')) break;
+      click(dig);
+      const cls = panel().className;
+      if (cls.includes('tiny')) seen.add('tiny');
+      else if (cls.includes('compact')) seen.add('compact');
+    }
+    // It passes through compact on the way down; deep dungeons reach tiny.
+    expect(seen.has('compact') || seen.has('tiny')).toBe(true);
   });
 
   it('a spent trap can be re-armed on its own, not only via re-arm-all', () => {
