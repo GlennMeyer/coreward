@@ -6,7 +6,7 @@
  * Runs in jsdom — see environmentMatchGlobs in vite.config.ts.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MOBS, TIERS, TRAPS, TUNING, roomCapacity } from '../src/sim/data';
+import { GEAR, MOBS, TIERS, TRAPS, TUNING, roomCapacity } from '../src/sim/data';
 import { buildAmenity, buyMob, createDungeon, placeMobInRoom } from '../src/sim/dungeon';
 import { predictThrill, thrillRating } from '../src/ui/predict';
 import { rulesHash as idlerRulesHash } from '../src/ui/idler';
@@ -263,17 +263,27 @@ describe('UI smoke', () => {
     }
   });
 
-  it('auto-continues from the Aftermath without a click', async () => {
+  it('reaches the Aftermath without a click, then waits there for one', async () => {
     vi.useFakeTimers();
     try {
       click(button('Begin Raid'));
       click(button('Instant'));
-      click(button('Aftermath'));
+      // The raid-summary bar has no prose on it, so it still moves on by itself.
+      await vi.advanceTimersByTimeAsync(4500);
       expect(document.querySelector('.modal')?.textContent).toContain('Aftermath');
 
-      // No click: it should move on by itself.
-      await vi.advanceTimersByTimeAsync(4500);
-      expect(button('Begin Raid')).toBeTruthy();
+      // The Aftermath does not. "Word from the stair" is the account of the
+      // raid, and a timer here is the game deciding it has read that for you.
+      // Ten seconds is well past any reading-time estimate.
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(document.querySelector('.modal')?.textContent).toContain('Aftermath');
+
+      // It moves when the player says so. Asserted on the modal, not on the
+      // presence of "Begin Raid" — that button is in the build panel *behind*
+      // the modal the whole time, so the check this test used to end on was
+      // true before the auto-continue it was meant to be proving.
+      click(button('Continue'));
+      expect(document.querySelector('.modal')).toBeFalsy();
     } finally {
       vi.useRealTimers();
     }
@@ -715,6 +725,82 @@ describe('UI smoke', () => {
     expect(dock.textContent).toContain('Thicker Hide');
     expect(dock.textContent).toContain('Higher Metabolism');
     expect(dock.textContent).toContain('mana');
+  });
+
+  it('explains upgrades and gear in subtext, not in a tooltip', () => {
+    const buy = [...document.querySelectorAll('.buy')]
+      .find((b) => b.textContent?.includes('Cave Rat'));
+    click(buy);
+    click(document.querySelectorAll('.room')[0]);
+    click(document.querySelector('.room .mob'));
+    const dock = document.querySelector('.panel.dock')!;
+
+    // Every ability row explains itself on screen. A `title` is a tooltip, and
+    // a tooltip does not exist on a touchscreen.
+    const tracks = [...dock.querySelectorAll('.buy.up')];
+    expect(tracks).toHaveLength(3);
+    for (const t of tracks) {
+      expect(t.hasAttribute('title')).toBe(false);
+      expect(t.querySelector('.sub')?.textContent?.trim()).toBeTruthy();
+    }
+    expect(dock.textContent).toContain('More damage per swing.');
+
+    // Gear too, and its subtext is read off the table rather than written out,
+    // so retuning GEAR cannot leave the words describing the old numbers.
+    const fangs = [...dock.querySelectorAll('.buy')]
+      .find((b) => b.textContent?.includes('Iron Fangs'))!;
+    expect(fangs.hasAttribute('title')).toBe(false);
+    expect(fangs.querySelector('.sub')!.textContent)
+      .toContain(`${Math.round((GEAR['fangs']!.dmgMult - 1) * 100)}% damage`);
+  });
+
+  it('badges the toolbar when the raid is off screen, and jumps to it', () => {
+    // jsdom has no layout: every rect is zero. Stub the two the follow logic
+    // reads so the "party is below the fold" case can actually be exercised —
+    // without this the guard bails and the badge is untestable.
+    const rect = (top: number, bottom: number) => ({
+      top, bottom, left: 0, right: 100, width: 100, height: bottom - top,
+      x: 0, y: top, toJSON: () => ({}),
+    }) as DOMRect;
+    const scrolled: Element[] = [];
+    const proto = globalThis.Element.prototype as unknown as Record<string, unknown>;
+    const realRect = proto['getBoundingClientRect'];
+    proto['getBoundingClientRect'] = function (this: Element): DOMRect {
+      if (this.classList.contains('topbar')) return rect(0, 60);
+      // Far below a 768px jsdom viewport.
+      if (this.classList.contains('room')) return rect(4000, 4100);
+      return rect(0, 10);
+    };
+    proto['scrollIntoView'] = function (this: Element): void { scrolled.push(this); };
+
+    try {
+      const buy = [...document.querySelectorAll('.buy')]
+        .find((b) => b.textContent?.includes('Cave Rat'));
+      click(buy);
+      click(document.querySelectorAll('.room')[0]);
+      click(button('Begin Raid'));
+
+      // First paint of a new room chases it rather than badging: the camera
+      // follows the fight, and only gives up if the player scrolls away.
+      expect(scrolled.some((e) => e.classList.contains('room'))).toBe(true);
+
+      // Repainting on the same room means the player chose that scroll
+      // position. Now it badges instead of yanking the page back. (Re-picking
+      // the current speed is the cheapest repaint that does not advance the
+      // raid — the party stays in the room it is already in.)
+      click(button('1x'));
+      const chip = document.querySelector('.stat.offscreen') as HTMLElement | null;
+      expect(chip).toBeTruthy();
+      // Just a number — which floor, and which way to look.
+      expect(chip!.textContent).toMatch(/^[↓↑] \d+$/);
+
+      scrolled.length = 0;
+      chip!.click();
+      expect(scrolled.some((e) => e.classList.contains('room'))).toBe(true);
+    } finally {
+      proto['getBoundingClientRect'] = realRect;
+      delete proto['scrollIntoView'];
+    }
   });
 
   it('the dungeon condenses as it grows', () => {

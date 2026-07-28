@@ -262,6 +262,33 @@ button.on { background: #2c4a63; border-color: var(--adv); }
 .buy .cost { color: var(--mana); }
 .buy .cost.g { color: var(--gold); }
 .buy .meta { color: var(--dim); font-size: 10px; }
+/*
+ * What a thing does, always on screen.
+ *
+ * These used to be `title` attributes. A tooltip is a promise that the player
+ * knows to hover and is willing to wait half a second per item to compare three
+ * upgrade tracks — and it does not exist at all on a touchscreen. The text is
+ * two dozen characters; it can just be there.
+ */
+.buy .sub {
+  color: var(--dim); font-size: 10px; line-height: 1.35;
+  margin-top: 2px; max-width: 30ch; white-space: normal;
+}
+.buy:not(.off):hover .sub { color: var(--ink); }
+
+/*
+ * "The fight is down there." A deep dungeon is taller than the window, so the
+ * room the party is actually in can sit entirely below the fold — the player
+ * watches an empty floor plan while the delve happens off screen.
+ */
+.stat.offscreen {
+  border: 1px solid var(--adv); border-radius: 999px; padding: 2px 10px;
+  background: transparent; color: var(--adv); cursor: pointer;
+  font: inherit; font-weight: 600; animation: nudge 1.6s ease-in-out infinite;
+}
+.stat.offscreen:hover { background: var(--adv); color: var(--bg); }
+@keyframes nudge { 50% { opacity: .55; } }
+@media (prefers-reduced-motion: reduce) { .stat.offscreen { animation: none; } }
 .buy.trap-buy { border-left: 3px solid var(--trap); }
 
 /* ─── Log ────────────────────────────────────────────────────────────────── */

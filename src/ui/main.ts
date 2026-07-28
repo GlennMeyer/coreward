@@ -10,6 +10,7 @@ import './styles.css';
 import {
   AMENITIES, FORMATION_INFO, GEAR, HIRED_STAFF_COST, MAX_GEAR_SLOTS,
   MAX_UPGRADE_RANK, MOBS, STARTING_HEARTS, upgradeName, type UpgradeTrack,
+  type GearDef,
   INSURANCE_BASE, STAFFED_REVENUE_MULT,
   admissionPrice,
   PRICE_TIERS, TRAPS, TUNING, roomCapacity, trapCost,
@@ -189,18 +190,13 @@ let timer: number | null = null;
 const AUTO_CONTINUE_MS = 4000;
 
 /**
- * How long the Aftermath waits before continuing on its own.
+ * How long the *admin* Aftermath waits before continuing on its own.
  *
- * This was a flat four seconds, which is fine for the raid-summary bar and much
- * too fast for the Aftermath: "Word from the stair" is a headline plus three or
- * four sentences, and four seconds pulled it off screen mid-paragraph. The prose
- * is the reason to build another floor (§15.2) — auto-continue exists so nobody
- * has to click through an empty result, not to hurry the one part worth reading.
- *
- * So it is reading time, not a constant. ~210ms/word is a relaxed 285wpm, which
- * suits skimmable game prose; the base covers the ledger below it, and the cap
- * stops a long narration from feeling like the game has stalled. Any of this can
- * be cut short with Continue, so the cost of being generous is nothing.
+ * Players are never on this path — the modal waits for a click. This is the
+ * balance-testing path, which wants to move but still wants the narration
+ * legible when something looks wrong. ~210ms/word is a relaxed 285wpm, the base
+ * covers the ledger below the prose, and the cap stops a long account from
+ * feeling like the game has stalled.
  */
 function aftermathDwellMs(n: Narration | null): number {
   if (!n) return AUTO_CONTINUE_MS;
@@ -1199,6 +1195,62 @@ function render(): void {
   if (app.phase === 'over') root.append(gameOverModal());
   if (app.sim?.status === 'awaiting-taunt') root.append(tauntModal());
   if (app.sim?.status === 'complete' && app.phase === 'raid') root.append(raidDoneBar());
+  followAction();
+}
+
+/** Which room the camera last chased, so it only chases on a move. */
+let lastActiveKey = '';
+
+/**
+ * Keep the fight on screen.
+ *
+ * A dungeon condenses as it grows (§37) but it still grows downward, and past a
+ * few floors the room the party is in can sit entirely below the fold. The
+ * player then watches an empty floor plan while the delve happens somewhere
+ * they cannot see — the map stops being a map.
+ *
+ * Two halves, because they answer different situations:
+ *
+ * - When the party *moves* to a room that is off screen, scroll to it. Chasing
+ *   only on a move is the whole trick: re-centring every paint would yank the
+ *   page out from under anyone reading a panel, and the raid repaints on a
+ *   timer.
+ * - When it is off screen and the party has *not* just moved, the player
+ *   scrolled away deliberately. Do not fight them for the scrollbar; put a
+ *   badge in the toolbar with the floor number and let them choose.
+ */
+function followAction(): void {
+  const active = root.querySelector('.room.active') as HTMLElement | null;
+  const bar = root.querySelector('.topbar');
+  if (!active || !bar || !app.sim) { lastActiveKey = ''; return; }
+
+  const r = active.getBoundingClientRect();
+  // No layout to measure — jsdom, or a paint before first layout. Every rect is
+  // zero there, which would read as "off screen" and badge every raid.
+  if (r.width === 0 && r.height === 0) return;
+
+  const floor = app.sim.currentFloor;
+  const key = `${floor}:${app.sim.currentRoom}`;
+  const moved = key !== lastActiveKey;
+  lastActiveKey = key;
+
+  const headroom = bar.getBoundingClientRect().bottom;
+  const above = r.bottom < headroom;
+  const below = r.top > (globalThis.innerHeight || 0);
+  if (!above && !below) return;
+
+  if (moved) {
+    active.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+    return;
+  }
+
+  const chip = el(`<button class="stat offscreen">${below ? '↓' : '↑'} ${floor + 1}</button>`);
+  chip.setAttribute('aria-label', `The raid is on floor ${floor + 1}, off screen. Jump to it.`);
+  chip.onclick = (ev) => {
+    ev.stopPropagation();
+    root.querySelector('.room.active')?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+  };
+  bar.insertBefore(chip, bar.querySelector('.stats'));
 }
 
 /** Step out to the title screen. The run is saved, not abandoned (§33.1). */
@@ -1239,6 +1291,22 @@ function topbar(): HTMLElement {
     </div>`);
   (bar.querySelector('.menu-btn') as HTMLElement).onclick = toMenu;
   return bar;
+}
+
+/**
+ * What a piece of gear actually does, in words.
+ *
+ * Read off the multipliers rather than written out, so retuning `GEAR` cannot
+ * leave the description saying something the table stopped doing. Gear had no
+ * blurb field at all — its effect was legible only by buying it and watching a
+ * number move, which is exactly the thing subtext is for.
+ */
+function gearSub(g: GearDef): string {
+  const parts: string[] = [];
+  if (g.dmgMult !== 1) parts.push(`${g.dmgMult > 1 ? '+' : ''}${Math.round((g.dmgMult - 1) * 100)}% damage`);
+  if (g.hpMult !== 1) parts.push(`${g.hpMult > 1 ? '+' : ''}${Math.round((g.hpMult - 1) * 100)}% HP`);
+  if (g.stripsKit) parts.push('strips Kit from whoever it hits');
+  return parts.join(' · ') || 'No direct effect.';
 }
 
 const UPGRADE_BLURB: Record<string, string> = {
@@ -1781,9 +1849,9 @@ function selectionPanel(): HTMLElement | null {
     const maxed = cost === null;
     const off = maxed || s.mana < cost!;
     const pips = '●'.repeat(rank) + '○'.repeat(MAX_UPGRADE_RANK - rank);
-    const b = el(`<div class="buy up ${off ? 'off' : ''}"
-        title="${UPGRADE_BLURB[track]}">
-        <span>${esc(upgradeName(mob.defId, track))}<div class="meta">${pips}</div></span>
+    const b = el(`<div class="buy up ${off ? 'off' : ''}">
+        <span>${esc(upgradeName(mob.defId, track))}<div class="meta">${pips}</div>
+          <div class="sub">${UPGRADE_BLURB[track]}</div></span>
         <span class="cost">${maxed ? 'max' : `${cost} mana`}</span>
       </div>`);
     if (!off) {
@@ -1806,9 +1874,9 @@ function selectionPanel(): HTMLElement | null {
       const rank = reforgeRank(mob, g.id);
       const cost = nextReforgeCost(mob, g.id);
       const cant = s.gold < cost;
-      const b = el(`<div class="buy ${cant ? 'off' : ''}"
-          title="Amplifies this piece again. Costs rise each time.">
-          <span>${g.name} ✓<div class="meta">reforged ×${rank}</div></span>
+      const b = el(`<div class="buy ${cant ? 'off' : ''}">
+          <span>${g.name} ✓<div class="meta">reforged ×${rank}</div>
+            <div class="sub">${gearSub(g)} · reforging amplifies it again, at a rising price.</div></span>
           <span class="cost g">${cost}g</span>
         </div>`);
       if (!cant) {
@@ -1822,7 +1890,7 @@ function selectionPanel(): HTMLElement | null {
       continue;
     }
     const b = el(`<div class="buy ${off ? 'off' : ''}">
-        <span>${g.name}</span>
+        <span>${g.name}<div class="sub">${gearSub(g)}</div></span>
         <span class="cost g">${g.cost}g</span>
       </div>`);
     if (!off) {
@@ -2258,11 +2326,19 @@ function aftermathModal(a: AftermathType): HTMLElement {
   const go = row.querySelector('button') as HTMLElement;
   go.onclick = () => { clearAutoContinue(); nextRaid(); };
   m.append(row);
-  // Auto-continue. This is the modal the player actually clicks through every
-  // raid, and it was the one my earlier edit missed — the raid-summary bar got
-  // it, this did not. Cancelled by any interaction, so reading at your own pace
-  // still wins.
-  scheduleAutoContinue(app.spectating ? 1400 : aftermathDwellMs(app.narration), nextRaid);
+  // The Aftermath does not dismiss itself for a player.
+  //
+  // It used to, after a flat four seconds. Making that four seconds into a
+  // reading-time estimate was still the wrong shape: any timer here is the game
+  // deciding it has read the lore for you, and the lore is the reason to build
+  // another floor (§15.2). A raid resolves in seconds; the account of it is the
+  // part worth sitting with. So it waits for `Continue →`.
+  //
+  // Two exceptions, and both are machines rather than people: a spectated run
+  // has nobody reading it, and the admin path exists to get through raids fast
+  // while testing balance.
+  if (app.spectating) scheduleAutoContinue(1400, nextRaid);
+  else if (isAdmin()) scheduleAutoContinue(aftermathDwellMs(app.narration), nextRaid);
   bg.append(m);
   return bg;
 }
