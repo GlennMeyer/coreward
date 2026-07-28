@@ -327,8 +327,8 @@ describe('UI smoke', () => {
     // needs the title screen.
     const store = fakeStorage({
       'coreward.idler.v1': JSON.stringify({
-        mode: 'off', population: [], generation: 42,
-        pendingInsight: 0, runsPlayed: 0, best: null,
+        mode: 'autoplay', population: [], generation: 42,
+        pendingInsight: 250, runsPlayed: 90, best: null,
       }),
     });
 
@@ -345,6 +345,16 @@ describe('UI smoke', () => {
     expect(store.has('coreward.profile.v1')).toBe(false);
     expect(store.has('coreward.run.v1')).toBe(false);
     expect(store.has('coreward.idler.v1')).toBe(true);
+
+    // ...but banked Insight is progress, not learning, and the wipe takes it.
+    // Otherwise you can wipe and immediately collect the pile it removed.
+    const idler = JSON.parse(store.get('coreward.idler.v1')!) as
+      { pendingInsight: number; runsPlayed: number };
+    expect(idler.pendingInsight).toBe(0);
+    expect(idler.runsPlayed).toBe(0);
+    // And it is switched off: left running, auto-play banks into the fresh
+    // profile within seconds and quietly undoes the wipe.
+    expect((idler as unknown as { mode: string }).mode).toBe('off');
 
   });
 

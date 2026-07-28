@@ -2521,6 +2521,28 @@ away hours of search to punish a decision about a save file would be the wrong t
 
 Two-step confirm, and the button says so.
 
+### 33.2a What a wipe actually has to take
+
+The first cut spared the whole idler state, on the reasoning that the search is the tool's
+learning rather than the player's progress. That was half right, and produced two bugs from
+play:
+
+- **Banked Insight survived**, so you could wipe and immediately collect the pile the wipe
+  was supposed to remove.
+- **Auto-play kept running**, so within seconds it was banking into the fresh profile and
+  quietly undoing the wipe you had just confirmed.
+
+The line is **learning vs progress**, and it does not fall on the module boundary:
+
+| Kept | Taken |
+|---|---|
+| Evolved population | Banked Insight |
+| Generation count | Runs played |
+| Best build found | Auto-play being *on* |
+
+Switching it off rather than leaving it armed is the part worth remembering — a background
+process that resumes after a reset will always find a way to undo it.
+
 ### 33.3 Auto-continue
 
 The Aftermath is a summary, not a decision. Holding a run hostage to a click every raid is

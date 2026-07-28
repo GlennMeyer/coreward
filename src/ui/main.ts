@@ -37,7 +37,8 @@ import {
 import { Rng } from '../sim/rng';
 import { buildPhaseFor } from './idlerBrain';
 import {
-  IDLE_YIELD, collectIdle, describeGenome, startIdler, stopIdler, type IdlerMode,
+  IDLE_YIELD, collectIdle, describeGenome, startIdler, stopIdler,
+  wipeIdlerProgress, type IdlerMode,
   type IdlerState,
 } from './idler';
 import { narrateRaid, type Narration } from '../sim/narrate';
@@ -706,6 +707,11 @@ function menuScreen(): HTMLElement {
     if (!app.confirmWipe) { app.confirmWipe = true; render(); return; }
     clearProfile();
     clearRun();
+    // Banked Insight is progress, not learning — a wipe takes it. The evolved
+    // population survives (see wipeIdlerProgress).
+    wipeIdlerProgress(app.idler);
+    saveIdler(app.idler);
+    syncIdler();
     app.profile = loadProfile();
     app.season = createSeason(Math.floor(Math.random() * 100000), app.endless);
     applyProfile(app.season, app.profile);

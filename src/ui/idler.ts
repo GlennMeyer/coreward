@@ -121,6 +121,26 @@ function step(state: IdlerState, profile: Profile, rng: Rng): void {
   state.generation += 1;
 }
 
+/**
+ * Strip a wipe's worth of progress while leaving the search intact.
+ *
+ * The line is learning vs progress: the evolved population, its generation and
+ * the best build it has found are the *tool* getting better, and binning hours
+ * of search to reset a save file would be the wrong trade. Banked Insight and
+ * the run tally are the *player's* progress, and a wipe has to take them —
+ * otherwise you can wipe and immediately collect a pile of Insight that the
+ * wipe was supposed to have removed.
+ */
+export function wipeIdlerProgress(state: IdlerState): void {
+  state.pendingInsight = 0;
+  state.runsPlayed = 0;
+  // Switched off, not just emptied. Auto-play left running after a wipe starts
+  // banking into the fresh profile immediately, which undoes the wipe a few
+  // seconds after you confirmed it. Turning it back on is one click.
+  state.mode = 'off';
+  stopIdler();
+}
+
 /** Collect banked Insight into the profile. Returns how much moved. */
 export function collectIdle(state: IdlerState, profile: Profile): number {
   const whole = Math.floor(state.pendingInsight);
