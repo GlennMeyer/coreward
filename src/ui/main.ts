@@ -820,7 +820,12 @@ function menuScreen(): HTMLElement {
       if (!app.confirmNuke) { app.confirmNuke = true; render(); return; }
       clearProfile();
       clearRun();
+      const wasRunning = app.idler.mode;
       nukeIdler(app.idler);
+      // Erasing is almost always "start it over", not "stop it" — so it picks
+      // straight back up rather than making you re-enable the search, wait,
+      // and go hunting for the watch button again.
+      app.idler.mode = wasRunning === 'off' ? 'advisor' : wasRunning;
       saveIdler(app.idler);
       app.profile = loadProfile();
       app.season = createSeason(Math.floor(Math.random() * 100000), app.endless);
@@ -836,6 +841,7 @@ function menuScreen(): HTMLElement {
       render();
     };
     adm.append(nuke);
+    adm.append(el(`<div class="hint">Erasing restarts the search immediately (${app.idler.mode}).</div>`));
     const off = el('<button class="wipe">Leave admin mode</button>');
     off.onclick = () => {
       try { globalThis.localStorage?.removeItem(ADMIN_KEY); } catch { /* ignore */ }
@@ -1062,6 +1068,20 @@ function persistRun(): void {
 }
 
 let framePending = false;
+/**
+ * Renders are suppressed until this timestamp.
+ *
+ * `render()` clears the root and rebuilds it, so a repaint landing between
+ * pointerdown and click destroys the element you pressed and the click never
+ * fires. At 2× that is a repaint every 170ms, which made the UI feel dead the
+ * moment the raid sped up — every other click was swallowed.
+ *
+ * Holding repaints for a moment after a press lets the click complete. It is a
+ * patch on the real problem (§36: the renderer rebuilds instead of mutating),
+ * but it is the difference between usable and not.
+ */
+let renderHeldUntil = 0;
+const CLICK_GRACE_MS = 320;
 
 /**
  * Repaint at most once per animation frame.
@@ -1076,6 +1096,12 @@ let framePending = false;
  */
 function scheduleRender(): void {
   if (framePending) return;
+  const wait = renderHeldUntil - Date.now();
+  if (wait > 0) {
+    framePending = true;
+    setTimeout(() => { framePending = false; scheduleRender(); }, wait);
+    return;
+  }
   framePending = true;
   const raf = globalThis.requestAnimationFrame
     ?? ((cb: FrameRequestCallback) => setTimeout(() => cb(0), 16) as unknown as number);
@@ -2370,6 +2396,8 @@ if (import.meta.hot) {
 
 // Capture phase, so the hold lands before the clicked control does its work —
 // otherwise a speed button would change speed and immediately be swept past.
+// Hold repaints across a press so the click can land — see renderHeldUntil.
+root.addEventListener('pointerdown', () => { renderHeldUntil = Date.now() + CLICK_GRACE_MS; }, true);
 root.addEventListener('click', holdOnInteraction, true);
 // Do not leave a search running against a page that is going away.
 globalThis.addEventListener?.('pagehide', () => { stopIdler(); stopTimer(); });

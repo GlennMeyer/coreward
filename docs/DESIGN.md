@@ -2777,3 +2777,26 @@ So the honest answer to "why does it crush the difficulty" is that **it plays be
 the difficulty is tuned for**, which §23.3 already measured at ~70% ahead of the best
 hand-written strategy. The evolved build is not the exploit; it is the frontier, and the
 balance is tuned somewhere well below it.
+
+
+---
+
+## 39. Speeding the raid up made the UI unclickable
+
+Reported from play: at 2× everything else stopped responding.
+
+Not a lock — **clicks were being swallowed**. `render()` clears the root and rebuilds it,
+so a repaint landing between `pointerdown` and `click` destroys the element you pressed and
+the click never fires. At 2× that is a repaint every 170ms; at 4×, every 85ms. Roughly
+every other press vanished, which reads exactly like a frozen interface.
+
+Repaints are now held for 320ms after a press, so the click completes first.
+
+**This is a patch, and the third one on the same root cause** (§36 coalesced repaints, §37
+shrank the tree). The renderer rebuilds the document instead of mutating it, and every
+symptom — the slowness, the swallowed clicks, the cost of a deep dungeon — comes from that
+one decision. Patches keep buying room; none of them fix it.
+
+The fix is to keep the DOM and change only what moved: HP bar widths, the active-room
+outline, appended log lines. That is a real refactor of `main.ts` and it should come before
+any more UI is added on top.
