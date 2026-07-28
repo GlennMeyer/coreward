@@ -2469,6 +2469,20 @@ everything else (§13.2), so a spectated run is reproducible.
 This is also the cheapest answer to prototype question 1 — *is the raid fun to watch?* —
 which has been open since §12 and cannot be measured, only seen.
 
+### 32.4 The Understudy waits when you touch anything
+
+At 4× the auto-advance chain leaves almost no window to interact: the raid ends, the
+summary dismisses, the Aftermath continues and the next build starts inside a couple of
+seconds. Changing speed mid-watch was effectively impossible.
+
+**Any click now holds the run.** Deliberately broad — inspecting a monster, opening a
+panel, changing speed all mean you are engaging, and the run should wait rather than sweep
+past you. The banner turns amber, says so, and offers Resume.
+
+The listener is registered in the **capture phase**, so the hold lands before the clicked
+control does its work. Bound the other way, a speed button would change speed and then be
+immediately swept past by the advance it failed to stop.
+
 ### 32.2 Why an advisor is worth having at all
 
 §23.3 measured the gap: the evolved build scored ~70% higher than the best hand-written

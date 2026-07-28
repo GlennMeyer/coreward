@@ -37,7 +37,7 @@ import {
 import { Rng } from '../sim/rng';
 import { buildPhaseFor } from './idlerBrain';
 import {
-  IDLE_YIELD, collectIdle, describeGenome, startIdler, type IdlerMode,
+  IDLE_YIELD, collectIdle, describeGenome, startIdler, stopIdler, type IdlerMode,
   type IdlerState,
 } from './idler';
 import { narrateRaid, type Narration } from '../sim/narrate';
@@ -78,6 +78,15 @@ interface App {
   spectating: boolean;
   /** Two-step confirm on the wipe button. */
   confirmWipe: boolean;
+  /**
+   * The Understudy is holding, because you touched something.
+   *
+   * At 4× the auto-advance chain leaves almost no window to click anything —
+   * the raid ends, the summary dismisses, the Aftermath continues and the next
+   * build starts inside a couple of seconds. Any interaction now stops the
+   * clock until you say go, so changing speed mid-watch is actually possible.
+   */
+  spectatePaused: boolean;
   /** Endless: raid until the Core falls, rather than stopping at 8 (§12a). */
   endless: boolean;
   season: SeasonState;
@@ -128,6 +137,7 @@ const app: App = {
   idler: loadIdler(),
   spectating: false,
   confirmWipe: false,
+  spectatePaused: false,
   endless: bootRun?.endless ?? true,
   season: bootSeason,
   phase: bootRun ? 'build' : 'menu',
@@ -441,7 +451,7 @@ function nextRaid(): void {
   render();
   // Spectating: the Understudy takes its next turn straight away, so the run
   // plays continuously instead of pausing for a click nobody is there to make.
-  if (app.spectating) setTimeout(understudyTurn, 400);
+  if (app.spectating && !app.spectatePaused) setTimeout(understudyTurn, 400);
 }
 
 /** A season with the Codex applied (§10). */
@@ -721,7 +731,7 @@ function menuScreen(): HTMLElement {
  * is the build the evolver actually scored — not a demo approximation of it.
  */
 function understudyTurn(): void {
-  if (!app.spectating || app.phase !== 'build') return;
+  if (!app.spectating || app.spectatePaused || app.phase !== 'build') return;
   const genome = app.idler.best?.genome;
   if (!genome) return;
   buildPhaseFor(app.season, genome, spectateRng);
@@ -738,8 +748,34 @@ function startSpectating(): void {
   understudyTurn();
 }
 
+/**
+ * Any click while spectating stops the clock.
+ *
+ * Deliberately broad: inspecting a monster, changing speed, opening a panel —
+ * all of it means you are engaging, and the run should wait rather than sweep
+ * past you. Resuming is one button.
+ */
+function holdOnInteraction(ev: Event): void {
+  if (!app.spectating || app.spectatePaused) return;
+  const t = ev.target as HTMLElement | null;
+  if (t?.closest('.spectate-bar')) return;   // the bar's own controls
+  app.spectatePaused = true;
+  clearAutoContinue();
+  render();
+}
+
+/** Pick the run back up from wherever it was left. */
+function resumeSpectating(): void {
+  if (!app.spectating || app.spectatePaused) return;
+  if (app.phase === 'build') setTimeout(understudyTurn, 300);
+  else if (app.phase === 'aftermath') scheduleAutoContinue(1200, nextRaid);
+  else if (app.sim?.status === 'complete') scheduleAutoContinue(800, finishRaid);
+  else syncTimer();
+}
+
 function stopSpectating(): void {
   app.spectating = false;
+  app.spectatePaused = false;
   clearAutoContinue();
   render();
 }
@@ -778,10 +814,21 @@ function render(): void {
   }
   root.append(topbar());
   if (app.spectating) {
-    const bar = el(`<div class="spectate-bar">
-      Watching the Understudy — generation ${app.idler.generation}
-      <button>Take over</button></div>`);
-    bar.querySelector('button')!.onclick = stopSpectating;
+    const bar = el(`<div class="spectate-bar ${app.spectatePaused ? 'held' : ''}">
+      <span>${app.spectatePaused
+        ? 'Held — the Understudy is waiting on you'
+        : `Watching the Understudy — generation ${app.idler.generation}`}</span>
+      <span class="row">
+        <button class="resume">${app.spectatePaused ? 'Resume' : 'Hold'}</button>
+        <button>Take over</button>
+      </span></div>`);
+    (bar.querySelector('.resume') as HTMLElement).onclick = (ev) => {
+      ev.stopPropagation();
+      app.spectatePaused = !app.spectatePaused;
+      if (!app.spectatePaused) resumeSpectating(); else clearAutoContinue();
+      render();
+    };
+    (bar.querySelectorAll('button')[1] as HTMLElement).onclick = stopSpectating;
     root.append(bar);
   }
 
@@ -1740,7 +1787,9 @@ function raidDoneBar(): HTMLElement {
     </div>`);
   const btn = m.querySelector('button') as HTMLElement;
   btn.onclick = () => { clearAutoContinue(); finishRaid(); };
-  scheduleAutoContinue(app.spectating ? 900 : AUTO_CONTINUE_MS, finishRaid);
+  if (!app.spectating || !app.spectatePaused) {
+    scheduleAutoContinue(app.spectating ? 900 : AUTO_CONTINUE_MS, finishRaid);
+  }
   bg.append(m);
   return bg;
 }
@@ -1979,6 +2028,12 @@ if (import.meta.hot) {
 
   import.meta.hot.accept();
 }
+
+// Capture phase, so the hold lands before the clicked control does its work —
+// otherwise a speed button would change speed and immediately be swept past.
+root.addEventListener('click', holdOnInteraction, true);
+// Do not leave a search running against a page that is going away.
+globalThis.addEventListener?.('pagehide', () => { stopIdler(); stopTimer(); });
 
 syncIdler();
 render();
