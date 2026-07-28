@@ -540,7 +540,15 @@ type DragPayload =
   | { kind: 'trap'; uid: number }
   | { kind: 'buy-trap'; defId: string };
 
-const DRAG_THRESHOLD = 5;
+/**
+ * Pixels of travel before a press becomes a drag.
+ *
+ * Was 5, which is inside the drift of an ordinary mouse click — so pressing a
+ * chip to select it frequently registered as a drag instead. That is survivable
+ * now that a drag ending where it started falls through to selection, but the
+ * threshold was still tuned for a steady hand rather than a real one.
+ */
+const DRAG_THRESHOLD = 9;
 let ghost: HTMLElement | null = null;
 
 function attachDrag(node: HTMLElement, payload: DragPayload, label: string): void {
@@ -608,8 +616,16 @@ function drop(e: PointerEvent, payload: DragPayload): void {
     const floor = Number(target.dataset['floor']);
     const room = Number(target.dataset['room']);
     if (payload.kind === 'trap') {
+      // Same wobble-is-a-click rule the monsters get below, and the same
+      // "select what you placed" — a trap dragged onto its own room used to
+      // deselect itself, so inspecting one by pressing it closed the panel.
+      if (trapsInRoom(d, floor, room).some((t) => t.uid === payload.uid)) {
+        app.selectedTrap = app.selectedTrap === payload.uid ? null : payload.uid;
+        app.selectedMob = null;
+        return void fail(null);
+      }
       const err = placeTrapInRoom(d, payload.uid, floor, room);
-      if (!err) app.selectedTrap = null;
+      if (!err) { app.selectedTrap = payload.uid; app.selectedMob = null; }
       return void fail(err);
     }
     const price = trapCost(payload.defId);
@@ -647,8 +663,32 @@ function drop(e: PointerEvent, payload: DragPayload): void {
   }
 
   uid = payload.uid;
+
+  // A drag that ends where it started is a click that wobbled.
+  //
+  // The threshold is a few pixels and an ordinary mouse click drifts further
+  // than that, so pressing a monster to *look* at it routinely came up as a
+  // drag onto the room it was already in. That drop then re-rendered, which
+  // destroyed the chip before the browser could deliver the click — so the
+  // selection never changed and the panel went on describing the previous
+  // monster. Clicking a second monster appeared to do nothing at all.
+  if (target.classList.contains('room')) {
+    const f = Number(target.dataset['floor']);
+    const r = Number(target.dataset['room']);
+    if (app.season.dungeon.floors[f]?.rooms[r]?.mobUids.includes(uid)) {
+      app.selectedMob = app.selectedMob === uid ? null : uid;
+      app.selectedTrap = null;
+      return void fail(null);
+    }
+  }
+
+  const moved = app.stack?.uids.includes(uid) ? null : uid;
   const err = applyDrop(target, uid);
-  if (!err) { app.selectedMob = null; app.stack = null; }
+  // Select what you just placed, rather than clearing. You are looking at the
+  // thing you moved; the old behaviour closed the panel on you and was the
+  // other half of "the info does not change". A whole stack selects nothing —
+  // there is no single subject to show.
+  if (!err) { app.selectedMob = moved; app.selectedTrap = null; app.stack = null; }
   fail(err);
 }
 
@@ -1562,6 +1602,9 @@ function mobChip(mob: Mob): HTMLElement {
     ev.stopPropagation();
     if (app.phase === 'build') {
       app.selectedMob = app.selectedMob === mob.uid ? null : mob.uid;
+      // The dock shows a trap in preference to a monster, so leaving a trap
+      // selected meant clicking a monster changed nothing visible.
+      app.selectedTrap = null;
       fail(null);
     } else if (app.phase === 'raid' && app.sim) {
       // Retreat intervention: pull a veteran out before the room falls.

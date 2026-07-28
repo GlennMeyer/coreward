@@ -888,6 +888,61 @@ describe('UI smoke', () => {
     }
   });
 
+  it('a click that drifts still selects, and keeps selecting', () => {
+    // The gesture a real mouse makes: press, wander a few pixels, release.
+    // Crucially this dispatches NO click — the point is that the drag path
+    // alone has to leave the right thing selected, because in a browser the
+    // click is not delivered once a repaint has removed the chip under it.
+    const drift = (node: Element, room: Element) => {
+      const ev = (type: string, x: number) =>
+        new MouseEvent(type, { bubbles: true, button: 0, clientX: x, clientY: 100 });
+      document.elementFromPoint = () => room as Element;
+      node.dispatchEvent(ev('pointerdown', 100));
+      document.dispatchEvent(ev('pointermove', 130));
+      document.dispatchEvent(ev('pointerup', 130));
+    };
+
+    app$().mana = 9999;
+    const place = (name: string) => {
+      click([...document.querySelectorAll('.buy')].find((b) => b.textContent?.includes(name)));
+      click(document.querySelectorAll('.room')[0]);
+    };
+    place('Cave Rat');
+    place('Ogre');
+
+    const dock = () => document.querySelector('.panel.dock h2')?.textContent ?? '';
+    const chips = () => [...document.querySelectorAll('.room .mob')];
+    const room = () => document.querySelectorAll('.room')[0]!;
+
+    click(chips()[0]!);
+    expect(dock()).toContain('Cave Rat');
+
+    // Now "click" the other one with a drifting hand. This used to drop the
+    // Ogre into the room it was already in, clear the selection, and repaint —
+    // leaving the panel describing the Cave Rat forever.
+    drift(chips()[1]!, room());
+    expect(dock()).toContain('Ogre');
+
+    // And it keeps working: pressing the same one again folds it away.
+    drift(chips().find((c) => c.textContent?.includes('Ogre'))!, room());
+    expect(document.querySelector('.panel.dock')).toBeFalsy();
+  });
+
+  it('selecting a monster replaces a selected trap in the dock', () => {
+    app$().mana = 9999;
+    click([...document.querySelectorAll('.buy')].find((b) => b.textContent?.includes('Cave Rat')));
+    click(document.querySelectorAll('.room')[0]);
+    click([...document.querySelectorAll('.buy')].find((b) => b.textContent?.includes('Dart')));
+    click(document.querySelectorAll('.room')[0]);
+
+    click(document.querySelector('.room .trap'));
+    expect(document.querySelector('.panel.dock h2')?.textContent).toContain('Dart');
+    // The dock draws a trap in preference to a monster, so a monster click that
+    // left the trap selected changed nothing on screen.
+    click(document.querySelector('.room .mob'));
+    expect(document.querySelector('.panel.dock h2')?.textContent).toContain('Cave Rat');
+  });
+
   it('the dungeon condenses as it grows', () => {
     const panel = () => document.querySelector('.panel.dungeon')!;
     // Small: full size.
