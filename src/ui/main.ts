@@ -21,7 +21,8 @@ import {
   buyUpgrade, digCost, digFloor, dismissMob, dismissValue, equipGear, getMob,
   nextReforgeCost, reforgeGear, reforgeRank,
   getTrap, nextUpgradeCost, upgradeRank,
-  hireStaff, isOpen, mobEffectiveHp, placeMobInRoom, placeTrapInRoom, rearmAll,
+  hireStaff, isOpen, mobArmor, mobEffectiveDmg, mobEffectiveHp,
+  placeMobInRoom, placeTrapInRoom, rearmAll,
   rearmTrap, trapRearmPrice,
   rearmAllPrice, removeTrap, roomSlotsUsed, setPrice, totalUpkeep, trapsInRoom,
   trapSalvageValue,
@@ -1293,6 +1294,48 @@ function topbar(): HTMLElement {
   return bar;
 }
 
+/** The three numbers a monster is, for the panel and its previews. */
+interface MobStats { hp: number; dmg: number; armor: number }
+
+function statsOf(mob: Mob): MobStats {
+  return {
+    hp: mobEffectiveHp(mob),
+    dmg: mobEffectiveDmg(mob),
+    armor: mobArmor(mob),
+  };
+}
+
+/**
+ * What this purchase would do to the creature, priced in its actual stats.
+ *
+ * Buying gear moved no number anywhere on screen: you spent 60 Gold, the row
+ * grew a tick, and whether that was worth 60 Gold was unknowable without
+ * reading the source. Prose alone cannot fix that — "+15% damage" is a fact
+ * about the multiplier, not about *this* monster, and 15% of a Cave Rat is not
+ * a purchase decision.
+ *
+ * So the preview is computed rather than described: clone the creature, apply
+ * the change, and run the same `mobEffectiveHp` / `mobEffectiveDmg` the raid
+ * will run. `Mob` is plain data (§13.2), which is the only reason this is a
+ * two-line function instead of a parallel implementation that drifts.
+ */
+function previewGain(mob: Mob, apply: (m: Mob) => void): string {
+  const before = statsOf(mob);
+  const copy = JSON.parse(JSON.stringify(mob)) as Mob;
+  apply(copy);
+  const after = statsOf(copy);
+
+  const parts: string[] = [];
+  const d = (label: string, a: number, b: number, dp = 0) => {
+    if (Math.abs(b - a) < 0.05) return;
+    parts.push(`${label} ${a.toFixed(dp)} → ${b.toFixed(dp)}`);
+  };
+  d('HP', before.hp, after.hp);
+  d('dmg', before.dmg, after.dmg, 1);
+  d('armour', before.armor, after.armor, 1);
+  return parts.join(' · ');
+}
+
 /**
  * What a piece of gear actually does, in words.
  *
@@ -1841,6 +1884,16 @@ function selectionPanel(): HTMLElement | null {
   });
   p.append(head);
 
+  // What the creature currently *is*. Without this the panel showed what you
+  // had bought and never what it added up to, so every purchase landed with no
+  // number moving anywhere on screen.
+  const now = statsOf(mob);
+  p.append(el(`<div class="mob-stats">
+    <span><i>HP</i><b>${now.hp}</b></span>
+    <span><i>dmg</i><b>${now.dmg.toFixed(1)}</b></span>
+    <span><i>armour</i><b>${now.armor.toFixed(1)}</b></span>
+  </div>`));
+
   // Named upgrade tracks (§6.6). Same maths as a level, but you are choosing
   // what this creature becomes rather than watching a number go up.
   for (const track of ['bite', 'hide', 'vigor'] as UpgradeTrack[]) {
@@ -1849,9 +1902,12 @@ function selectionPanel(): HTMLElement | null {
     const maxed = cost === null;
     const off = maxed || s.mana < cost!;
     const pips = '●'.repeat(rank) + '○'.repeat(MAX_UPGRADE_RANK - rank);
+    const gain = maxed ? '' : previewGain(mob, (m) => {
+      m.upgrades = { ...m.upgrades, [track]: rank + 1 };
+    });
     const b = el(`<div class="buy up ${off ? 'off' : ''}">
         <span>${esc(upgradeName(mob.defId, track))}<div class="meta">${pips}</div>
-          <div class="sub">${UPGRADE_BLURB[track]}</div></span>
+          <div class="sub">${UPGRADE_BLURB[track]}${gain ? `<b class="gain">${gain}</b>` : ''}</div></span>
         <span class="cost">${maxed ? 'max' : `${cost} mana`}</span>
       </div>`);
     if (!off) {
@@ -1874,9 +1930,13 @@ function selectionPanel(): HTMLElement | null {
       const rank = reforgeRank(mob, g.id);
       const cost = nextReforgeCost(mob, g.id);
       const cant = s.gold < cost;
-      const b = el(`<div class="buy ${cant ? 'off' : ''}">
+      const gain = previewGain(mob, (m) => {
+        m.reforge = { ...m.reforge, [g.id]: rank + 1 };
+      });
+      const b = el(`<div class="buy ${cant ? 'off' : ''}"
+          title="${esc(g.name)} — ${gearSub(g)}. Reforging amplifies that same effect again; each reforge costs more than the last (§6.5). Currently reforged ×${rank}.">
           <span>${g.name} ✓<div class="meta">reforged ×${rank}</div>
-            <div class="sub">${gearSub(g)} · reforging amplifies it again, at a rising price.</div></span>
+            <div class="sub">${gearSub(g)}<b class="gain">${gain}</b></div></span>
           <span class="cost g">${cost}g</span>
         </div>`);
       if (!cant) {
@@ -1889,8 +1949,16 @@ function selectionPanel(): HTMLElement | null {
       p.append(b);
       continue;
     }
-    const b = el(`<div class="buy ${off ? 'off' : ''}">
-        <span>${g.name}<div class="sub">${gearSub(g)}</div></span>
+    const gain = previewGain(mob, (m) => { m.gear = [...m.gear, g.id]; });
+    // Why the row is unbuyable, on the row. "Nothing happens when I click it"
+    // was the same missing feedback as "nothing happens when I buy it".
+    const why = owned ? '' : full
+      ? `No free slot — a monster carries ${MAX_GEAR_SLOTS}.`
+      : s.gold < g.cost ? `Costs ${g.cost}g; you have ${s.gold}.` : '';
+    const b = el(`<div class="buy ${off ? 'off' : ''}"
+        title="${esc(g.name)} — ${gearSub(g)}. Costs ${g.cost} Gold, and takes one of this monster's ${MAX_GEAR_SLOTS} gear slots. It can be reforged later for more of the same effect.">
+        <span>${g.name}<div class="sub">${gearSub(g)}${
+          why ? `<b class="why">${why}</b>` : `<b class="gain">${gain}</b>`}</div></span>
         <span class="cost g">${g.cost}g</span>
       </div>`);
     if (!off) {

@@ -277,6 +277,24 @@ button.on { background: #2c4a63; border-color: var(--adv); }
 .buy:not(.off):hover .sub { color: var(--ink); }
 
 /*
+ * The delta a purchase would make, on the row that sells it.
+ *
+ * "+15% damage" is a fact about the multiplier. "dmg 6.0 → 6.9" is a fact about
+ * the creature in front of you, and only the second one is a decision.
+ */
+.buy .sub .gain { display: block; color: var(--renown); font-weight: 600; margin-top: 2px; }
+.buy .sub .why { display: block; color: var(--warn); margin-top: 2px; }
+.buy.off .sub .gain { color: var(--dim); }
+
+/* What the monster currently adds up to, so a purchase visibly moves it. */
+.mob-stats {
+  display: flex; gap: 16px; padding: 6px 8px; margin-bottom: 8px;
+  background: var(--panel-2); border-radius: 4px; font-size: 11px;
+}
+.mob-stats i { color: var(--dim); font-style: normal; margin-right: 5px; }
+.mob-stats b { font-weight: 600; }
+
+/*
  * "The fight is down there." A deep dungeon is taller than the window, so the
  * room the party is actually in can sit entirely below the fold — the player
  * watches an empty floor plan while the delve happens off screen.

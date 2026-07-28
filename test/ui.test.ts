@@ -727,7 +727,7 @@ describe('UI smoke', () => {
     expect(dock.textContent).toContain('mana');
   });
 
-  it('explains upgrades and gear in subtext, not in a tooltip', () => {
+  it('explains upgrades in subtext, and gear in both', () => {
     const buy = [...document.querySelectorAll('.buy')]
       .find((b) => b.textContent?.includes('Cave Rat'));
     click(buy);
@@ -749,9 +749,54 @@ describe('UI smoke', () => {
     // so retuning GEAR cannot leave the words describing the old numbers.
     const fangs = [...dock.querySelectorAll('.buy')]
       .find((b) => b.textContent?.includes('Iron Fangs'))!;
-    expect(fangs.hasAttribute('title')).toBe(false);
     expect(fangs.querySelector('.sub')!.textContent)
       .toContain(`${Math.round((GEAR['fangs']!.dmgMult - 1) * 100)}% damage`);
+    // Gold rows carry the prose in a tooltip too — asked for explicitly, and it
+    // holds the detail (slots, reforging) the one-line subtext has no room for.
+    expect(fangs.getAttribute('title')).toContain('gear slots');
+  });
+
+  it('previews what a purchase does, and the preview comes true', () => {
+    const buy = [...document.querySelectorAll('.buy')]
+      .find((b) => b.textContent?.includes('Cave Rat'));
+    click(buy);
+    click(document.querySelectorAll('.room')[0]);
+    click(document.querySelector('.room .mob'));
+
+    const stats = () => document.querySelector('.mob-stats')!.textContent!;
+    const row = (name: string) => [...document.querySelectorAll('.panel.dock .buy')]
+      .find((b) => b.textContent?.includes(name))!;
+
+    // The panel says what the creature currently is — the thing a purchase was
+    // supposed to move and previously did not.
+    expect(stats()).toMatch(/HP\s*\d+/);
+
+    // "Sharper Teeth" promises a damage number. Read the promise off the row,
+    // buy it, and hold the panel to it.
+    const gain = row('Sharper Teeth').querySelector('.gain')!.textContent!;
+    const promised = gain.match(/dmg [\d.]+ → ([\d.]+)/)![1]!;
+    expect(Number(promised)).toBeGreaterThan(0);
+
+    click(row('Sharper Teeth'));
+    expect(document.querySelector('.mob-stats')!.textContent)
+      .toContain(promised);
+  });
+
+  it('says why a gear row cannot be bought', () => {
+    const buy = [...document.querySelectorAll('.buy')]
+      .find((b) => b.textContent?.includes('Cave Rat'));
+    click(buy);
+    click(document.querySelectorAll('.room')[0]);
+
+    // Drain the treasury before opening the dock, so the row has to account for
+    // itself rather than just going grey and ignoring clicks.
+    (globalThis as unknown as { __coreward: { gold: number } }).__coreward.gold = 0;
+    click(document.querySelector('.room .mob'));
+    const fangs = [...document.querySelectorAll('.panel.dock .buy')]
+      .find((b) => b.textContent?.includes('Iron Fangs'))!;
+    expect(fangs.className).toContain('off');
+    expect(fangs.querySelector('.why')?.textContent)
+      .toContain(`Costs ${GEAR['fangs']!.cost}g`);
   });
 
   it('badges the toolbar when the raid is off screen, and jumps to it', () => {
