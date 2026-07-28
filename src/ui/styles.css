@@ -649,3 +649,12 @@ button.wipe:hover { background: #2a1a1e; border-color: var(--danger); }
 .lore-line b { font-weight: 600; color: var(--dim); }
 .lore-line.capped b { color: var(--warn); }
 .lore-foot { color: var(--dim); font-size: 10px; margin-top: 5px; font-style: italic; }
+
+/* This run's hand (§44). A short menu must read as a draw, not as the game. */
+.draft {
+  display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline;
+  margin: -2px 0 8px; padding: 5px 7px; background: #1f2530;
+  border-left: 3px solid var(--adv); border-radius: 4px; font-size: 10px;
+}
+.draft-head { color: var(--adv); text-transform: uppercase; letter-spacing: .1em; }
+.draft-out { color: var(--dim); }

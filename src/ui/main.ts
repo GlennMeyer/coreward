@@ -1964,6 +1964,21 @@ function buildPanel(): HTMLElement {
   // Only what this run offers (§44). A missing roster means "everything", so a
   // season saved before the draft still shows the full bestiary.
   const roster = app.season.roster;
+  // Say that this is a draft. Filtering the list silently is the same mistake
+  // as the guild learning invisibly — the player reads a short menu as the
+  // whole game rather than as this run's hand, and the one interesting fact
+  // (the Ogre is not coming) never reaches them.
+  if (roster) {
+    const missing = Object.values(MOBS).filter((m) => !roster.mobs.includes(m.id))
+      .concat(Object.values(TRAPS).filter((t) => !roster.traps.includes(t.id)) as never[])
+      .map((x) => x.name);
+    shop.append(el(`<div class="draft">
+      <span class="draft-head">This run's hand</span>
+      ${missing.length
+        ? `<span class="draft-out">no ${missing.map((n) => esc(n)).join(', ')}</span>`
+        : '<span class="draft-out">everything is available</span>'}
+    </div>`));
+  }
   for (const def of Object.values(MOBS)) {
     if (roster && !roster.mobs.includes(def.id)) continue;
     const off = s.mana < def.cost;

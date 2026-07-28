@@ -1047,6 +1047,28 @@ describe('UI smoke', () => {
       .toContain('They have your number');
   });
 
+  it("names what this run's hand is missing", () => {
+    const draft = document.querySelector('.draft')!;
+    expect(draft).toBeTruthy();
+
+    // The interesting fact is the absence. A filtered list on its own reads as
+    // the whole game; naming what is NOT coming is what makes it a draw.
+    const roster = (globalThis as unknown as {
+      __coreward: { roster: { mobs: string[]; traps: string[] } };
+    }).__coreward.roster;
+    const absent = Object.values(MOBS).filter((m) => !roster.mobs.includes(m.id));
+    expect(absent.length).toBeGreaterThan(0);
+    for (const m of absent) expect(draft.textContent).toContain(m.name);
+
+    // And what IS offered is buyable, so the readout and the shop agree.
+    for (const id of roster.mobs) {
+      expect(document.querySelector(`.buy[data-mob="${id}"]`)).toBeTruthy();
+    }
+    for (const m of absent) {
+      expect(document.querySelector(`.buy[data-mob="${m.id}"]`)).toBeFalsy();
+    }
+  });
+
   it('the dungeon condenses as it grows', () => {
     const panel = () => document.querySelector('.panel.dungeon')!;
     // Small: full size.
