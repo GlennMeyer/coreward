@@ -183,6 +183,22 @@ describe('UI smoke', () => {
     expect(modal?.textContent).toMatch(/party is destroyed|Core is breached|turn back/);
   });
 
+  it('auto-continues from the Aftermath without a click', async () => {
+    vi.useFakeTimers();
+    try {
+      click(button('Begin Raid'));
+      click(button('Instant'));
+      click(button('Aftermath'));
+      expect(document.querySelector('.modal')?.textContent).toContain('Aftermath');
+
+      // No click: it should move on by itself.
+      await vi.advanceTimersByTimeAsync(4500);
+      expect(button('Begin Raid')).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('advances through aftermath back to the build phase', () => {
     click(button('Begin Raid'));
     click(button('Instant'));
@@ -355,6 +371,10 @@ describe('UI smoke', () => {
     // And it is switched off: left running, auto-play banks into the fresh
     // profile within seconds and quietly undoes the wipe.
     expect((idler as unknown as { mode: string }).mode).toBe('off');
+    // And the view is reset, not just the data: no stale raid pointing at the
+    // dungeon that was just discarded.
+    expect(document.querySelector('.menu')).toBeTruthy();
+    expect(document.querySelector('.topbar')).toBeFalsy();
 
   });
 

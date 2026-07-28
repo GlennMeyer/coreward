@@ -715,8 +715,24 @@ function menuScreen(): HTMLElement {
     app.profile = loadProfile();
     app.season = createSeason(Math.floor(Math.random() * 100000), app.endless);
     applyProfile(app.season, app.profile);
+    // Reset the whole view, not just the data. A wipe left `phase`, `sim` and
+    // the spectator flags untouched, so wiping from anywhere other than a
+    // clean menu could leave a stale RaidSim pointing at the dungeon that was
+    // just thrown away — a raid rendering against one season while the topbar
+    // reads another.
+    stopTimer();
+    clearAutoContinue();
+    app.phase = 'menu';
+    app.sim = null;
+    app.aftermath = null;
+    app.narration = null;
+    app.events = [];
+    app.log = [];
+    app.spectating = false;
+    app.spectatePaused = false;
     app.lastInsight = null;
     app.lastLog = [];
+    app.lastRaidNumber = 0;
     app.confirmWipe = false;
     render();
   };
@@ -1883,8 +1899,14 @@ function aftermathModal(a: AftermathType): HTMLElement {
     </table>`));
 
   const row = el('<div class="row" style="margin-top:14px"><button class="primary">Continue →</button></div>');
-  row.querySelector('button')!.onclick = nextRaid;
+  const go = row.querySelector('button') as HTMLElement;
+  go.onclick = () => { clearAutoContinue(); nextRaid(); };
   m.append(row);
+  // Auto-continue. This is the modal the player actually clicks through every
+  // raid, and it was the one my earlier edit missed — the raid-summary bar got
+  // it, this did not. Cancelled by any interaction, so reading at your own pace
+  // still wins.
+  scheduleAutoContinue(app.spectating ? 1400 : AUTO_CONTINUE_MS, nextRaid);
   bg.append(m);
   return bg;
 }
