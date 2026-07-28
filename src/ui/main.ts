@@ -395,7 +395,7 @@ function tick(): void {
   if (!sim || sim.status !== 'running') { stopTimer(); return; }
   for (const e of sim.step()) pushLog(e);
   if (sim.status !== 'running') stopTimer();
-  render();
+  scheduleRender();
 }
 
 /** "Instant": drain the whole raid with no renderer in the loop. */
@@ -1011,6 +1011,27 @@ function persistRun(): void {
     lastLog: app.lastLog,
     lastRaidNumber: app.lastRaidNumber,
   });
+}
+
+let framePending = false;
+
+/**
+ * Repaint at most once per animation frame.
+ *
+ * `render()` rebuilds the whole document, and a raid tick can trigger several
+ * calls — each event, each state change. At 4× that was a full rebuild every
+ * 85ms of ten floors of rooms plus the log. Coalescing collapses a tick's worth
+ * of calls into one paint and hands the browser back its frame budget.
+ *
+ * Call `render()` directly only when the DOM must be correct before the next
+ * statement reads it — the tests do, which is why it stays exported-in-spirit.
+ */
+function scheduleRender(): void {
+  if (framePending) return;
+  framePending = true;
+  const raf = globalThis.requestAnimationFrame
+    ?? ((cb: FrameRequestCallback) => setTimeout(() => cb(0), 16) as unknown as number);
+  raf(() => { framePending = false; render(); });
 }
 
 function render(): void {
@@ -1971,7 +1992,9 @@ function stageStrip(sim: RaidSim): HTMLElement {
 /** Scrollable log list. Shared by the live raid view and the Build-Phase replay. */
 function logList(lines: LogLine[]): HTMLElement {
   const log = el('<div class="log"></div>');
-  for (const line of lines.slice(-400)) {
+  // 120, not 400: the panel shows a dozen at a time, and the rest was DOM
+  // built to be scrolled past. The full history still lives in `app.log`.
+  for (const line of lines.slice(-120)) {
     log.append(el(`<div class="${line.cls}"><span class="t">${line.t}</span>${esc(line.text)}</div>`));
   }
   return log;
