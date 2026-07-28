@@ -289,6 +289,46 @@ describe('UI smoke', () => {
     }
   });
 
+  it('admins skip the Aftermath, say so, and can stop', async () => {
+    vi.useFakeTimers();
+    try {
+      // Real storage, not a guard-and-bail: written first as `if
+      // (!localStorage) return`, which passed while asserting nothing, because
+      // jsdom here supplies no localStorage at all. That is what `asAdmin` is
+      // for.
+      asAdmin();
+      document.body.innerHTML = '<div id="app"></div>';
+      vi.resetModules();
+      await import('../src/ui/main');
+      click(button('Begin a Delve'));
+
+      // The chip is the whole point: admin is sticky, so without it the game
+      // behaves differently forever with nothing on screen saying why.
+      const chip = () => document.querySelector('.admin-chip') as HTMLElement;
+      expect(chip()).toBeTruthy();
+      expect(chip().textContent).toContain('auto on');
+
+      click(button('Begin Raid'));
+      click(button('Instant'));
+      await vi.advanceTimersByTimeAsync(4500);
+      expect(document.querySelector('.modal')?.textContent).toContain('Aftermath');
+      // Unlike a player's, this one moves on by itself.
+      await vi.advanceTimersByTimeAsync(13_000);
+      expect(document.querySelector('.modal')).toBeFalsy();
+
+      // One click and the admin gets the player's Aftermath back.
+      click(chip());
+      expect(chip().textContent).toContain('auto off');
+      click(button('Begin Raid'));
+      click(button('Instant'));
+      await vi.advanceTimersByTimeAsync(4500);
+      await vi.advanceTimersByTimeAsync(13_000);
+      expect(document.querySelector('.modal')?.textContent).toContain('Aftermath');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('advances through aftermath back to the build phase', () => {
     click(button('Begin Raid'));
     click(button('Instant'));

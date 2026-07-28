@@ -1004,6 +1004,7 @@ function stopSpectating(): void {
 }
 
 const ADMIN_KEY = 'coreward.admin';
+const ADMIN_AUTO_KEY = 'coreward.adminAuto';
 
 // The hash lives in its own generated file so `npm run rotate-key` can
 // rewrite it without touching anything else.
@@ -1056,6 +1057,33 @@ function isAdmin(): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Whether the admin session skips through the Aftermath on a timer.
+ *
+ * Admin is sticky and, until now, completely invisible: once a `?key=` visit
+ * had set the flag, the plain URL behaved differently forever with nothing on
+ * screen saying so. That is fine for tools that only *add* a panel and bad for
+ * one that changes how the game plays — the Aftermath auto-continuing for
+ * admins and waiting for everyone else reads as a bug you cannot reproduce.
+ *
+ * So it is on by default, because getting through raids quickly is the whole
+ * point of the admin path, and it is one click to stop, with the switch on
+ * screen whenever it is doing anything.
+ */
+function adminAuto(): boolean {
+  try {
+    return globalThis.localStorage?.getItem(ADMIN_AUTO_KEY) !== '0';
+  } catch {
+    return true;
+  }
+}
+
+function setAdminAuto(on: boolean): void {
+  try {
+    globalThis.localStorage?.setItem(ADMIN_AUTO_KEY, on ? '1' : '0');
+  } catch { /* the session keeps whatever it had */ }
 }
 
 /** (Re)start the background search to match the current mode. */
@@ -1291,6 +1319,25 @@ function topbar(): HTMLElement {
       </div>
     </div>`);
   (bar.querySelector('.menu-btn') as HTMLElement).onclick = toMenu;
+
+  // Say so when the game is not behaving the way a player's would. Admin is
+  // sticky, so this is otherwise a permanent invisible difference — and the
+  // first thing it changes is whether the Aftermath waits for you.
+  if (isAdmin()) {
+    const on = adminAuto();
+    const chip = el(`<button class="stat admin-chip ${on ? 'on' : ''}"
+      title="${on
+        ? 'Admin: the Aftermath continues on its own after a few seconds. Players always have to click. Click to turn it off.'
+        : 'Admin tools are on, but the Aftermath waits for a click, exactly as it does for a player. Click to skip through raids again.'}"
+      >admin · auto ${on ? 'on' : 'off'}</button>`);
+    chip.onclick = (ev) => {
+      ev.stopPropagation();
+      setAdminAuto(!on);
+      if (on) clearAutoContinue();
+      render();
+    };
+    bar.insertBefore(chip, bar.querySelector('.stats'));
+  }
   return bar;
 }
 
@@ -2406,7 +2453,7 @@ function aftermathModal(a: AftermathType): HTMLElement {
   // has nobody reading it, and the admin path exists to get through raids fast
   // while testing balance.
   if (app.spectating) scheduleAutoContinue(1400, nextRaid);
-  else if (isAdmin()) scheduleAutoContinue(aftermathDwellMs(app.narration), nextRaid);
+  else if (isAdmin() && adminAuto()) scheduleAutoContinue(aftermathDwellMs(app.narration), nextRaid);
   bg.append(m);
   return bg;
 }

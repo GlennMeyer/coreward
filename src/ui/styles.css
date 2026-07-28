@@ -299,6 +299,15 @@ button.on { background: #2c4a63; border-color: var(--adv); }
  * room the party is actually in can sit entirely below the fold — the player
  * watches an empty floor plan while the delve happens off screen.
  */
+/* Admin is sticky and otherwise invisible; it must not change play silently. */
+.admin-chip {
+  border: 1px dashed var(--souls); border-radius: 999px; padding: 2px 10px;
+  background: transparent; color: var(--souls); cursor: pointer;
+  font: inherit; font-size: 11px;
+}
+.admin-chip.on { border-style: solid; }
+.admin-chip:hover { background: var(--souls); color: var(--bg); }
+
 .stat.offscreen {
   border: 1px solid var(--adv); border-radius: 999px; padding: 2px 10px;
   background: transparent; color: var(--adv); cursor: pointer;
