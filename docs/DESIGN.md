@@ -2850,3 +2850,65 @@ moved on. A press now halts the tick as well and resumes it once the click has l
 
 You are always interacting with the frame you are looking at, which is the actual
 requirement behind "clicking should pause everything for a moment".
+
+
+---
+
+## 42. Roadmap
+
+### 42.1 Is the scaling right?
+
+| | |
+|---|---|
+| Whole Codex | 1,224 Insight |
+| A run yields | ~23 Insight |
+| Runs to exhaust it | **53** |
+| At ~15 min a run | **~13 hours** |
+
+The *length* is about right. **The content is not**: all four Codex entries adjust starting
+Hearts, Mana or Gold, so those 53 runs are the same run with a slightly better opening.
+Nothing new ever appears — no monster you have not seen, no trap, no floor effect.
+
+That is the honest state: a thirteen-hour progression bar attached to a one-hour game.
+
+### 42.2 What actually needs doing, in order
+
+**1 — Renderer refactor.** `main.ts` rebuilds the entire document every paint. It has now
+produced three separate user-visible bugs (§36 thrashing, §37 scroll, §39 swallowed clicks)
+and every patch buys room without fixing it. Nothing else should be built on top of it.
+*Keep the DOM, mutate what moved.*
+
+**2 — Run variety.** The single biggest gap, and the answer to "why keep playing". A draft
+— three of six monsters, two of five traps, offered at the start — turns 53 identical runs
+into 53 different ones and gives the Codex something to widen other than numbers.
+
+**3 — Difficulty shape, not level (§41 measurement).** Tier is the only source of
+difficulty, so every knob is a volume control. Raids 1–4 sit at 0% breach because the
+opening loadout overmatches Tier 1, and no ramp setting fixes that without making raids 5–8
+unsurvivable. Needs either a leaner opening or a second axis that pressures early without
+compounding late.
+
+**4 — Depth needs a cost (§35.1).** Ten floors runs to the safety cap: the party runs out of
+Kit before it runs out of rooms. Kit scaling with dungeon size, or per-floor upkeep.
+
+**5 — Content the Codex can unlock.** Once 1–4 are done, the meta has somewhere to go:
+monsters, traps, floor effects (§5.3, designed and unbuilt), a second amenity tier.
+
+### 42.3 Deliberately not next
+
+- **More balance tuning.** It is measured against scripted strategies that §23.3 showed are
+  ~70% off the frontier, and against a game whose variety problem dominates its numbers
+  problem.
+- **The 2.5D renderer (§13.4).** Genuinely wanted, and pointless before item 1.
+- **Two parties per wave (§4.4).** Real content, but it lands better after variety exists.
+
+### 42.4 The pattern worth carrying forward
+
+Four ceilings this project shipped with — `MAX_TIER_PROTOTYPE`, `MAX_FLOORS`, the 8-raid
+season, the tier table's last row — all read as *scope* and all silently capped the thing
+the game is about. Each one, lifted, turned what it bounded into the dominant strategy.
+
+And almost every bug the owner found was invisible to a green test suite: a filesystem that
+does not emit events, `JSON.stringify(Infinity)`, a modal that never checked which ending
+it was reporting, damage landing on people two rooms away. **Tests prove the code does what
+it was written to do; they say nothing about whether that was the right thing.**
