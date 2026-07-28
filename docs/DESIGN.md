@@ -2629,3 +2629,39 @@ It now distinguishes them and says how many Hearts are still standing.
 Worth noting how it got there: the endless work (§29) made "survived" the rare case, and
 the screen was rewritten during §31 with only the common one in mind. A branch that stops
 being exercised is one nobody re-reads.
+
+
+---
+
+## 35. Depth, and a control window
+
+### 35.1 MAX_FLOORS was still 3
+
+`MAX_FLOORS = 3` — a §12 prototype cap, still in place long after §5.1's table went to ten
+floors and §16 designed an excavation system on top of it. The same class of bug as the
+Tier ceiling (§25): a constant that reads as *scope* while capping the thing the game is
+about. "Keep building deeper" cannot be the fantasy if the answer is no after the second
+dig.
+
+Now 10, with dig costs generated past the hand-written table.
+
+**And it immediately broke the balance**, which is the honest half of this. The
+survival-optimised search now reaches the 200-raid safety cap again — Tier 34, 4,349
+Renown, 25,819 unspent Gold. A ten-floor dungeon is simply too much runway: the party runs
+out of Kit long before it runs out of rooms, so depth wins on its own.
+
+That is §25 and §30 repeating a third time: **whenever a bound is lifted, the thing it was
+bounding becomes the dominant strategy.** Depth now needs a cost that scales with it —
+upkeep per floor, or Kit that scales with dungeon size — and that is unresolved. Recorded
+rather than quietly tuned, because the shape of the fix is a design decision.
+
+### 35.2 A click buys three seconds
+
+Two earlier attempts were both wrong. Pausing on **every** click (§32.4) guaranteed control
+and destroyed idling — a thing that stops when you touch it cannot run in the background.
+Pausing on **none** of them (§32.5) meant that at 4× the auto-advance chain swept past
+before you could reach anything.
+
+A click now buys a **three-second grace window**: enough to reach the menu, change speed or
+hit Hold, and if you do not use it the run carries on by itself. Reaching into the dungeon
+still holds it outright — that is intervening rather than watching.

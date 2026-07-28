@@ -733,8 +733,27 @@ export function mobDmg(defId: string, level: number): number {
 // ─── Dungeon structure (§5.1) ────────────────────────────────────────────────
 
 /** Prototype caps at 3 floors (§12). Index 0 = floor 1, which is free. */
-export const DIG_COSTS = [0, 60, 110];
-export const MAX_FLOORS = 3;
+const DIG_COST_TABLE = [0, 60, 110, 180, 270, 390, 540, 720, 940, 1200];
+
+/** Mana to dig floor `n` (0-indexed). Grows past the table rather than stopping. */
+export function digCostFor(floorIndex: number): number {
+  const known = DIG_COST_TABLE[floorIndex];
+  if (known !== undefined) return known;
+  const last = DIG_COST_TABLE[DIG_COST_TABLE.length - 1]!;
+  return Math.round(last * 1.3 ** (floorIndex - DIG_COST_TABLE.length + 1));
+}
+
+export const DIG_COSTS = DIG_COST_TABLE;
+/**
+ * How deep a dungeon can get.
+ *
+ * Was 3 — a §12 prototype cap, still in place long after §5.1's table went to
+ * ten floors and §16 designed excavation on top of it. It is the same class of
+ * bug as the Tier ceiling (§25): a constant that reads as scope while quietly
+ * capping the thing the game is about. "Keep building deeper" cannot be the
+ * fantasy if the answer is no after the second dig.
+ */
+export const MAX_FLOORS = 10;
 export const AMENITY_SLOTS_PER_LANDING = 2;
 /**
  * Hearts the Core starts with (§5.4).

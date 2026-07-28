@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   AMENITIES, GEAR, MOBS, RENOWN_PER_ESCAPEE, RENOWN_WIPE_MULT, TIERS, TRAPS, TUNING,
-  STARTING_HEARTS, XP_THRESHOLDS, mobMaxHp, resetTuning, roomCapacity, roomsOnFloor,
+  MAX_FLOORS, STARTING_HEARTS, XP_THRESHOLDS, digCostFor, mobMaxHp, resetTuning, roomCapacity, roomsOnFloor,
   tierForRenown, trapCost, trapRearmCost, MAX_TIER_PROTOTYPE,
 } from '../src/sim/data';
 import { generateParty } from '../src/sim/adventurers';
@@ -38,10 +38,12 @@ describe('dungeon construction', () => {
     expect(d.landings).toHaveLength(3);
   });
 
-  it('caps at 3 floors in the prototype', () => {
-    digFloor(d);
-    digFloor(d);
-    expect(digFloor(d)).toMatch(/caps at 3/);
+  it('digs to MAX_FLOORS and then the rock gives out', () => {
+    for (let i = 1; i < MAX_FLOORS; i++) expect(digFloor(d)).toBeNull();
+    expect(d.floors).toHaveLength(MAX_FLOORS);
+    expect(digFloor(d)).toMatch(/rock gives out/);
+    // Costs keep rising past the hand-written table rather than stopping.
+    expect(digCostFor(MAX_FLOORS + 2)).toBeGreaterThan(digCostFor(MAX_FLOORS - 1));
   });
 
   it('enforces room slot capacity', () => {

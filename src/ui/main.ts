@@ -792,7 +792,8 @@ function menuScreen(): HTMLElement {
  * is the build the evolver actually scored — not a demo approximation of it.
  */
 function understudyTurn(): void {
-  if (!app.spectating || app.spectatePaused || app.phase !== 'build') return;
+  if (!app.spectating || app.spectatePaused || inGrace()) return;
+  if (app.phase !== 'build') return;
   const genome = app.idler.best?.genome;
   if (!genome) return;
   buildPhaseFor(app.season, genome, spectateRng);
@@ -825,19 +826,46 @@ function startSpectating(): void {
  * the spectate bar is always on screen with Hold and Take over, so control is
  * one click away at any speed, always.
  */
+/** How long a click buys you before the Understudy carries on. */
+const GRACE_MS = 3000;
+let graceUntil = 0;
+
+/**
+ * Any click buys three seconds.
+ *
+ * Two earlier cuts were both wrong: pausing on every click meant it could not
+ * idle at all, and pausing on none of them meant that at 4× the auto-advance
+ * chain swept past before you could reach anything. A grace window gives both —
+ * you always get a usable moment to act (reach the menu, change speed, hit
+ * Hold), and if you do not use it the run carries on by itself.
+ *
+ * Reaching into the dungeon still holds it outright: that is intervening, not
+ * watching, and the Understudy should not keep making moves on top of yours.
+ */
 function holdOnInteraction(ev: Event): void {
   if (!app.spectating || app.spectatePaused) return;
   const t = ev.target as HTMLElement | null;
   if (!t) return;
-  // Its own controls, the speed buttons and anything in a modal are "watching",
-  // not "intervening".
-  if (t.closest('.spectate-bar') || t.closest('.modal') || t.closest('.log')) return;
+  if (t.closest('.spectate-bar')) return;
+
   const intervening = t.closest('.room, .amenity, .buy, .landing, .mob, .trap')
     || (t.closest('button') && app.phase === 'build');
-  if (!intervening) return;
-  app.spectatePaused = true;
+  if (intervening) {
+    app.spectatePaused = true;
+    clearAutoContinue();
+    render();
+    return;
+  }
+
+  // Everything else: a breather, then it resumes on its own.
+  graceUntil = Date.now() + GRACE_MS;
   clearAutoContinue();
-  render();
+  scheduleAutoContinue(GRACE_MS, () => { if (app.spectating) resumeSpectating(); });
+}
+
+/** True while a click's grace window is still open. */
+function inGrace(): boolean {
+  return app.spectating && Date.now() < graceUntil;
 }
 
 /** Pick the run back up from wherever it was left. */
@@ -951,6 +979,7 @@ function render(): void {
 
 /** Step out to the title screen. The run is saved, not abandoned (§33.1). */
 function toMenu(): void {
+  graceUntil = 0;
   stopTimer();
   clearAutoContinue();
   persistRun();
@@ -1894,7 +1923,7 @@ function raidDoneBar(): HTMLElement {
     </div>`);
   const btn = m.querySelector('button') as HTMLElement;
   btn.onclick = () => { clearAutoContinue(); finishRaid(); };
-  if (!app.spectating || !app.spectatePaused) {
+  if (!app.spectatePaused && !inGrace()) {
     scheduleAutoContinue(app.spectating ? 900 : AUTO_CONTINUE_MS, finishRaid);
   }
   bg.append(m);

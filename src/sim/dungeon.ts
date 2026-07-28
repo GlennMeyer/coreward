@@ -5,7 +5,7 @@
  * disable/explain a button with the same call it would use to perform it.
  */
 import {
-  AMENITIES, AMENITY_SLOTS_PER_LANDING, COMMERCE_XP_THRESHOLDS, DIG_COSTS,
+  AMENITIES, AMENITY_SLOTS_PER_LANDING, COMMERCE_XP_THRESHOLDS, digCostFor,
   GEAR, HIRED_STAFF_COST, MAX_COMMERCE_LEVEL, MAX_FLOORS, MAX_GEAR_SLOTS,
   MAX_UPGRADE_RANK, REFORGE_EFFECT, UPGRADE_EFFECT, reforgeCost,
   upgradeRankCost, type UpgradeTrack,
@@ -50,7 +50,7 @@ export function getMob(d: Dungeon, uid: number): Mob | undefined {
 export function digCost(d: Dungeon): number | null {
   const next = d.floors.length;
   if (next >= MAX_FLOORS) return null;
-  return DIG_COSTS[next] ?? null;
+  return digCostFor(next);
 }
 
 /**
@@ -63,7 +63,7 @@ export function digCost(d: Dungeon): number | null {
  * non-losing outcome and contradicting pillar 2.
  */
 export function digFloor(d: Dungeon): BuildError {
-  if (d.floors.length >= MAX_FLOORS) return 'Prototype caps at 3 floors.';
+  if (d.floors.length >= MAX_FLOORS) return `The rock gives out at ${MAX_FLOORS} floors.`;
   d.floors.push({ rooms: emptyRooms(d.floors.length) });
   d.landings.push(emptyLanding());
   return null;
