@@ -2952,30 +2952,49 @@ you. "Everything you buy is permanent" would have left nothing at risk.
 
 ### 43.1 What the measurement said
 
-Balance runner, 300 seasons per scripted strategy, after the change:
+Balance runner, 300 seasons per scripted strategy: healthy and clustered — 9.2 to 13.4
+raids, Thrill 21–38, no outlier. Nothing to act on there.
 
-| | best scripted | GA, fitness=survival |
-|---|---|---|
-| raids | 13.4 (patron) | **127.0** |
-| survival | — | 25% |
-| tier | 3.8 | 21.5 |
+The genetic search (20 genomes × 10 generations × 4 seasons, fitness=survival) is where the
+signal is, and reading it correctly matters more than the headline number.
 
-The scripted strategies are healthy and clustered — 9.2 to 13.4 raids, no outlier, Thrill
-21–38. The genetic search is the finding: **127 raids is roughly ten times the best
-hand-written build**, on a policy spending 36% of its Mana on upgrades and reaching mob
-level 4.
+**The finding is the trend, not the score.** Mana spent on upgrades, per generation:
 
-That is the expected direction and quite possibly too much of it. A species-wide rank now
-buys *N creatures'* worth of benefit for one creature's price, so `18 × tier × 1.6^rank`
-is priced for a rule that no longer exists — the more of a species you field, the cheaper
-each effective upgrade gets, which rewards exactly the wide-swarm build the cost curve was
-meant to tax.
+| gen | 0 | 2 | 6 | 7 | 8–9 |
+|---|---|---|---|---|---|
+| mana on upgrades | 16% | 24% | 27% | 29% | **36%** |
 
-**Not yet fixed, and deliberately recorded rather than patched on a hunch.** The honest fix
-is to scale rank cost by living population of that species, or to raise the base and flatten
-the curve, and then re-measure. Guessing at a multiplier is how §14/§25.4/§28.3 happened.
+That climbs monotonically across the whole run, through several changes of monster and trap
+preference. It is the one parameter the search pushes in a consistent direction, which is
+the signature of something underpriced — and it points at exactly the mechanism §43
+introduced. A species-wide rank buys *N creatures'* worth of benefit for one creature's
+price, so `18 × tier × 1.6^rank` is priced for a rule that no longer exists: the wider your
+swarm, the cheaper each effective upgrade, which rewards precisely the build the curve was
+written to tax.
 
-This is also the fifth entry in the §42.4 pattern, from the other side: not a ceiling that
-turned out to be load-bearing, but a **cost curve that quietly stopped matching what it was
-pricing.** Whenever the *unit* a price applies to changes, the price is wrong until
-re-measured, even though nothing about the number changed.
+**The score jump is noise, and I first recorded it as a result.** Generation 8 → 9 went
+5493 → 13031, raids 53.8 → 127.0, gold 1318 → 4025. The genome string is identical between
+those two generations — same monsters, same traps, same every share. Nothing was learned;
+seeds rotate per generation and four seasons per evaluation is not enough to average out a
+build whose gold compounds once it survives deep. **127 raids is a property of four seeds,
+not of a build.** Quoting it as "ten times the best hand-written strategy" was wrong.
+
+Two lessons, and the second is the general one:
+
+1. **Survival is 0% in nine of ten generations**, under *survival* fitness. The prototype is
+   lethal, not soft — the opposite of what the outlier suggested on its own.
+2. **A fitness score that moves while the genome does not is a measurement of the harness,
+   not of the game.** Diffing consecutive generations' build strings is the cheap check, and
+   it should happen before any number from a GA run is quoted as a finding.
+
+Also worth keeping: taunt rate collapsed 31% → 9% at generation 8, and monster levels stay
+flat at 4–8 throughout. Levels are not the exploit; upgrades are.
+
+**Not yet fixed, deliberately.** The honest fix is to scale rank cost by living population of
+that species, or raise the base and flatten the curve, then re-measure with enough seasons
+per evaluation that the result means something. Guessing at a multiplier is how §14, §25.4
+and §28.3 happened.
+
+This is the fifth entry in the §42.4 pattern, from the other side: not a ceiling that turned
+out to be load-bearing, but a **cost curve that quietly stopped matching the unit it
+prices.** Nothing about the number changed — what changed is what one purchase buys.
