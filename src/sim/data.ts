@@ -970,7 +970,7 @@ export interface TierRow {
 export const TIERS: TierRow[] = [
   { tier: 1, renown: 0, partySize: 3, levelMin: 1, levelMax: 2, gold: 25, manaBonus: 0, formation: 'single-file' },
   { tier: 2, renown: 66, partySize: 3, levelMin: 3, levelMax: 4, gold: 45, manaBonus: 25, formation: 'single-file' },
-  { tier: 3, renown: 165, partySize: 4, levelMin: 5, levelMax: 6, gold: 65, manaBonus: 55, formation: 'single-file' },
+  { tier: 3, renown: 165, partySize: 4, levelMin: 5, levelMax: 6, gold: 65, manaBonus: 55, formation: 'party' },
   { tier: 4, renown: 308, partySize: 4, levelMin: 7, levelMax: 8, gold: 85, manaBonus: 95, formation: 'party' },
   { tier: 5, renown: 506, partySize: 4, levelMin: 9, levelMax: 11, gold: 105, manaBonus: 140, formation: 'party' },
   { tier: 6, renown: 770, partySize: 5, levelMin: 12, levelMax: 14, gold: 125, manaBonus: 195, formation: 'party' },
@@ -1326,6 +1326,19 @@ export const ENDLESS_SAFETY_CAP = 200;
  * not whether.
  */
 export const TIER_FLOOR_RAIDS = 6;
+
+/**
+ * Raids after which delves arrive as coordinated parties regardless of Tier.
+ *
+ * Formation was hostage to the Renown thresholds, and stretching those 2.2×
+ * (§4.4) pushed the escalation beat out of reach: measured, coordinated parties
+ * did not appear until raid 8 and reached only 28% by raid 9. A player could
+ * finish nine raids without ever meeting the thing §18 exists to build up to.
+ *
+ * Escalation of *形* should not depend on a number tuned for escalation of
+ * *strength*. This gives it its own floor.
+ */
+export const PARTY_FORMATION_RAID = 5;
 
 /** The tier a run is at least at, from how long it has been running. */
 export function tierFloorFromRaids(raidNumber: number): number {

@@ -514,3 +514,7 @@ button.wipe:hover { background: #2a1a1e; border-color: var(--danger); }
   text-align: left; margin-top: 12px;
 }
 .admin-box .idler-head { color: var(--warn); }
+.stack-badge {
+  margin-left: 6px; background: var(--gold); color: #1a1710;
+  border-radius: 8px; padding: 0 6px; font-size: 10px; font-weight: 600;
+}

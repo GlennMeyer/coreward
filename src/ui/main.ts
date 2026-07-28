@@ -86,6 +86,14 @@ interface App {
    * offer Resume.
    */
   runStarted: boolean;
+  /**
+   * Monsters bought but not yet placed, staged on the shop row.
+   *
+   * Clicking a shop row repeatedly stacks a quantity; the last one is dragged
+   * into a room and the whole stack goes with it. Buying four rats one at a
+   * time was four buy-clicks and four drags for a single decision.
+   */
+  stack: { defId: string; uids: number[] } | null;
   /** Two-step confirm on the wipe button. */
   confirmWipe: boolean;
   /**
@@ -150,6 +158,7 @@ const app: App = {
   lastInsight: null,
   idler: bootIdler,
   spectating: false,
+  stack: null,
   runStarted: bootRun !== null,
   confirmWipe: false,
   spectatePaused: false,
@@ -612,12 +621,30 @@ function drop(e: PointerEvent, payload: DragPayload): void {
 
   uid = payload.uid;
   const err = applyDrop(target, uid);
-  if (!err) app.selectedMob = null;
+  if (!err) { app.selectedMob = null; app.stack = null; }
   fail(err);
 }
 
 function applyDrop(target: HTMLElement, uid: number): string | null {
   const d = app.season.dungeon;
+  // A staged stack travels together: whatever fits goes in, the rest stays
+  // unassigned rather than silently vanishing.
+  const stack = app.stack?.uids.includes(uid) ? app.stack.uids : null;
+  if (stack && target.classList.contains('room')) {
+    const f = Number(target.dataset['floor']);
+    const r = Number(target.dataset['room']);
+    let placed = 0;
+    let lastErr: string | null = null;
+    for (const id of stack) {
+      const err = placeMobInRoom(d, id, f, r);
+      if (err) lastErr = err; else placed++;
+    }
+    app.stack = null;
+    if (placed === 0) return lastErr;
+    return placed < stack.length
+      ? `Placed ${placed} of ${stack.length} — the rest are unassigned.`
+      : null;
+  }
   if (target.classList.contains('room')) {
     return placeMobInRoom(d, uid, Number(target.dataset['floor']), Number(target.dataset['room']));
   }
@@ -1467,9 +1494,17 @@ function buildPanel(): HTMLElement {
         const mob = buyMob(d, def.id);
         if (typeof mob === 'string') return fail(mob);
         s.mana -= def.cost;
+        // Stack same-species buys so a row of four rats is four clicks and one
+        // drag, not four of each.
+        if (app.stack?.defId === def.id) app.stack.uids.push(mob.uid);
+        else app.stack = { defId: def.id, uids: [mob.uid] };
         app.selectedMob = mob.uid;
+        app.selectedTrap = null;
         return fail(null);
       };
+    }
+    if (app.stack?.defId === def.id && app.stack.uids.length > 1) {
+      b.append(el(`<span class="stack-badge">×${app.stack.uids.length}</span>`));
     }
     shop.append(b);
   }

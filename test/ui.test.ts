@@ -210,6 +210,31 @@ describe('UI smoke', () => {
     expect(document.querySelector('.room .mob')?.textContent).toContain('Ogre');
   });
 
+  it('an endless run survives the round trip through JSON', async () => {
+    // JSON.stringify(Infinity) is null, so a reloaded endless run used to come
+    // back with totalRaids null and end itself on raid 1.
+    const store = fakeStorage();
+    document.body.innerHTML = '<div id="app"></div>';
+    vi.resetModules();
+    await import('../src/ui/main');
+    click(button('Begin a Delve'));
+    const buy = [...document.querySelectorAll('.buy')]
+      .find((b) => b.textContent?.includes('Cave Rat'));
+    click(buy);
+    click(document.querySelectorAll('.room')[0]);
+    expect(store.has('coreward.run.v1')).toBe(true);
+
+    // Reload, then play a raid: it must not declare the season over.
+    document.body.innerHTML = '<div id="app"></div>';
+    vi.resetModules();
+    await import('../src/ui/main');
+    click(button('Begin Raid'));
+    click(button('Instant'));
+    click(button('Aftermath'));
+    expect(button('Delve Again')).toBeFalsy();   // i.e. the run continues
+    expect(button('Continue')).toBeTruthy();
+  });
+
   it('a survived season does not report the Core as fallen', () => {
     // Fixed-length seasons can be *survived*; endless ones always end overrun.
     // Telling a player who finished with four Hearts intact that their Core

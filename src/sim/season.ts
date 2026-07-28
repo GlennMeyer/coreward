@@ -2,7 +2,7 @@
  * Season orchestration and the Aftermath economy (§3, §4).
  */
 import {
-  ENDLESS_RAIDS, ENDLESS_SAFETY_CAP, GRUDGE_TRAIT, tierAt, tierFloorFromRaids, MAX_TIER_PROTOTYPE, SEASON_RAIDS, TUNING,
+  ENDLESS_RAIDS, ENDLESS_SAFETY_CAP, GRUDGE_TRAIT, PARTY_FORMATION_RAID, tierAt, tierFloorFromRaids, MAX_TIER_PROTOTYPE, SEASON_RAIDS, TUNING,
   tierForRenown,
   type TierRow,
 } from './data';
@@ -43,7 +43,14 @@ export function currentTier(s: SeasonState): TierRow {
   // whether it does. Without this, an endless run can be stalled indefinitely
   // by pricing the dungeon into obscurity.
   const floor = Math.min(tierFloorFromRaids(s.raidNumber), MAX_TIER_PROTOTYPE);
-  return byRenown.tier >= floor ? byRenown : tierAt(floor);
+  const row = byRenown.tier >= floor ? byRenown : tierAt(floor);
+  // Formation gets its own schedule (§18.2): word of a dungeon worth organising
+  // for spreads on its own, and the beat should not be hostage to a threshold
+  // tuned for something else.
+  if (row.formation !== 'party' && s.raidNumber >= PARTY_FORMATION_RAID) {
+    return { ...row, formation: 'party' };
+  }
+  return row;
 }
 
 /**

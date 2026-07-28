@@ -130,6 +130,16 @@ export function loadRun(): SavedRun | null {
     // A season with no dungeon is a save from a build that structured things
     // differently; discard rather than crash on it.
     if (!parsed?.season?.dungeon?.floors) return null;
+
+    // JSON cannot represent Infinity — `JSON.stringify(Infinity)` is `null`.
+    // An endless run stores `totalRaids: Infinity`, so a saved-and-reloaded run
+    // came back with `null`, and `raidNumber >= Math.min(null, cap)` is true on
+    // raid 1: the run ended the moment it was resumed, reporting the season as
+    // survived. Restore it on the way in.
+    const t = parsed.season.totalRaids as number | null;
+    if (t === null || t === undefined || !Number.isFinite(t)) {
+      parsed.season.totalRaids = Number.POSITIVE_INFINITY;
+    }
     return parsed;
   } catch {
     return null;
