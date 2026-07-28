@@ -996,6 +996,38 @@ describe('UI smoke', () => {
       .toContain('you fielded what you had');
   });
 
+  it('shows what the guild has learned, as odds not a tally', () => {
+    // A placed monster gives render$ a chip to toggle for a repaint.
+    click([...document.querySelectorAll('.buy')].find((b) => b.textContent?.includes('Cave Rat')));
+    click(document.querySelectorAll('.room')[0]);
+
+    // No lore yet: nothing to show. The panel must not carry an empty box.
+    expect(document.querySelector('.lore')).toBeFalsy();
+
+    // Nine adventurers have barely escaped an Ogre wall. Under §40 that is a
+    // 54% chance each fresh arrival turns up Plated — and until now the only
+    // way to find that out was to lose to it.
+    const season = (globalThis as unknown as {
+      __coreward: { guildLore: Record<string, number> };
+    }).__coreward;
+    season.guildLore['muscle'] = 9;
+    render$();
+
+    const lore = document.querySelector('.lore')!;
+    expect(lore).toBeTruthy();
+    expect(lore.textContent).toContain('Plated');
+    expect(lore.textContent).toContain(
+      `${Math.round(Math.min(TUNING.guildLoreCap, 9 * TUNING.guildLoreRate) * 100)}%`,
+    );
+
+    // Past the cap it says so in the copy, because that is the moment the
+    // advice changes from "they are learning" to "stop doing this".
+    season.guildLore['muscle'] = 99;
+    render$();
+    expect(document.querySelector('.lore')!.textContent)
+      .toContain('They have your number');
+  });
+
   it('the dungeon condenses as it grows', () => {
     const panel = () => document.querySelector('.panel.dungeon')!;
     // Small: full size.

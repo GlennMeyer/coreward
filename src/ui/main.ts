@@ -9,7 +9,7 @@
 import './styles.css';
 import {
   AMENITIES, FORMATION_INFO, GEAR, HIRED_STAFF_COST, MAX_GEAR_SLOTS,
-  MAX_UPGRADE_RANK, MOBS, STARTING_HEARTS, upgradeName, type UpgradeTrack,
+  GRUDGE_TRAIT, LEARNED, MAX_UPGRADE_RANK, MOBS, STARTING_HEARTS, upgradeName, type UpgradeTrack,
   type GearDef,
   INSURANCE_BASE, STAFFED_REVENUE_MULT,
   admissionPrice,
@@ -2226,6 +2226,51 @@ function selectionPanel(): HTMLElement | null {
  * "What is coming, and can we take it?" — a power-ratio readout, not a
  * prediction. See `forecast()` for why a single number cannot be a win chance.
  */
+/**
+ * What the guild has learned about you, and what it will bring because of it.
+ *
+ * The arms race already existed (§40) and was completely invisible: grudges
+ * pooled into `guildLore`, fresh arrivals rolled counter-traits off it, and the
+ * only thing the player saw was their build quietly working less well. A
+ * mechanic you cannot observe is indistinguishable from variance — which is
+ * why it added difficulty without adding a game.
+ *
+ * Shown as odds rather than a bare count, because the count is not the
+ * decision. "9 seen" means nothing; "54% arrive Plated" tells you the ogre wall
+ * has stopped being a secret and it is time to do something else. Which is the
+ * whole point of §40.1: this punishes repetition, not the player.
+ */
+function guildLoreBlock(): HTMLElement | null {
+  const lore = app.season.guildLore ?? {};
+  const rows = Object.entries(lore)
+    .map(([reason, seen]) => {
+      const traitId = GRUDGE_TRAIT[reason];
+      const trait = traitId ? LEARNED[traitId] : undefined;
+      if (!trait) return null;
+      return { seen, trait, chance: Math.min(TUNING.guildLoreCap, seen * TUNING.guildLoreRate) };
+    })
+    .filter((r): r is NonNullable<typeof r> => r !== null && r.chance > 0)
+    .sort((a, b) => b.chance - a.chance);
+
+  if (rows.length === 0) return null;
+
+  const box = el('<div class="lore"></div>');
+  box.append(el('<div class="lore-head">Word has got around</div>'));
+  for (const r of rows) {
+    const capped = r.chance >= TUNING.guildLoreCap;
+    box.append(el(`<div class="lore-line ${capped ? 'capped' : ''}"
+      title="${esc(r.trait.blurb)} Earned by ${r.seen} adventurer${r.seen === 1 ? '' : 's'} who barely got out.">
+      <span>${esc(r.trait.name)}</span>
+      <b>${Math.round(r.chance * 100)}%</b></div>`));
+  }
+  box.append(el(`<div class="lore-foot">${
+    rows.some((r) => r.chance >= TUNING.guildLoreCap)
+      ? 'They have your number. Change the answer.'
+      : 'Repeat a trick and they learn it. Vary, and they cannot.'
+  }</div>`));
+  return box;
+}
+
 function forecastPanel(): HTMLElement {
   const s = app.season;
   const tier = currentTier(s);
@@ -2233,12 +2278,14 @@ function forecastPanel(): HTMLElement {
   const p = el('<div class="panel"></div>');
   p.append(el(`<h2>Next Raid — Tier ${f.tier}</h2>`));
 
+  const lore = guildLoreBlock();
   const returning = s.veterans.filter((v) => !v.retired).length;
   p.append(el(`
     <div class="fc-party">
       <b>${f.partySize} adventurers</b>, level ${f.levelMin}–${f.levelMax}
       ${returning > 0 ? `<span class="fc-ret" title="Survivors who may come back (§15.5)">· ${returning} may return</span>` : ''}
     </div>`));
+  if (lore) p.append(lore);
 
   // Formation (§7.2). This changes what "ready" means more than any other row
   // in the panel — the same four people either take turns at your door or come

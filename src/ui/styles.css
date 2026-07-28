@@ -635,3 +635,17 @@ button.wipe:hover { background: #2a1a1e; border-color: var(--danger); }
 .rc-line .gold, .rc-tot .gold { color: var(--gold); }
 .rc-line .good { color: var(--renown); }
 .rc-line .bad { color: var(--danger); }
+
+/* What the guild has learned about you (§40) — an arms race you can watch. */
+.lore {
+  margin: 8px 0 4px; padding: 7px 9px; background: #2a2233;
+  border-left: 3px solid var(--souls); border-radius: 4px; font-size: 11px;
+}
+.lore-head {
+  color: var(--souls); font-size: 9px; text-transform: uppercase;
+  letter-spacing: .12em; margin-bottom: 5px;
+}
+.lore-line { display: flex; justify-content: space-between; gap: 8px; padding: 1px 0; }
+.lore-line b { font-weight: 600; color: var(--dim); }
+.lore-line.capped b { color: var(--warn); }
+.lore-foot { color: var(--dim); font-size: 10px; margin-top: 5px; font-style: italic; }
