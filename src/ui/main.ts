@@ -31,6 +31,8 @@ import {
   startingBonuses, type CodexId, type InsightBreakdown, type Profile,
 } from '../sim/meta';
 import { loadProfile, saveProfile, loadIdler, saveIdler } from './storage';
+import { Rng } from '../sim/rng';
+import { buildPhaseFor } from './idlerBrain';
 import {
   IDLE_YIELD, collectIdle, describeGenome, startIdler, type IdlerMode,
   type IdlerState,
@@ -64,6 +66,13 @@ interface App {
   lastInsight: InsightBreakdown | null;
   /** Background genetic search (§32). */
   idler: IdlerState;
+  /**
+   * Watching the Understudy play (§32.3). It drives the real Build Phase and
+   * the real raid loop — the point is to SEE a good build, not to be told
+   * about one, and it is the only way to answer whether a raid is worth
+   * watching at all.
+   */
+  spectating: boolean;
   /** Endless: raid until the Core falls, rather than stopping at 8 (§12a). */
   endless: boolean;
   season: SeasonState;
@@ -105,6 +114,7 @@ const app: App = {
   profile: bootProfile,
   lastInsight: null,
   idler: loadIdler(),
+  spectating: false,
   endless: true,
   season: bootSeason,
   phase: 'menu',
@@ -385,6 +395,9 @@ function nextRaid(): void {
   app.aftermath = null;
   app.narration = null;
   render();
+  // Spectating: the Understudy takes its next turn straight away, so the run
+  // plays continuously instead of pausing for a click nobody is there to make.
+  if (app.spectating) setTimeout(understudyTurn, 400);
 }
 
 /** A season with the Codex applied (§10). */
@@ -589,6 +602,12 @@ function menuScreen(): HTMLElement {
     wrap.append(panel);
   }
 
+  if (app.idler.best) {
+    const watch = el('<button class="big">Watch the Understudy</button>');
+    watch.onclick = startSpectating;
+    wrap.append(watch);
+  }
+
   const opts = el('<div class="row opts"></div>');
   const endlessBtn = el(`<button class="${app.endless ? 'on' : ''}">Endless: ${app.endless ? 'on' : 'off'}</button>`);
   endlessBtn.onclick = () => { app.endless = !app.endless; render(); };
@@ -614,6 +633,35 @@ function menuScreen(): HTMLElement {
   return wrap;
 }
 
+/**
+ * Let the Understudy take a turn: it builds, then it delves.
+ *
+ * Deliberately the same `buildPhaseFor` the CLI search uses, so what you watch
+ * is the build the evolver actually scored — not a demo approximation of it.
+ */
+function understudyTurn(): void {
+  if (!app.spectating || app.phase !== 'build') return;
+  const genome = app.idler.best?.genome;
+  if (!genome) return;
+  buildPhaseFor(app.season, genome, spectateRng);
+  beginRaid();
+}
+
+/** Seeded so a spectated run is reproducible like everything else (§13.2). */
+const spectateRng = new Rng(0x5EEC7);
+
+function startSpectating(): void {
+  if (!app.idler.best) return;
+  app.spectating = true;
+  restart();
+  understudyTurn();
+}
+
+function stopSpectating(): void {
+  app.spectating = false;
+  render();
+}
+
 /** (Re)start the background search to match the current mode. */
 function syncIdler(): void {
   startIdler(app.idler, app.profile, () => {
@@ -633,6 +681,13 @@ function render(): void {
     return;
   }
   root.append(topbar());
+  if (app.spectating) {
+    const bar = el(`<div class="spectate-bar">
+      Watching the Understudy — generation ${app.idler.generation}
+      <button>Take over</button></div>`);
+    bar.querySelector('button')!.onclick = stopSpectating;
+    root.append(bar);
+  }
 
   const cols = el('<div class="cols"></div>');
   const info = el('<div class="col-info"></div>');
@@ -1588,6 +1643,7 @@ function raidDoneBar(): HTMLElement {
       <div class="row"><button class="primary">Aftermath →</button></div>
     </div>`);
   m.querySelector('button')!.onclick = finishRaid;
+  if (app.spectating) setTimeout(() => { if (app.spectating) finishRaid(); }, 900);
   bg.append(m);
   return bg;
 }
@@ -1606,6 +1662,15 @@ function tauntModal(): HTMLElement {
         <button class="danger" data-a="1">Taunt them deeper</button>
       </div>
     </div>`);
+  if (app.spectating) {
+    const g = app.idler.best?.genome;
+    setTimeout(() => {
+      if (!app.spectating || sim.status !== 'awaiting-taunt') return;
+      for (const e of sim.resolveTaunt(spectateRng.chance(g?.tauntRate ?? 0.5))) pushLog(e);
+      render();
+      syncTimer();
+    }, 700);
+  }
   m.querySelectorAll('button').forEach((b) => {
     (b as HTMLElement).onclick = () => {
       for (const e of sim.resolveTaunt((b as HTMLElement).dataset['a'] === '1')) pushLog(e);

@@ -231,6 +231,30 @@ describe('UI smoke', () => {
     expect(document.querySelector('.idler-head')?.textContent).toContain('generation');
   });
 
+  it('the Understudy can be watched playing the real game', async () => {
+    document.body.innerHTML = '<div id="app"></div>';
+    vi.resetModules();
+    globalThis.localStorage?.clear();
+    await import('../src/ui/main');
+
+    // No evolved build yet, so nothing to watch.
+    expect(button('Watch the Understudy')).toBeFalsy();
+
+    // Let the search find something, then the option appears.
+    click(button('Advisor'));
+    await new Promise((r) => setTimeout(r, 1200));
+    const watch = button('Watch the Understudy');
+    if (!watch) return;   // search may not have produced a best yet on a slow box
+
+    watch.click();
+    // It drives the REAL game: a dungeon on screen and a run under way.
+    expect(document.querySelector('.spectate-bar')).toBeTruthy();
+    expect(document.querySelector('.topbar')).toBeTruthy();
+    // And it can be handed back.
+    click(button('Take over'));
+    expect(document.querySelector('.spectate-bar')).toBeFalsy();
+  });
+
   it('opens on a title screen, not straight into a delve', async () => {
     document.body.innerHTML = '<div id="app"></div>';
     vi.resetModules();

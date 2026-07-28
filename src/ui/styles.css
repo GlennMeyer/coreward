@@ -487,3 +487,10 @@ button.big { padding: 12px; font-size: 14px; }
 .idler-head { color: var(--dim); text-transform: uppercase; letter-spacing: .08em; }
 .idler-best { color: var(--ink); margin: 4px 0 6px; line-height: 1.4; }
 .idler-best .sub { display: block; color: var(--dim); margin-top: 2px; }
+
+/* ─── Spectator mode ─────────────────────────────────────────────────────── */
+.spectate-bar {
+  display: flex; align-items: center; gap: 12px; justify-content: space-between;
+  background: #241f2e; border: 1px solid var(--souls); border-radius: 6px;
+  padding: 7px 12px; margin-bottom: 12px; font-size: 11px; color: var(--souls);
+}

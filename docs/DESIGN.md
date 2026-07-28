@@ -2452,6 +2452,23 @@ It runs in chunked timer ticks rather than a Worker — a season resolves in abo
 millisecond, so a generation per tick is imperceptible, and it keeps the thing
 dependency-free and debuggable.
 
+### 32.3 Watching it play
+
+**Auto-play in the background was the wrong feature.** Numbers accruing off-screen tell you
+nothing; the interesting thing about a strong build is *seeing* it.
+
+**Watch the Understudy** hands the real game to the evolved genome: it takes the actual
+Build Phase, starts the raid, answers its own Taunt offers at its evolved rate, and rolls
+straight into the next one. Speed controls still work, the log still narrates, and **Take
+over** hands it back mid-run with the dungeon it built.
+
+It uses the same `buildPhaseFor` the CLI search scores against, so what you watch is the
+build the evolver actually measured, not a demo approximation of it. The RNG is seeded like
+everything else (§13.2), so a spectated run is reproducible.
+
+This is also the cheapest answer to prototype question 1 — *is the raid fun to watch?* —
+which has been open since §12 and cannot be measured, only seen.
+
 ### 32.2 Why an advisor is worth having at all
 
 §23.3 measured the gap: the evolved build scored ~70% higher than the best hand-written
