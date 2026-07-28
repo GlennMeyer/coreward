@@ -505,7 +505,7 @@ function nextRaid(): void {
   render();
   // Spectating: the Understudy takes its next turn straight away, so the run
   // plays continuously instead of pausing for a click nobody is there to make.
-  if (app.spectating && !app.spectatePaused) setTimeout(understudyTurn, 400);
+  if (app.spectating && !app.spectatePaused) scheduleUnderstudy(400);
 }
 
 /** A season with the Codex applied (§10). */
@@ -940,6 +940,68 @@ function menuScreen(): HTMLElement {
  * Deliberately the same `buildPhaseFor` the CLI search uses, so what you watch
  * is the build the evolver actually scored — not a demo approximation of it.
  */
+/**
+ * The Understudy's pending next move.
+ *
+ * Tracked rather than fired into the void, because the banner needs to be able
+ * to answer "is this thing actually running?" and a bare `setTimeout` cannot be
+ * asked. See `spectateStalled`.
+ */
+let understudyTimer: number | null = null;
+
+function scheduleUnderstudy(ms: number): void {
+  if (understudyTimer !== null) clearTimeout(understudyTimer);
+  understudyTimer = setTimeout(() => {
+    understudyTimer = null;
+    understudyTurn();
+  }, ms) as unknown as number;
+}
+
+/**
+ * True when nobody is driving: spectating, not deliberately held, and no timer
+ * of any kind pending.
+ *
+ * The banner used to label its button purely from `spectatePaused`, which is a
+ * flag about *intent* and says nothing about whether the run is advancing. Any
+ * stall therefore showed "Hold" over a game that had already stopped, and the
+ * only way out was to Hold — making the flag true — and then Resume, which is
+ * the two-click dance this exists to remove.
+ */
+function spectateStalled(): boolean {
+  if (!app.spectating || app.spectatePaused) return false;
+  return timer === null && autoTimer === null && understudyTimer === null;
+}
+
+/**
+ * Pick the run back up on its own if it stops.
+ *
+ * A stall is a bug, and the honest response to one is not a button — it is to
+ * carry on. The banner offering Resume is the fallback for when this cannot
+ * make progress (no evolved genome yet, say); this is what means you usually
+ * never see it. Waits for the stall to persist so the quarter-second pause a
+ * click deliberately introduces is not mistaken for one.
+ */
+let spectateWatchdog: number | null = null;
+let stalledSince = 0;
+
+function stopSpectateWatchdog(): void {
+  if (spectateWatchdog !== null) { clearInterval(spectateWatchdog); spectateWatchdog = null; }
+  stalledSince = 0;
+}
+
+function startSpectateWatchdog(): void {
+  stopSpectateWatchdog();
+  spectateWatchdog = setInterval(() => {
+    if (!app.spectating || !root.isConnected) return stopSpectateWatchdog();
+    if (!spectateStalled()) { stalledSince = 0; return; }
+    if (stalledSince === 0) { stalledSince = Date.now(); return; }
+    if (Date.now() - stalledSince < 1500) return;
+    stalledSince = 0;
+    resumeSpectating();
+    render();
+  }, 700) as unknown as number;
+}
+
 function understudyTurn(): void {
   if (!app.spectating || app.spectatePaused || inGrace()) return;
   if (app.phase !== 'build') return;
@@ -964,6 +1026,7 @@ function startSpectating(): void {
   if (!app.idler.best) return;
   app.spectating = true;
   app.spectatePaused = false;
+  startSpectateWatchdog();
   if (!app.runStarted || app.season.over) {
     restart();
     return;   // restart() hands the turn over itself
@@ -1037,7 +1100,12 @@ function inGrace(): boolean {
 /** Pick the run back up from wherever it was left. */
 function resumeSpectating(): void {
   if (!app.spectating || app.spectatePaused) return;
-  if (app.phase === 'build') setTimeout(understudyTurn, 300);
+  // A finished run is the one state this never handled, which is exactly where
+  // "between runs" stalls: the Core falls, the modal appears, and the Understudy
+  // sits there forever with the banner still claiming it is watching. Start the
+  // next run — that is what watching it learn means.
+  if (app.phase === 'over') { restart(); return; }
+  if (app.phase === 'build') scheduleUnderstudy(300);
   else if (app.phase === 'aftermath') scheduleAutoContinue(1200, nextRaid);
   else if (app.sim?.status === 'complete') scheduleAutoContinue(800, finishRaid);
   else syncTimer();
@@ -1047,6 +1115,8 @@ function stopSpectating(): void {
   app.spectating = false;
   app.spectatePaused = false;
   clearAutoContinue();
+  stopSpectateWatchdog();
+  if (understudyTimer !== null) { clearTimeout(understudyTimer); understudyTimer = null; }
   render();
 }
 
@@ -1217,6 +1287,8 @@ function render(): void {
     stopTimer();
     clearAutoContinue();
     stopIdler();
+    stopSpectateWatchdog();
+    if (understudyTimer !== null) { clearTimeout(understudyTimer); understudyTimer = null; }
     return;
   }
   // Debug handle onto the live season, refreshed each frame. Dev and test only:
@@ -1232,18 +1304,35 @@ function render(): void {
   }
   root.append(topbar());
   if (app.spectating) {
-    const bar = el(`<div class="spectate-bar ${app.spectatePaused ? 'held' : ''}">
+    // Offer Resume whenever the run is not moving — whether you held it or it
+    // stopped on its own. The button describes what will happen, not what flag
+    // is set, so a stall is one click to clear instead of Hold-then-Resume.
+    const stopped = app.spectatePaused || spectateStalled();
+    const bar = el(`<div class="spectate-bar ${stopped ? 'held' : ''}">
       <span>${app.spectatePaused
         ? 'Held — the Understudy is waiting on you'
-        : `Watching the Understudy — generation ${app.idler.generation}`}</span>
+        : spectateStalled()
+          ? 'Stopped — pick it back up whenever you like'
+          : `Watching the Understudy — generation ${app.idler.generation}`}</span>
       <span class="row">
-        <button class="resume">${app.spectatePaused ? 'Resume' : 'Hold'}</button>
+        <button class="resume ${stopped ? 'primary' : ''}">${stopped ? 'Resume' : 'Hold'}</button>
         <button>Take over</button>
       </span></div>`);
     (bar.querySelector('.resume') as HTMLElement).onclick = (ev) => {
       ev.stopPropagation();
-      app.spectatePaused = !app.spectatePaused;
-      if (!app.spectatePaused) resumeSpectating(); else clearAutoContinue();
+      // Recomputed here, not captured from the paint above. The banner is
+      // drawn once and the run can stop underneath it, so a button that acted
+      // on what was true when it was drawn would hold an already-stopped run —
+      // which is precisely the Hold-then-Resume dance.
+      if (app.spectatePaused || spectateStalled()) {
+        app.spectatePaused = false;
+        graceUntil = 0;
+        stalledSince = 0;
+        resumeSpectating();
+      } else {
+        app.spectatePaused = true;
+        clearAutoContinue();
+      }
       render();
     };
     (bar.querySelectorAll('button')[1] as HTMLElement).onclick = stopSpectating;
