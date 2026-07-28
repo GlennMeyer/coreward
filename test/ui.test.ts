@@ -183,6 +183,21 @@ describe('UI smoke', () => {
     expect(modal?.textContent).toMatch(/party is destroyed|Core is breached|turn back/);
   });
 
+  it('can step back to the menu mid-run without losing the run', () => {
+    const buy = [...document.querySelectorAll('.buy')]
+      .find((b) => b.textContent?.includes('Ogre'));
+    click(buy);
+    click(document.querySelectorAll('.room')[0]);
+
+    click(document.querySelector('.menu-btn'));
+    expect(document.querySelector('.menu')).toBeTruthy();
+    // Saved, not abandoned: the way back is offered.
+    expect(button('Resume')).toBeTruthy();
+
+    click(button('Resume'));
+    expect(document.querySelector('.room .mob')?.textContent).toContain('Ogre');
+  });
+
   it('auto-continues from the Aftermath without a click', async () => {
     vi.useFakeTimers();
     try {

@@ -77,6 +77,14 @@ interface App {
    * watching at all.
    */
   spectating: boolean;
+  /**
+   * A delve is under way (even if it is still raid 1 with nothing built).
+   *
+   * Inferring this from the season does not work: on raid 1 a started run and
+   * an untouched one look identical, so the menu could not tell whether to
+   * offer Resume.
+   */
+  runStarted: boolean;
   /** Two-step confirm on the wipe button. */
   confirmWipe: boolean;
   /**
@@ -137,6 +145,7 @@ const app: App = {
   lastInsight: null,
   idler: loadIdler(),
   spectating: false,
+  runStarted: bootRun !== null,
   confirmWipe: false,
   spectatePaused: false,
   endless: bootRun?.endless ?? true,
@@ -437,6 +446,7 @@ function finishRaid(): void {
     app.lastInsight = applyRun(app.profile, app.season, currentTier(app.season).tier);
     saveProfile(app.profile);
     clearRun();
+    app.runStarted = false;
   }
   app.phase = app.season.over ? 'over' : 'aftermath';
   render();
@@ -469,7 +479,7 @@ function restart(): void {
   app.lastInsight = null;
   Object.assign(app, {
     season: newSeason(Math.floor(Math.random() * 100000)),
-    phase: 'build', sim: null, speedIdx: 1, log: [], events: [],
+    phase: 'build', runStarted: true, sim: null, speedIdx: 1, log: [], events: [],
     selectedMob: null, selectedTrap: null, aftermath: null, narration: null, error: '',
   });
   render();
@@ -628,19 +638,24 @@ function menuScreen(): HTMLElement {
       · <b>${p.insight}</b> Insight</div>`));
   }
 
-  const saved = loadRun();
-  if (saved && !app.season.over) {
-    const resume = el(`<button class="primary big">Resume — raid ${saved.season.raidNumber}</button>`);
+  // Resume from memory first, storage second. A run stepped out of is right
+  // there in `app.season`; requiring a successful save to offer the way back
+  // would strand the player whenever storage is unavailable — private
+  // browsing, a full quota, or a jsdom that supplies none.
+  const inMemory = app.runStarted && !app.season.over;
+  const saved = inMemory ? null : loadRun();
+  const resumable = inMemory ? app.season : saved?.season ?? null;
+  if (resumable && !resumable.over) {
+    const resume = el(`<button class="primary big">Resume — raid ${resumable.raidNumber}</button>`);
     resume.onclick = () => {
-      app.season = saved.season;
-      app.endless = saved.endless;
+      if (saved) { app.season = saved.season; app.endless = saved.endless; }
       app.phase = 'build';
       render();
     };
     wrap.append(resume);
   }
 
-  const start = el(`<button class="${saved ? '' : 'primary '}big">${saved ? 'Abandon and Begin Anew' : 'Begin a Delve'}</button>`);
+  const start = el(`<button class="${resumable ? '' : 'primary '}big">${resumable ? 'Abandon and Begin Anew' : 'Begin a Delve'}</button>`);
   start.onclick = () => { restart(); };
   wrap.append(start);
 
@@ -730,6 +745,7 @@ function menuScreen(): HTMLElement {
     app.log = [];
     app.spectating = false;
     app.spectatePaused = false;
+    app.runStarted = false;
     app.lastInsight = null;
     app.lastLog = [];
     app.lastRaidNumber = 0;
@@ -771,16 +787,31 @@ function startSpectating(): void {
 }
 
 /**
- * Any click while spectating stops the clock.
+ * Hold the run when you reach into the dungeon — not merely when you click.
  *
- * Deliberately broad: inspecting a monster, changing speed, opening a panel —
- * all of it means you are engaging, and the run should wait rather than sweep
- * past you. Resuming is one button.
+ * The first cut paused on *any* interaction, which meant it could not idle at
+ * all: watching it play and adjusting the view are different things from taking
+ * the wheel. Changing speed, reading a panel or working the spectate bar all
+ * leave it running.
+ *
+ * What does hold is intervening in the game itself — placing, buying, pricing,
+ * re-arming. Those are the player's moves, and the Understudy should not carry
+ * on making its own on top of them.
+ *
+ * The guarantee this is really protecting is narrower than "clicks pause it":
+ * the spectate bar is always on screen with Hold and Take over, so control is
+ * one click away at any speed, always.
  */
 function holdOnInteraction(ev: Event): void {
   if (!app.spectating || app.spectatePaused) return;
   const t = ev.target as HTMLElement | null;
-  if (t?.closest('.spectate-bar')) return;   // the bar's own controls
+  if (!t) return;
+  // Its own controls, the speed buttons and anything in a modal are "watching",
+  // not "intervening".
+  if (t.closest('.spectate-bar') || t.closest('.modal') || t.closest('.log')) return;
+  const intervening = t.closest('.room, .amenity, .buy, .landing, .mob, .trap')
+    || (t.closest('button') && app.phase === 'build');
+  if (!intervening) return;
   app.spectatePaused = true;
   clearAutoContinue();
   render();
@@ -877,12 +908,24 @@ function render(): void {
   if (app.sim?.status === 'complete' && app.phase === 'raid') root.append(raidDoneBar());
 }
 
+/** Step out to the title screen. The run is saved, not abandoned (§33.1). */
+function toMenu(): void {
+  stopTimer();
+  clearAutoContinue();
+  persistRun();
+  app.spectating = false;
+  app.spectatePaused = false;
+  app.phase = 'menu';
+  render();
+}
+
 function topbar(): HTMLElement {
   const s = app.season;
   const tier = currentTier(s);
   const trickle = s.legends.length * TUNING.legendRenownTrickle;
   const bar = el(`
     <div class="topbar">
+      <button class="menu-btn" title="Back to the title screen. Your run is saved.">☰</button>
       <h1>Coreward</h1>
       <span class="stat incoming" title="Adventurers expected next raid, at levels ${tier.levelMin}–${tier.levelMax}">
         <span class="lbl">incoming</span><b>${tier.partySize}</b>
@@ -900,6 +943,7 @@ function topbar(): HTMLElement {
         <span class="stat renown"><span class="lbl">renown</span><b>${s.renown}</b></span>
       </div>
     </div>`);
+  (bar.querySelector('.menu-btn') as HTMLElement).onclick = toMenu;
   return bar;
 }
 

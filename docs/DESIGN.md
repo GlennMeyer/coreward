@@ -2483,6 +2483,25 @@ The listener is registered in the **capture phase**, so the hold lands before th
 control does its work. Bound the other way, a speed button would change speed and then be
 immediately swept past by the advance it failed to stop.
 
+### 32.5 What "waiting" should actually mean
+
+§32.4's first cut paused on *any* click. That guaranteed control and destroyed idling in the
+same stroke — a thing that stops the moment you touch it cannot run in the background.
+
+The requirement is narrower than it first looked: **never reach a state with no control**,
+not **stop on contact**. So:
+
+| Leaves it running | Holds it |
+|---|---|
+| Speed controls | Placing, buying, pricing |
+| Reading the log | Re-arming a trap |
+| The spectate bar itself | Any Build-Phase button |
+| Anything in a modal | |
+
+Adjusting the view and taking the wheel are different acts. The guarantee is carried by the
+spectate bar instead: it is always on screen with **Hold** and **Take over**, so control is
+one click away at any speed, always — which is what was actually being asked for.
+
 ### 32.2 Why an advisor is worth having at all
 
 §23.3 measured the gap: the evolved build scored ~70% higher than the best hand-written
@@ -2542,6 +2561,20 @@ The line is **learning vs progress**, and it does not fall on the module boundar
 
 Switching it off rather than leaving it armed is the part worth remembering — a background
 process that resumes after a reset will always find a way to undo it.
+
+### 33.2b A way back out
+
+Persistence without an exit is a one-way door: once a run was restored there was no route
+to the title screen short of finishing or wiping. The top bar now carries a **☰** that
+saves and steps out; the menu offers **Resume — raid N** beside **Abandon and Begin Anew**.
+
+Resume reads from memory first and storage second. Requiring a successful save to offer the
+way back would strand the player exactly when storage is unavailable — private browsing, a
+full quota — which is the moment it matters most.
+
+A `runStarted` flag carries it, because the season cannot: on raid 1 a started run and an
+untouched one are identical, so nothing in the data distinguished "resume this" from
+"there is nothing to resume".
 
 ### 33.3 Auto-continue
 
