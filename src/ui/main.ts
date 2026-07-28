@@ -138,6 +138,8 @@ interface App {
   aftermath: AftermathType | null;
   /** The account of the last raid, rendered above the ledger. */
   narration: Narration | null;
+  /** Build-Phase spending since the last raid, for the receipt. */
+  purchases: Purchase[];
   error: string;
 }
 
@@ -182,6 +184,7 @@ const app: App = {
   selectedTrap: null,
   aftermath: null,
   narration: null,
+  purchases: [],
   error: '',
 };
 
@@ -490,6 +493,10 @@ function finishRaid(): void {
 
 function nextRaid(): void {
   clearAutoContinue();
+  // A new Build Phase, so the receipt starts over. Cleared here rather than
+  // when the raid starts: everything bought between two raids belongs to the
+  // raid it paid for.
+  app.purchases = [];
   app.phase = 'build';
   app.sim = null;
   app.aftermath = null;
@@ -637,7 +644,7 @@ function drop(e: PointerEvent, payload: DragPayload): void {
       d.traps = allTraps(d).filter((t) => t.uid !== trap.uid); // undo the purchase
       return void fail(err);
     }
-    app.season.mana -= price;
+    spend('mana', price, TRAPS[payload.defId]!.name);
     app.selectedTrap = trap.uid;
     app.selectedMob = null;
     return void fail(null);
@@ -657,7 +664,7 @@ function drop(e: PointerEvent, payload: DragPayload): void {
       d.mobs.pop(); // undo the purchase rather than stranding it
       return void fail(err);
     }
-    app.season.mana -= def.cost;
+    spend('mana', def.cost, def.name);
     app.selectedMob = uid;
     return void fail(null);
   }
@@ -1334,6 +1341,31 @@ function toMenu(): void {
   render();
 }
 
+/**
+ * Everything bought since the last raid, for the Aftermath receipt.
+ *
+ * The Aftermath could say what a raid *earned* and never what it cost, so a
+ * good result and an expensive one looked identical — you had no way to tell
+ * whether the Renown came from the two rats you bought or in spite of them.
+ * Recorded at the point of payment rather than diffed from the treasury,
+ * because a total tells you nothing about which purchase was the mistake.
+ */
+interface Purchase { label: string; cost: number; cur: 'mana' | 'gold'; count?: number }
+
+function spend(cur: 'mana' | 'gold', cost: number, label: string): void {
+  if (cost <= 0) return;
+  if (cur === 'mana') app.season.mana -= cost; else app.season.gold -= cost;
+  const last = app.purchases[app.purchases.length - 1];
+  // Fold repeats: buying four rats is one line reading "Cave Rat ×4", not four
+  // identical rows that push the interesting purchases off the card.
+  if (last && last.label === label && last.cur === cur) {
+    last.cost += cost;
+    last.count = (last.count ?? 1) + 1;
+    return;
+  }
+  app.purchases.push({ label, cost, cur } as Purchase);
+}
+
 function topbar(): HTMLElement {
   const s = app.season;
   const tier = currentTier(s);
@@ -1709,7 +1741,7 @@ function landingRow(idx: number, amenities: readonly (Amenity | null)[]): HTMLEl
           title="Optional. A monster staffs it for free; hirelings do the same without costing you a fighter.">Hire ${HIRED_STAFF_COST}g</button>`);
         hire.onclick = () => {
           const err = hireStaff(d, idx, slot);
-          if (!err) app.season.gold -= HIRED_STAFF_COST;
+          if (!err) spend('gold', HIRED_STAFF_COST, 'Hired attendant');
           fail(err);
         };
         row.append(hire);
@@ -1736,7 +1768,7 @@ function landingRow(idx: number, amenities: readonly (Amenity | null)[]): HTMLEl
         // Gold, not Mana (§8.4c): Mana digs and buys monsters, Gold runs the
         // business. Paying the dungeon's build currency for a shop was taking
         // defence off the board to sell potions.
-        if (!err) app.season.gold -= def.buildCost;
+        if (!err) spend('gold', def.buildCost, def.name);
         return fail(err);
       };
       row.append(b);
@@ -1760,7 +1792,7 @@ function buildPanel(): HTMLElement {
   digBtn.onclick = () => {
     if (cost === null) return;
     const err = digFloor(d);
-    if (!err) s.mana -= cost;
+    if (!err) spend('mana', cost, `Dig Floor ${d.floors.length}`);
     fail(err);
   };
   const go = el('<button class="primary">Begin Raid →</button>');
@@ -1778,7 +1810,7 @@ function buildPanel(): HTMLElement {
       `<button class="${s.gold >= rearmPrice ? 'primary' : ''}" ${s.gold < rearmPrice ? 'disabled' : ''}>Re-arm traps — ${rearmPrice}g</button>`,
     );
     btn.onclick = () => {
-      s.gold -= rearmAll(d, s.gold);
+      spend('gold', rearmAll(d, s.gold), 'Re-arm traps');
       fail(null);
     };
     rowA.append(btn);
@@ -1837,7 +1869,7 @@ function buildPanel(): HTMLElement {
       b.onclick = () => {
         const mob = buyMob(d, def.id);
         if (typeof mob === 'string') return fail(mob);
-        s.mana -= def.cost;
+        spend('mana', def.cost, def.name);
         // Stack same-species buys so a row of four rats is four clicks and one
         // drag, not four of each.
         if (app.stack?.defId === def.id) app.stack.uids.push(mob.uid);
@@ -1870,7 +1902,7 @@ function buildPanel(): HTMLElement {
       b.onclick = () => {
         const trap = buyTrap(d, def.id);
         if (typeof trap === 'string') return fail(trap);
-        s.mana -= price;
+        spend('mana', price, def.name);
         app.selectedTrap = trap.uid;
         app.selectedMob = null;
         return fail(null);
@@ -1943,7 +1975,7 @@ function selectionPanel(): HTMLElement | null {
       arm.onclick = () => {
         const paid = rearmTrap(d, trap.uid, s.gold);
         if (typeof paid === 'string') return fail(paid);
-        s.gold -= paid;
+        spend('gold', paid, 'Re-arm trap');
         return fail(null);
       };
       const armRow = el('<div class="row"></div>');
@@ -2011,7 +2043,7 @@ function selectionPanel(): HTMLElement | null {
     if (!off) {
       b.onclick = () => {
         const err = buyUpgrade(d, mob.defId, track);
-        if (!err) s.mana -= cost!;
+        if (!err) spend('mana', cost!, upgradeName(mob.defId, track));
         fail(err);
       };
     }
@@ -2042,7 +2074,7 @@ function selectionPanel(): HTMLElement | null {
       if (!cant) {
         b.onclick = () => {
           const err = reforgeGear(d, mob.uid, g.id);
-          if (!err) s.gold -= cost;
+          if (!err) spend('gold', cost, `Reforge ${g.name}`);
           fail(err);
         };
       }
@@ -2064,7 +2096,7 @@ function selectionPanel(): HTMLElement | null {
     if (!off) {
       b.onclick = () => {
         const err = equipGear(d, mob.uid, g.id);
-        if (!err) s.gold -= g.cost;
+        if (!err) spend('gold', g.cost, g.name);
         fail(err);
       };
     }
@@ -2447,6 +2479,90 @@ function tauntModal(): HTMLElement {
  * a function of it, and Renown is the difficulty dial. Mana and Gold are the
  * consequences of the delve; Thrill is the delve.
  */
+/**
+ * The receipt: what you bought, what it did, and what it cost you.
+ *
+ * The Aftermath used to show only income — a ledger of Renown and Mana with no
+ * mention of the four rats and two traps that produced it. A good raid and an
+ * expensive one read identically, so there was no way to learn that the Ogre
+ * was carrying the floor or that the reforge was wasted. Three columns,
+ * because those are the three questions: what did I spend, did it work, what
+ * did I lose.
+ */
+function receiptBlock(a: AftermathType): HTMLElement {
+  const r = a.result;
+  const box = el('<div class="receipt"></div>');
+
+  // ── Bought ────────────────────────────────────────────────────────────────
+  const bought = el('<div class="rc-col"><div class="rc-head">Bought</div></div>');
+  if (app.purchases.length === 0) {
+    bought.append(el('<div class="rc-none">Nothing — you fielded what you had.</div>'));
+  } else {
+    let mana = 0;
+    let gold = 0;
+    for (const b of app.purchases) {
+      if (b.cur === 'mana') mana += b.cost; else gold += b.cost;
+      bought.append(el(`<div class="rc-line"><span>${esc(b.label)}${
+        b.count && b.count > 1 ? ` ×${b.count}` : ''}</span>
+        <b class="${b.cur}">${b.cost}${b.cur === 'gold' ? 'g' : ''}</b></div>`));
+    }
+    bought.append(el(`<div class="rc-tot"><span>Spent</span><b>${
+      [mana ? `${mana} mana` : '', gold ? `${gold}g` : ''].filter(Boolean).join(' · ')}</b></div>`));
+  }
+
+  // ── Worked ────────────────────────────────────────────────────────────────
+  // Read off the event stream rather than tracked separately: the sim already
+  // says who swung and what fired, and a second bookkeeping path would drift.
+  const worked = el('<div class="rc-col"><div class="rc-head">Worked</div></div>');
+  const trapFires = new Map<string, number>();
+  for (const e of app.events) {
+    if (e.type !== 'trap-fire') continue;
+    const name = TRAPS[e.defId]?.name ?? e.defId;
+    trapFires.set(name, (trapFires.get(name) ?? 0) + 1);
+  }
+  const held = new Map<string, number>();
+  for (const m of r.mobsDowned) {
+    const name = MOBS[m.defId]?.name ?? m.defId;
+    held.set(name, (held.get(name) ?? 0) + 1);
+  }
+  const lines: string[] = [];
+  if (r.killed) lines.push(`<div class="rc-line"><span>Adventurers killed</span><b class="good">${r.killed}</b></div>`);
+  if (r.downedCount) lines.push(`<div class="rc-line"><span>Dropped at least once</span><b class="good">${r.downedCount}</b></div>`);
+  if (r.escaped) lines.push(`<div class="rc-line"><span>Walked out</span><b class="bad">${r.escaped}</b></div>`);
+  lines.push(`<div class="rc-line"><span>Stopped on floor</span><b>${r.deepestFloorReached + 1}</b></div>`);
+  for (const [name, n] of trapFires) {
+    lines.push(`<div class="rc-line"><span>${esc(name)} fired</span><b>${n}×</b></div>`);
+  }
+  for (const [name, n] of held) {
+    lines.push(`<div class="rc-line dim"><span>${esc(name)} held the line</span><b>${n}</b></div>`);
+  }
+  if (lines.length === 0) lines.push('<div class="rc-none">Nothing touched them.</div>');
+  for (const l of lines) worked.append(el(l));
+
+  // ── Died ──────────────────────────────────────────────────────────────────
+  const died = el('<div class="rc-col"><div class="rc-head">Died</div></div>');
+  if (r.mobsLost.length === 0) {
+    died.append(el('<div class="rc-none">Everyone got back up.</div>'));
+  } else {
+    let kitLost = 0;
+    for (const m of r.mobsLost) {
+      const gear = m.gear.map((g) => GEAR[g]?.name ?? g);
+      for (const g of m.gear) kitLost += GEAR[g]?.cost ?? 0;
+      died.append(el(`<div class="rc-line"><span>${esc(MOBS[m.defId]?.name ?? m.defId)} lv${m.level}</span>
+        <b class="bad">${gear.length ? `+ ${esc(gear.join(', '))}` : '—'}</b></div>`));
+    }
+    // Gear dies with its wearer (§6.5) and the upgrades do not. Saying both is
+    // the point: one of those numbers is a loss and the other is not.
+    if (kitLost) {
+      died.append(el(`<div class="rc-tot"><span>Kit destroyed</span><b class="gold">${kitLost}g</b></div>`));
+    }
+    died.append(el('<div class="rc-none">Species upgrades survive them.</div>'));
+  }
+
+  box.append(bought, worked, died);
+  return box;
+}
+
 function aftermathModal(a: AftermathType): HTMLElement {
   const b = a.manaBreakdown;
   const r = a.result;
@@ -2456,6 +2572,7 @@ function aftermathModal(a: AftermathType): HTMLElement {
 
   // The story leads. Everything below it is the receipt.
   if (app.narration) m.append(narrationBlock(app.narration));
+  m.append(receiptBlock(a));
 
   const survivors = r.escaped;
   m.append(thrillCard(r.thrill, {

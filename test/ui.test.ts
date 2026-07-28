@@ -943,6 +943,56 @@ describe('UI smoke', () => {
     expect(document.querySelector('.panel.dock h2')?.textContent).toContain('Cave Rat');
   });
 
+  it('the Aftermath itemises what you bought, what worked and what died', () => {
+    app$().mana = 9999;
+    const buy = (name: string) => {
+      click([...document.querySelectorAll('.buy')].find((b) => b.textContent?.includes(name)));
+      click(document.querySelectorAll('.room')[0]);
+    };
+    buy('Cave Rat');
+    buy('Cave Rat');
+    buy('Ogre');
+
+    click(button('Begin Raid'));
+    click(button('Instant'));
+    click(button('Aftermath'));
+
+    const receipt = document.querySelector('.receipt')!;
+    expect(receipt).toBeTruthy();
+
+    // Bought: itemised at the point of payment, and repeats folded. Two rats
+    // is one line reading "×2", not two rows pushing the Ogre off the card.
+    const bought = receipt.querySelector('.rc-col')!.textContent!;
+    expect(bought).toContain('Cave Rat ×2');
+    expect(bought).toContain('Ogre');
+    expect(bought).toContain('Spent');
+
+    // Worked and Died both exist and say something, whichever way the raid went.
+    const cols = [...receipt.querySelectorAll('.rc-col')];
+    expect(cols).toHaveLength(3);
+    expect(cols[1]!.textContent).toContain('Stopped on floor');
+    expect(cols[2]!.textContent!.length).toBeGreaterThan(10);
+  });
+
+  it('starts a fresh receipt for each raid', () => {
+    app$().mana = 9999;
+    click([...document.querySelectorAll('.buy')].find((b) => b.textContent?.includes('Cave Rat')));
+    click(document.querySelectorAll('.room')[0]);
+    click(button('Begin Raid'));
+    click(button('Instant'));
+    click(button('Aftermath'));
+    expect(document.querySelector('.receipt')!.textContent).toContain('Cave Rat');
+
+    // Next raid, bought nothing: the previous raid's spending must not follow
+    // it forward, or every receipt is cumulative and none of them is readable.
+    click(button('Continue'));
+    click(button('Begin Raid'));
+    click(button('Instant'));
+    click(button('Aftermath'));
+    expect(document.querySelector('.receipt')!.textContent)
+      .toContain('you fielded what you had');
+  });
+
   it('the dungeon condenses as it grows', () => {
     const panel = () => document.querySelector('.panel.dungeon')!;
     // Small: full size.

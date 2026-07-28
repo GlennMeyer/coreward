@@ -607,3 +607,31 @@ button.wipe:hover { background: #2a1a1e; border-color: var(--danger); }
 .dungeon.tiny .landing .tag { font-size: 8px; }
 /* The active room still has to be findable at a glance. */
 .dungeon.tiny .room.active { box-shadow: 0 0 0 2px var(--adv) inset; }
+
+/*
+ * The Aftermath receipt (§15.2a): bought / worked / died, side by side.
+ *
+ * Three columns because they are three questions, and answering them in one
+ * list buries the interesting line. Collapses to a stack on a narrow window
+ * rather than scrolling sideways.
+ */
+.receipt {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+  margin: 14px 0; padding: 10px; background: var(--panel-2);
+  border-radius: 5px; font-size: 11px;
+}
+@media (max-width: 620px) { .receipt { grid-template-columns: 1fr; } }
+.rc-head {
+  color: var(--dim); text-transform: uppercase; letter-spacing: .09em;
+  font-size: 9px; margin-bottom: 5px; border-bottom: 1px solid var(--line);
+  padding-bottom: 4px;
+}
+.rc-line, .rc-tot { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
+.rc-line.dim { color: var(--dim); }
+.rc-tot { margin-top: 4px; border-top: 1px solid var(--line); padding-top: 4px; font-weight: 600; }
+.rc-none { color: var(--dim); font-style: italic; padding: 2px 0; }
+.rc-line b, .rc-tot b { font-weight: 600; white-space: nowrap; }
+.rc-line .mana, .rc-tot .mana { color: var(--mana); }
+.rc-line .gold, .rc-tot .gold { color: var(--gold); }
+.rc-line .good { color: var(--renown); }
+.rc-line .bad { color: var(--danger); }
