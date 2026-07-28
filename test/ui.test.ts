@@ -96,6 +96,35 @@ function fakeStorage(seed: Record<string, string> = {}): Map<string, string> {
   return store;
 }
 
+/**
+ * Buy a monster by *role*, not by name, and place it. Returns its name.
+ *
+ * Every test used to reach for "Cave Rat" or "Ogre" by the string printed on
+ * the button, which quietly encodes "the whole bestiary is always on offer".
+ * That assumption is load-bearing across this file and nobody wrote it down —
+ * a per-run roster (§44) breaks eight tests at once and every failure looks
+ * like a bug in the feature rather than in the test. Asking for "a bruiser"
+ * survives the offer changing.
+ */
+function placeMob(role: string, roomIdx = 0): string {
+  const row = document.querySelector(`.buy[data-role="${role}"]:not(.off)`);
+  if (!row) throw new Error(`no affordable ${role} on offer`);
+  const name = row.querySelector('span')!.childNodes[0]!.textContent!.trim();
+  click(row);
+  click(document.querySelectorAll('.room')[roomIdx]);
+  return name;
+}
+
+/** The same, for traps, by what the trap is *for* rather than what it is called. */
+function placeTrap(job: string, roomIdx = 0): string {
+  const row = document.querySelector(`.buy[data-job="${job}"]:not(.off)`);
+  if (!row) throw new Error(`no affordable ${job} trap on offer`);
+  const name = row.querySelector('span')!.childNodes[0]!.textContent!.trim();
+  click(row);
+  click(document.querySelectorAll('.room')[roomIdx]);
+  return name;
+}
+
 describe('UI smoke', () => {
   // Unconditional, so a failing test cannot leak a stubbed global into the
   // next one — that leak timed nine tests out at 12s each on CI.
@@ -1376,5 +1405,32 @@ describe('predicted Thrill', () => {
   it('rates the score on the same scale retirement uses', () => {
     expect(thrillRating(0)).toBe('Dull');
     expect(thrillRating(80)).toBe('Legendary');
+  });
+});
+
+describe('test hooks survive a changing offer (§44 groundwork)', () => {
+  beforeEach(async () => {
+    document.body.innerHTML = '<div id="app"></div>';
+    vi.resetModules();
+    globalThis.localStorage?.clear();
+    await import('../src/ui/main');
+    button('Begin a Delve')?.click();
+  });
+
+  it('buys by role and by job, without naming a single creature', () => {
+    // The point: this test knows nothing about the bestiary. It asks for a
+    // bruiser and a damage trap, and reports back whatever it was given — so a
+    // roster that stops offering the Ogre changes the name, not the outcome.
+    const mob = placeMob('bruiser');
+    expect(mob.length).toBeGreaterThan(0);
+    expect(document.querySelector('.room .mob')?.textContent).toContain(mob);
+
+    const trap = placeTrap('damage');
+    expect(document.querySelector('.room .trap')?.textContent).toContain(trap);
+
+    // And the id is on the element, so a test can assert on identity rather
+    // than on display text that copy changes will break.
+    expect(document.querySelector('.buy[data-mob]')).toBeTruthy();
+    expect(document.querySelector('.buy[data-trap]')).toBeTruthy();
   });
 });

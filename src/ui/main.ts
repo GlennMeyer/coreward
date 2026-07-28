@@ -1963,7 +1963,10 @@ function buildPanel(): HTMLElement {
   shop.append(el('<h2>Monsters</h2>'));
   for (const def of Object.values(MOBS)) {
     const off = s.mana < def.cost;
-    const b = el(`<div class="buy ${off ? 'off' : ''}">
+    // Identified by id, not by the name printed on it. Tests that reach for
+    // "Ogre" encode a bestiary that a per-run roster (§44) will stop
+    // guaranteeing; a role-based lookup keeps working when the offer changes.
+    const b = el(`<div class="buy ${off ? 'off' : ''}" data-mob="${def.id}" data-role="${def.role}">
         <span>${def.name}<div class="meta">${def.role} · ${def.hp}hp ${def.dmg}dmg ${def.spd}spd · ${def.slots} slot${def.slots > 1 ? 's' : ''} · ${def.upkeep} upkeep</div></span>
         <span class="cost">${def.cost}</span>
       </div>`);
@@ -1996,7 +1999,7 @@ function buildPanel(): HTMLElement {
   for (const def of Object.values(TRAPS)) {
     const price = trapCost(def.id);
     const off = s.mana < price;
-    const b = el(`<div class="buy trap-buy ${off ? 'off' : ''}">
+    const b = el(`<div class="buy trap-buy ${off ? "off" : ""}" data-trap="${def.id}" data-job="${def.job}">
         <span>${def.name}<div class="meta">${def.job} ${def.power} · ${def.slots} slot${def.slots > 1 ? 's' : ''} · ${def.charges} charge${def.charges > 1 ? 's' : ''} · re-arm ${trapRearmCost(def.id)}</div></span>
         <span class="cost">${price}</span>
       </div>`);
