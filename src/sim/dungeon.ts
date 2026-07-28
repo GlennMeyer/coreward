@@ -83,7 +83,6 @@ export function buyMob(d: Dungeon, defId: string): Mob | string {
     alive: true,
     downed: false,
     gear: [],
-    upgrades: {},
     placement: { kind: 'unassigned' },
   };
   d.mobs.push(mob);
@@ -401,45 +400,73 @@ function gearMult(mob: Mob, id: string, base: number): number {
   return 1 + (base - 1) * (1 + REFORGE_EFFECT * rank);
 }
 
-export function mobEffectiveHp(mob: Mob): number {
+/**
+ * Ranks bought on a species' track (§6.6).
+ *
+ * Keyed by species rather than by creature: every Cave Rat shares Sharper
+ * Teeth, including ones bought after it was paid for.
+ */
+export function upgradeRank(d: Dungeon, defId: string, track: UpgradeTrack): number {
+  return d.upgrades?.[defId]?.[track] ?? 0;
+}
+
+export function mobEffectiveHp(d: Dungeon, mob: Mob): number {
   let hp = mobMaxHp(mob.defId, mob.level);
   for (const g of mob.gear) hp *= gearMult(mob, g, GEAR[g]?.hpMult ?? 1);
-  hp *= 1 + UPGRADE_EFFECT.vigor.hp * (mob.upgrades?.['vigor'] ?? 0);
+  hp *= 1 + UPGRADE_EFFECT.vigor.hp * upgradeRank(d, mob.defId, 'vigor');
   return Math.round(hp);
 }
 
 /** Damage soaked per hit, from the hide track (§6.6). */
-export function mobArmor(mob: Mob): number {
-  return UPGRADE_EFFECT.hide.armor * (mob.upgrades?.['hide'] ?? 0);
+export function mobArmor(d: Dungeon, mob: Mob): number {
+  return UPGRADE_EFFECT.hide.armor * upgradeRank(d, mob.defId, 'hide');
 }
 
-/** Ranks bought on a track, and what the next one costs. */
-export function upgradeRank(mob: Mob, track: UpgradeTrack): number {
-  return mob.upgrades?.[track] ?? 0;
-}
-
-export function nextUpgradeCost(mob: Mob, track: UpgradeTrack): number | null {
-  const rank = upgradeRank(mob, track);
+export function nextUpgradeCost(
+  d: Dungeon, defId: string, track: UpgradeTrack,
+): number | null {
+  const rank = upgradeRank(d, defId, track);
   if (rank >= MAX_UPGRADE_RANK) return null;
-  return upgradeRankCost(mob.defId, rank);
+  return upgradeRankCost(defId, rank);
 }
 
-/** Buy one rank. Cost is the caller's to deduct (see every other mutator here). */
-export function buyUpgrade(d: Dungeon, uid: number, track: UpgradeTrack): BuildError {
-  const mob = getMob(d, uid);
-  if (!mob || !mob.alive) return 'That monster is not available.';
-  mob.upgrades ??= {};
-  const rank = upgradeRank(mob, track);
+/**
+ * Buy one rank for a whole species. Cost is the caller's to deduct.
+ *
+ * Every living member of that species gets the benefit immediately, which
+ * includes their current HP: buying Higher Metabolism has to raise the pool of
+ * the creature standing in front of you, not just the one you buy next.
+ */
+export function buyUpgrade(d: Dungeon, defId: string, track: UpgradeTrack): BuildError {
+  if (!MOBS[defId]) return 'No such monster.';
+  const rank = upgradeRank(d, defId, track);
   if (rank >= MAX_UPGRADE_RANK) return 'Already at the top of that track.';
-  mob.upgrades[track] = rank + 1;
-  mob.hp = mobEffectiveHp(mob);
+  d.upgrades ??= {};
+  d.upgrades[defId] = { ...d.upgrades[defId], [track]: rank + 1 };
+  if (track === 'vigor') {
+    for (const m of d.mobs) {
+      if (m.defId !== defId || !m.alive) continue;
+      // Grant the increase rather than refilling: a wounded rat stays wounded,
+      // it just has more room. Topping them up would make Metabolism a heal.
+      const before = mobMaxHpWithRank(m, rank);
+      m.hp = Math.min(mobEffectiveHp(d, m), m.hp + (mobEffectiveHp(d, m) - before));
+    }
+  }
   return null;
 }
 
-export function mobEffectiveDmg(mob: Mob): number {
+/** Effective HP this mob would have had at a given vigor rank. */
+function mobMaxHpWithRank(mob: Mob, vigorRank: number): number {
+  let hp = mobMaxHp(mob.defId, mob.level);
+  for (const g of mob.gear) hp *= gearMult(mob, g, GEAR[g]?.hpMult ?? 1);
+  hp *= 1 + UPGRADE_EFFECT.vigor.hp * vigorRank;
+  return Math.round(hp);
+}
+
+export function mobEffectiveDmg(d: Dungeon, mob: Mob): number {
   let dmg = mobDmg(mob.defId, mob.level);
   for (const g of mob.gear) dmg *= gearMult(mob, g, GEAR[g]?.dmgMult ?? 1);
-  dmg *= 1 + UPGRADE_EFFECT.bite.dmg * (mob.upgrades?.['bite'] ?? 0);
+  dmg *= 1 + UPGRADE_EFFECT.bite.dmg * upgradeRank(d, mob.defId, 'bite');
   return dmg;
 }
 
@@ -474,7 +501,7 @@ export function reforgeGear(d: Dungeon, uid: number, gearId: string): BuildError
   if (!mob.gear.includes(gearId)) return 'It is not carrying that.';
   mob.reforge ??= {};
   mob.reforge[gearId] = (mob.reforge[gearId] ?? 0) + 1;
-  mob.hp = mobEffectiveHp(mob);
+  mob.hp = mobEffectiveHp(d, mob);
   return null;
 }
 
@@ -489,13 +516,23 @@ export function equipGear(d: Dungeon, uid: number, gearId: string): BuildError {
   if (mob.gear.length >= MAX_GEAR_SLOTS) return 'No free gear slots.';
   if (mob.gear.includes(gearId)) return 'Already equipped.';
   mob.gear.push(gearId);
-  mob.hp = mobEffectiveHp(mob);
+  mob.hp = mobEffectiveHp(d, mob);
   return null;
 }
 
 /**
- * Gear survives its wearer (§6.5) — this is the counterweight to permanent
- * monster death. You lose the levels and the history, never the investment.
+ * Strip the gear off a monster and hand it back to the caller.
+ *
+ * Whether that gear is *recovered* is the caller's decision, and the two
+ * callers decide differently on purpose (§6.5):
+ *
+ * - `dismissMob` — you chose to sell the creature, so you keep its kit.
+ * - `slayMob` — the creature died wearing it, and it dies too.
+ *
+ * The old comment here claimed gear always "survives its wearer". It never
+ * did: `slayMob` already discarded this return value, so death silently
+ * destroyed the kit while the documentation promised an armory that was never
+ * built. The behaviour was right and the story was wrong.
  */
 export function salvageGear(d: Dungeon, uid: number): string[] {
   const mob = getMob(d, uid);
@@ -537,7 +574,7 @@ export function healAllMobs(d: Dungeon): void {
   for (const m of d.mobs) {
     if (!m.alive) continue;
     m.downed = false;
-    m.hp = mobEffectiveHp(m);
+    m.hp = mobEffectiveHp(d, m);
   }
 }
 
@@ -576,6 +613,13 @@ export function downMob(d: Dungeon, uid: number): void {
 }
 
 /** Permanent death (§6.4). The mob stays in the roster so it can be reconstituted. */
+/**
+ * Kill a monster. Returns the gear destroyed with it, for the receipt.
+ *
+ * Gold buys this creature's kit and loses it here; Mana buys the species'
+ * upgrades and keeps them (`Dungeon.upgrades`). That split is the whole point:
+ * one currency compounds and one is a bet on the raid in front of you.
+ */
 export function slayMob(d: Dungeon, uid: number): string[] {
   const mob = getMob(d, uid);
   if (!mob) return [];
@@ -624,7 +668,7 @@ export function trainMob(d: Dungeon, uid: number): BuildError {
   if (mob.level >= MAX_LEVEL) return 'Already fully grown.';
   mob.level++;
   // Carry the XP bar so training does not erase field experience.
-  mob.hp = mobEffectiveHp(mob);
+  mob.hp = mobEffectiveHp(d, mob);
   return null;
 }
 
@@ -634,7 +678,7 @@ export function reconstitute(d: Dungeon, uid: number): BuildError {
   if (mob.alive) return 'That monster is alive.';
   mob.alive = true;
   mob.downed = false;
-  mob.hp = mobEffectiveHp(mob);
+  mob.hp = mobEffectiveHp(d, mob);
   mob.placement = { kind: 'unassigned' };
   return null;
 }

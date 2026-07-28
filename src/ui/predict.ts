@@ -212,7 +212,7 @@ export function predictThrill(d: Dungeon, tier: TierRow): ThrillPrediction {
       prevSig = sig;
       if (mobs.length === 0) continue;
 
-      const roomHp = mobs.reduce((s, m) => s + mobEffectiveHp(m), 0);
+      const roomHp = mobs.reduce((s, m) => s + mobEffectiveHp(d, m), 0);
       // Death spiral: a pooled HP bar hides the fact that a hurt party has
       // actually LOST members, so its damage output falls and every subsequent
       // room takes longer to clear, costing yet more HP. Without this term the
@@ -225,7 +225,7 @@ export function predictThrill(d: Dungeon, tier: TierRow): ThrillPrediction {
       const roomDps = mobs.reduce((s, m) => {
         const def = MOBS[m.defId]!;
         if (def.role === 'terror') return s;
-        const raw = mobEffectiveDmg(m) * packMultiplier(m, mobs.length);
+        const raw = mobEffectiveDmg(d, m) * packMultiplier(m, mobs.length);
         return s + Math.max(1, raw - armor) * def.spd;
       }, 0);
 
@@ -436,10 +436,10 @@ export function forecast(d: Dungeon, tier: TierRow, renown = 0): Forecast {
     if (m.placement.kind === 'amenity') { staffed++; continue; }
     if (m.placement.kind !== 'room') continue;
     defenders++;
-    dungeonHp += mobEffectiveHp(m);
+    dungeonHp += mobEffectiveHp(d, m);
     const def = MOBS[m.defId]!;
     // Terrors break nerve rather than bodies, so they do not count as damage.
-    if (def.role !== 'terror') dungeonDmg += mobEffectiveDmg(m) * def.spd;
+    if (def.role !== 'terror') dungeonDmg += mobEffectiveDmg(d, m) * def.spd;
   }
 
   // Geometric mean of the two ratios: a dungeon that is all HP and no damage

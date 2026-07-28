@@ -2,14 +2,15 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   AMENITIES, GEAR, MOBS, RENOWN_PER_ESCAPEE, RENOWN_WIPE_MULT, TIERS, TRAPS, TUNING,
   MAX_FLOORS, STARTING_HEARTS, XP_THRESHOLDS, digCostFor, mobMaxHp, resetTuning, roomCapacity, roomsOnFloor,
-  tierForRenown, trapCost, trapRearmCost, MAX_TIER_PROTOTYPE,
+  tierForRenown, trapCost, trapRearmCost, MAX_TIER_PROTOTYPE, mobDmg,
 } from '../src/sim/data';
 import { generateParty } from '../src/sim/adventurers';
 import { Rng } from '../src/sim/rng';
 import type { Veteran } from '../src/sim/types';
 import {
   assignStaff, buildAmenity, buyMob, isOpen, buyTrap, createDungeon, digFloor, equipGear, getTrap,
-  grantXp, healAllMobs, hireStaff, mobEffectiveDmg, mobEffectiveHp, mobStripsKit,
+  buyUpgrade, grantXp, healAllMobs, hireStaff, mobEffectiveDmg, mobEffectiveHp, mobStripsKit,
+  slayMob,
   mobsInRoom, packMultiplier, placeMobInRoom, placeTrapInRoom, rearmAll,
   rearmAllPrice, removeTrap, roomSlotsUsed, totalUpkeep, unplace,
 } from '../src/sim/dungeon';
@@ -659,7 +660,7 @@ describe('season economy (§4.1)', () => {
     if (mob.alive) {
       applyAftermath(s, sim);
       startRaid(s);
-      expect(mob.hp).toBe(mobEffectiveHp(mob));
+      expect(mob.hp).toBe(mobEffectiveHp(s.dungeon, mob));
     }
   });
 });
@@ -689,14 +690,14 @@ describe('gear — the Gold sink (§6.5)', () => {
   it('scales effective stats', () => {
     const d = createDungeon();
     const mob = buyMob(d, 'ogre') as Mob;
-    const baseHp = mobEffectiveHp(mob);
-    const baseDmg = mobEffectiveDmg(mob);
+    const baseHp = mobEffectiveHp(d, mob);
+    const baseDmg = mobEffectiveDmg(d, mob);
 
     expect(equipGear(d, mob.uid, 'carapace')).toBeNull();
-    expect(mobEffectiveHp(mob)).toBe(Math.round(baseHp * GEAR['carapace']!.hpMult));
+    expect(mobEffectiveHp(d, mob)).toBe(Math.round(baseHp * GEAR['carapace']!.hpMult));
 
     expect(equipGear(d, mob.uid, 'fangs')).toBeNull();
-    expect(mobEffectiveDmg(mob)).toBeCloseTo(baseDmg * GEAR['fangs']!.dmgMult, 5);
+    expect(mobEffectiveDmg(d, mob)).toBeCloseTo(baseDmg * GEAR['fangs']!.dmgMult, 5);
   });
 
   it('caps at two slots and refuses duplicates', () => {
@@ -1375,5 +1376,67 @@ describe('formation determinism (§13.2)', () => {
       return JSON.stringify(sim.runToCompletion());
     };
     expect(stream('single-file')).not.toBe(stream('party'));
+  });
+});
+
+describe('upgrades are the bloodline, gear is the creature (§6.6)', () => {
+  it('applies a bought rank to every member of the species, born or unborn', () => {
+    const d = createDungeon();
+    const a = buyMob(d, 'rat') as Mob;
+    const baseDmg = mobEffectiveDmg(d, a);
+
+    expect(buyUpgrade(d, 'rat', 'bite')).toBeNull();
+    // The rat that was already standing there gets it...
+    expect(mobEffectiveDmg(d, a)).toBeGreaterThan(baseDmg);
+    // ...and so does one bought afterwards. Sharper Teeth is a breeding
+    // programme, not a whetstone applied to one animal.
+    const b = buyMob(d, 'rat') as Mob;
+    expect(mobEffectiveDmg(d, b)).toBe(mobEffectiveDmg(d, a));
+
+    // A different species is untouched — this is not a global buff.
+    const ogre = buyMob(d, 'ogre') as Mob;
+    expect(mobEffectiveDmg(d, ogre)).toBe(mobDmg('ogre', 1));
+  });
+
+  it('keeps the ranks when the monster carrying them dies', () => {
+    const d = createDungeon();
+    const a = buyMob(d, 'rat') as Mob;
+    buyUpgrade(d, 'rat', 'bite');
+    const upgraded = mobEffectiveDmg(d, a);
+
+    slayMob(d, a.uid);
+    expect(a.alive).toBe(false);
+
+    // Rebuilding after a bad raid does not start from zero: the Mana is spent
+    // on the species and stays spent.
+    const replacement = buyMob(d, 'rat') as Mob;
+    expect(mobEffectiveDmg(d, replacement)).toBe(upgraded);
+  });
+
+  it('destroys gear with its wearer', () => {
+    const d = createDungeon();
+    const mob = buyMob(d, 'ogre') as Mob;
+    equipGear(d, mob.uid, 'fangs');
+    expect(mob.gear).toEqual(['fangs']);
+
+    const destroyed = slayMob(d, mob.uid);
+    // Gold bought this creature's kit and loses it with the creature — the
+    // counterweight to the upgrades above being permanent.
+    expect(destroyed).toEqual(['fangs']);
+    expect(mob.gear).toEqual([]);
+  });
+
+  it('raises the standing creature without healing it', () => {
+    const d = createDungeon();
+    const mob = buyMob(d, 'ogre') as Mob;
+    const full = mobEffectiveHp(d, mob);
+    mob.hp = Math.round(full / 2);
+
+    expect(buyUpgrade(d, 'ogre', 'vigor')).toBeNull();
+    const grown = mobEffectiveHp(d, mob);
+    expect(grown).toBeGreaterThan(full);
+    // It gains the increase, not a top-up: Higher Metabolism is not a heal.
+    expect(mob.hp).toBe(Math.round(full / 2) + (grown - full));
+    expect(mob.hp).toBeLessThan(grown);
   });
 });

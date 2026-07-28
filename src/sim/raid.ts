@@ -154,7 +154,7 @@ export class RaidSim {
   private rescuedCount = 0;
   private killed = 0;
   private mobsDowned: { uid: number; defId: string; level: number }[] = [];
-  private mobsLost: { uid: number; defId: string; level: number }[] = [];
+  private mobsLost: { uid: number; defId: string; level: number; gear: string[] }[] = [];
   private deepestFloor = 0;
   private outcome: RaidOutcome | null = null;
 
@@ -548,7 +548,7 @@ export class RaidSim {
       if (!p.alive) return;
       const role = MOBS[mob.defId]!.role;
       const bonus = role === 'skirmisher' ? TUNING.skirmisherPartingBonus : 1;
-      const raw = mobEffectiveDmg(mob) * packMultiplier(mob, mobs.length)
+      const raw = mobEffectiveDmg(this.d, mob) * packMultiplier(mob, mobs.length)
         * this.densityMult() * TUNING.linePartingMult * bonus;
       if (role === 'terror') {
         const amount = this.applyResolveDamage(p, Math.max(1, Math.round(raw)));
@@ -869,7 +869,7 @@ export class RaidSim {
     // Pack Tactics scales with how many allies are still standing, so a swarm
     // hits hardest before it gets thinned out.
     const allies = mobsInRoom(this.d, this.floor, this.room).length;
-    const raw = mobEffectiveDmg(mob) * packMultiplier(mob, allies) * this.densityMult();
+    const raw = mobEffectiveDmg(this.d, mob) * packMultiplier(mob, allies) * this.densityMult();
 
     if (role === 'terror') {
       const amount = this.applyResolveDamage(target, Math.max(1, Math.round(raw)));
@@ -1009,7 +1009,7 @@ export class RaidSim {
     // Hide soaks a flat amount per hit (§6.6). Flat, not a percentage, so it is
     // worth most on a creature being chipped by many small blows — which is
     // exactly the chaff-screening role the front line created.
-    const dmg = Math.max(1, Math.round(adv.dmg - mobArmor(target)));
+    const dmg = Math.max(1, Math.round(adv.dmg - mobArmor(this.d, target)));
     target.hp = Math.max(0, target.hp - dmg);
     this.emit({
       t: this.tick, type: 'attack', source: 'adv',
@@ -1846,12 +1846,15 @@ export class RaidSim {
         outcome === 'breach' ? TUNING.breachSlayChance : TUNING.slayChance,
       );
       if (!slain) continue;
-      this.mobsLost.push(entry);
+      // Take the gear off before the entry is recorded: it is destroyed with
+      // the wearer (§6.5) and the Aftermath has to be able to say what that
+      // cost, or a monster dying looks free.
+      const gear = slayMob(this.d, entry.uid);
+      this.mobsLost.push({ ...entry, gear });
       this.emit({
         t: this.tick, type: 'mob-slain',
         uid: entry.uid, defId: entry.defId, level: entry.level,
       });
-      slayMob(this.d, entry.uid);
     }
   }
 

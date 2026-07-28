@@ -183,15 +183,20 @@ export function buildPhaseFor(s: SeasonState, g: Genome, rng: Rng): void {
   // Mana: upgrades on what we already own.
   const upBudget = s.mana * g.upgradeShare;
   let upSpent = 0;
-  for (const mob of livingMobs(d)) {
-    if (mob.placement.kind !== 'room') continue;
+  // Upgrades are per species now, so iterate the species it fields rather than
+  // the individual creatures — buying the same track once per rat used to be
+  // several purchases and is now one.
+  const species = [...new Set(livingMobs(d)
+    .filter((m) => m.placement.kind === 'room')
+    .map((m) => m.defId))];
+  for (const defId of species) {
     const track = rng.weighted(TRACKS.map((t) => [t, g.trackWeights[t] ?? 0] as const));
     // Ask the game what it costs. This was a hand-copied formula, which is a
     // silent drift waiting to happen: the moment the real curve changes, the
     // idler is buying at a price nobody else pays.
-    const price = nextUpgradeCost(mob, track) ?? Infinity;
+    const price = nextUpgradeCost(d, defId, track) ?? Infinity;
     if (upSpent + price > upBudget || s.mana < price) continue;
-    if (buyUpgrade(d, mob.uid, track) === null) {
+    if (buyUpgrade(d, defId, track) === null) {
       s.mana -= Math.round(price);
       upSpent += price;
     }

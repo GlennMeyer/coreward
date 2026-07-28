@@ -62,14 +62,15 @@ export interface Mob {
    * end of the raid; most get back up.
    */
   downed: boolean;
-  /** Equipped gear ids, bought with Gold (§6.5). Survives its wearer's death. */
-  gear: string[];
   /**
-   * Ranks bought per upgrade track (§6.6), keyed by track id: 'bite', 'hide',
-   * 'vigor'. Bought with Mana and named per species, so spending is a choice
-   * about what this creature becomes rather than an abstract level-up.
+   * Equipped gear ids, bought with Gold (§6.5). Destroyed with its wearer.
+   *
+   * The counterweight to `Dungeon.upgrades` being permanent: Mana buys the
+   * bloodline and keeps it, Gold buys this creature's kit and loses it when
+   * this creature dies. That is what makes equipping your front-liner a bet
+   * rather than an accumulation.
    */
-  upgrades: Record<string, number>;
+  gear: string[];
   /** Reforge ranks per gear id (§6.5) — an unbounded Gold sink. */
   reforge?: Record<string, number>;
   /** Placement: a room, an amenity, or unassigned. */
@@ -214,6 +215,21 @@ export interface Dungeon {
   insurance: PriceTier | 'off';
   mobs: Mob[];
   nextMobUid: number;
+  /**
+   * Upgrade ranks per species, then per track (§6.6) — `upgrades['rat']['bite']`.
+   *
+   * Species-wide and permanent for the run, not per-creature. Sharper Teeth is
+   * a breeding programme, not a whetstone: it applies to every Cave Rat you own
+   * and every one you buy afterwards, and it survives any individual rat dying.
+   *
+   * Held per-monster originally, which meant a slain veteran took the whole
+   * Mana investment with it and rebuilding after a bad raid started from zero.
+   * With gear now dying alongside its wearer, this is the half of the economy
+   * that compounds — you lose the creature and its kit, never the bloodline.
+   *
+   * Optional so a Dungeon literal written before this existed still loads.
+   */
+  upgrades?: Record<string, Record<string, number>>;
   /**
    * Installed traps (§5.2). Optional for the same reason `Room.trapUids` is:
    * a Dungeon literal written before traps existed is still a valid Dungeon.
@@ -590,7 +606,8 @@ export interface RaidResult {
   /** Downed during the raid — most of these get back up. */
   mobsDowned: { uid: number; defId: string; level: number }[];
   /** Permanently slain. A subset of `mobsDowned`. */
-  mobsLost: { uid: number; defId: string; level: number }[];
+  /** Monsters killed this raid, with whatever gear died on them (§6.5). */
+  mobsLost: { uid: number; defId: string; level: number; gear: string[] }[];
   deepestFloorReached: number;
   ticks: number;
 }

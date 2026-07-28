@@ -49,7 +49,7 @@ import { narrateRaid, type Narration } from '../sim/narrate';
 import { forecast, predictThrill, thrillRating, type ThrillPrediction } from './predict';
 import type { RaidSim } from '../sim/raid';
 import type {
-  Adventurer, Amenity, AmenityId, Legend, Mob, PriceTier, RaidEvent,
+  Adventurer, Amenity, AmenityId, Dungeon, Legend, Mob, PriceTier, RaidEvent,
   SeasonState, ThrillScore, Trap,
 } from '../sim/types';
 import type { Aftermath as AftermathType } from '../sim/season';
@@ -1384,11 +1384,11 @@ function topbar(): HTMLElement {
 /** The three numbers a monster is, for the panel and its previews. */
 interface MobStats { hp: number; dmg: number; armor: number }
 
-function statsOf(mob: Mob): MobStats {
+function statsOf(d: Dungeon, mob: Mob): MobStats {
   return {
-    hp: mobEffectiveHp(mob),
-    dmg: mobEffectiveDmg(mob),
-    armor: mobArmor(mob),
+    hp: mobEffectiveHp(d, mob),
+    dmg: mobEffectiveDmg(d, mob),
+    armor: mobArmor(d, mob),
   };
 }
 
@@ -1406,20 +1406,25 @@ function statsOf(mob: Mob): MobStats {
  * will run. `Mob` is plain data (§13.2), which is the only reason this is a
  * two-line function instead of a parallel implementation that drifts.
  */
-function previewGain(mob: Mob, apply: (m: Mob) => void): string {
-  const before = statsOf(mob);
-  const copy = JSON.parse(JSON.stringify(mob)) as Mob;
-  apply(copy);
-  const after = statsOf(copy);
+function previewGain(mob: Mob, apply: (d: Dungeon, m: Mob) => void): string {
+  const d = app.season.dungeon;
+  const before = statsOf(d, mob);
+  // Both halves are clonable because both are plain data: gear and reforging
+  // live on the creature, upgrade ranks live on the dungeon (§6.6). A preview
+  // has to be able to move either without touching the real game.
+  const copyD = { ...d, upgrades: JSON.parse(JSON.stringify(d.upgrades ?? {})) } as Dungeon;
+  const copyM = JSON.parse(JSON.stringify(mob)) as Mob;
+  apply(copyD, copyM);
+  const after = statsOf(copyD, copyM);
 
   const parts: string[] = [];
-  const d = (label: string, a: number, b: number, dp = 0) => {
+  const delta = (label: string, a: number, b: number, dp = 0) => {
     if (Math.abs(b - a) < 0.05) return;
     parts.push(`${label} ${a.toFixed(dp)} → ${b.toFixed(dp)}`);
   };
-  d('HP', before.hp, after.hp);
-  d('dmg', before.dmg, after.dmg, 1);
-  d('armour', before.armor, after.armor, 1);
+  delta('HP', before.hp, after.hp);
+  delta('dmg', before.dmg, after.dmg, 1);
+  delta('armour', before.armor, after.armor, 1);
   return parts.join(' · ');
 }
 
@@ -1585,7 +1590,7 @@ function dungeonPanel(): HTMLElement {
 
 function mobChip(mob: Mob): HTMLElement {
   const def = MOBS[mob.defId]!;
-  const maxHp = mobEffectiveHp(mob);
+  const maxHp = mobEffectiveHp(app.season.dungeon, mob);
   const pct = Math.max(0, Math.min(100, (mob.hp / maxHp) * 100));
   const sel = app.selectedMob === mob.uid ? 'selected' : '';
   const gear = mob.gear.length
@@ -1977,39 +1982,44 @@ function selectionPanel(): HTMLElement | null {
   // What the creature currently *is*. Without this the panel showed what you
   // had bought and never what it added up to, so every purchase landed with no
   // number moving anywhere on screen.
-  const now = statsOf(mob);
+  const now = statsOf(d, mob);
   p.append(el(`<div class="mob-stats">
     <span><i>HP</i><b>${now.hp}</b></span>
     <span><i>dmg</i><b>${now.dmg.toFixed(1)}</b></span>
     <span><i>armour</i><b>${now.armor.toFixed(1)}</b></span>
   </div>`));
 
-  // Named upgrade tracks (§6.6). Same maths as a level, but you are choosing
-  // what this creature becomes rather than watching a number go up.
+  // Named upgrade tracks (§6.6). Species-wide: you are choosing what your Cave
+  // Rats become, not what this one does, so the label has to say so — otherwise
+  // the price looks extortionate for a single creature and cheap for a swarm.
+  const kin = d.mobs.filter((m) => m.alive && m.defId === mob.defId).length;
   for (const track of ['bite', 'hide', 'vigor'] as UpgradeTrack[]) {
-    const rank = upgradeRank(mob, track);
-    const cost = nextUpgradeCost(mob, track);
+    const rank = upgradeRank(d, mob.defId, track);
+    const cost = nextUpgradeCost(d, mob.defId, track);
     const maxed = cost === null;
     const off = maxed || s.mana < cost!;
     const pips = '●'.repeat(rank) + '○'.repeat(MAX_UPGRADE_RANK - rank);
-    const gain = maxed ? '' : previewGain(mob, (m) => {
-      m.upgrades = { ...m.upgrades, [track]: rank + 1 };
+    const gain = maxed ? '' : previewGain(mob, (dd) => {
+      dd.upgrades = { ...dd.upgrades, [mob.defId]: { ...dd.upgrades?.[mob.defId], [track]: rank + 1 } };
     });
     const b = el(`<div class="buy up ${off ? 'off' : ''}">
-        <span>${esc(upgradeName(mob.defId, track))}<div class="meta">${pips}</div>
+        <span>${esc(upgradeName(mob.defId, track))}
+          <div class="meta">${pips}${kin > 1 ? ` · all ${kin} ${esc(def.name)}s` : ''}</div>
           <div class="sub">${UPGRADE_BLURB[track]}${gain ? `<b class="gain">${gain}</b>` : ''}</div></span>
         <span class="cost">${maxed ? 'max' : `${cost} mana`}</span>
       </div>`);
     if (!off) {
       b.onclick = () => {
-        const err = buyUpgrade(d, mob.uid, track);
+        const err = buyUpgrade(d, mob.defId, track);
         if (!err) s.mana -= cost!;
         fail(err);
       };
     }
     p.append(b);
   }
-  p.append(el('<div class="hint">Mana raises the monster; Gold equips it.</div>'));
+  p.append(el(`<div class="hint">Mana breeds the species — every ${esc(def.name)}
+    you own or buy shares these, and they survive any one of them dying.
+    Gold equips <em>this</em> creature, and dies with it.</div>`));
 
   for (const g of Object.values(GEAR)) {
     const owned = mob.gear.includes(g.id);
@@ -2020,7 +2030,7 @@ function selectionPanel(): HTMLElement | null {
       const rank = reforgeRank(mob, g.id);
       const cost = nextReforgeCost(mob, g.id);
       const cant = s.gold < cost;
-      const gain = previewGain(mob, (m) => {
+      const gain = previewGain(mob, (_dd, m) => {
         m.reforge = { ...m.reforge, [g.id]: rank + 1 };
       });
       const b = el(`<div class="buy ${cant ? 'off' : ''}"
@@ -2039,7 +2049,7 @@ function selectionPanel(): HTMLElement | null {
       p.append(b);
       continue;
     }
-    const gain = previewGain(mob, (m) => { m.gear = [...m.gear, g.id]; });
+    const gain = previewGain(mob, (_dd, m) => { m.gear = [...m.gear, g.id]; });
     // Why the row is unbuyable, on the row. "Nothing happens when I click it"
     // was the same missing feedback as "nothing happens when I buy it".
     const why = owned ? '' : full

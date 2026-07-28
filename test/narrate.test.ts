@@ -117,7 +117,7 @@ describe('narration is deterministic', () => {
           { t: 23, type: 'adv-death', advId: 1, name: 'Pike Quickhand', goldDropped: 6 },
           { t: 24, type: 'mob-slain', uid: 5, defId: 'ogre', level: 6 },
         ]),
-        result: makeResult({ killed: 1, mobsLost: [{ uid: 5, defId: 'ogre', level: 6 }] }),
+        result: makeResult({ killed: 1, mobsLost: [{ uid: 5, defId: 'ogre', level: 6, gear: [] }] }),
       }));
       expect(spy).not.toHaveBeenCalled();
     } finally {
@@ -330,7 +330,7 @@ describe('narration finds what was distinctive', () => {
       events: baseEvents([{ t: 30, type: 'mob-slain', uid: 7, defId: 'ogre', level: 6 }]),
       result: makeResult({
         mobsDowned: [{ uid: 7, defId: 'ogre', level: 6 }],
-        mobsLost: [{ uid: 7, defId: 'ogre', level: 6 }],
+        mobsLost: [{ uid: 7, defId: 'ogre', level: 6, gear: [] }],
       }),
     }));
     expect(n.beats).toContain('losses');
@@ -341,8 +341,8 @@ describe('narration finds what was distinctive', () => {
     const d = digestRaid(ctx({
       result: makeResult({
         mobsLost: [
-          { uid: 1, defId: 'rat', level: 1 },
-          { uid: 2, defId: 'ogre', level: 1 },
+          { uid: 1, defId: 'rat', level: 1, gear: [] },
+          { uid: 2, defId: 'ogre', level: 1, gear: [] },
         ],
       }),
     }));

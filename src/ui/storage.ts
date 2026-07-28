@@ -140,6 +140,27 @@ export function loadRun(): SavedRun | null {
     if (t === null || t === undefined || !Number.isFinite(t)) {
       parsed.season.totalRaids = Number.POSITIVE_INFINITY;
     }
+
+    // Upgrade ranks moved from the creature to the species (§6.6). A run saved
+    // before that has them on each Mob and none on the Dungeon, which would
+    // load as a dungeon whose monsters had silently lost everything Mana had
+    // ever bought. Fold them up: the best rank any surviving member of a
+    // species reached becomes the species' rank, which never takes anything
+    // away from the player mid-run.
+    const d = parsed.season.dungeon;
+    if (!d.upgrades) {
+      const rolled: Record<string, Record<string, number>> = {};
+      for (const m of d.mobs) {
+        const old = (m as unknown as { upgrades?: Record<string, number> }).upgrades;
+        if (!old) continue;
+        const into = rolled[m.defId] ??= {};
+        for (const [track, rank] of Object.entries(old)) {
+          into[track] = Math.max(into[track] ?? 0, rank);
+        }
+        delete (m as unknown as { upgrades?: unknown }).upgrades;
+      }
+      d.upgrades = rolled;
+    }
     return parsed;
   } catch {
     return null;
