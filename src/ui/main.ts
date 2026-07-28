@@ -493,10 +493,15 @@ function newSeason(seed: number): SeasonState {
 function restart(): void {
   stopTimer();
   clearAutoContinue();
+  graceUntil = 0;
   clearRun();
   app.lastInsight = null;
   Object.assign(app, {
     season: newSeason(Math.floor(Math.random() * 100000)),
+    // A new run starts running. Carrying a hold across restart meant the
+    // banner said "Held" over a game nobody had asked to stop, and the only way
+    // out was a Resume click for a pause you never made.
+    spectatePaused: false,
     phase: 'build', runStarted: true, sim: null, speedIdx: 1, log: [], events: [],
     selectedMob: null, selectedTrap: null, aftermath: null, narration: null, error: '',
   });
@@ -941,8 +946,11 @@ function holdOnInteraction(ev: Event): void {
   if (!t) return;
   if (t.closest('.spectate-bar')) return;
 
+  // Reaching into the dungeon is intervening. A bare button in the Build Phase
+  // is not: the Understudy spends most of its time there, and treating every
+  // button as a takeover meant navigating while watching left it stuck holding.
   const intervening = t.closest('.room, .amenity, .buy, .landing, .mob, .trap')
-    || (t.closest('button') && app.phase === 'build');
+    || t.closest('.panel.dock');
   if (intervening) {
     app.spectatePaused = true;
     clearAutoContinue();

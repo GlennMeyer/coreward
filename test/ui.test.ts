@@ -403,6 +403,9 @@ describe('UI smoke', () => {
     expect(document.querySelector('.spectate-bar')).toBeTruthy();
     expect(document.querySelector('.topbar')).toBeTruthy();
 
+    // A new run starts running, not held: carrying a hold across restart meant
+    // every game began paused with no pause having been asked for.
+    click(button('Resume'));
     click(button('Take over'));
     expect(document.querySelector('.spectate-bar')).toBeFalsy();
     vi.doUnmock('../src/ui/storage');
