@@ -30,7 +30,10 @@ import {
   CODEX, applyProfile, applyRun, nextCodexCost, rankOf, buyCodex,
   startingBonuses, type CodexId, type InsightBreakdown, type Profile,
 } from '../sim/meta';
-import { loadProfile, saveProfile, loadIdler, saveIdler } from './storage';
+import {
+  loadProfile, saveProfile, loadIdler, saveIdler, loadRun, saveRun, clearRun,
+  clearProfile,
+} from './storage';
 import { Rng } from '../sim/rng';
 import { buildPhaseFor } from './idlerBrain';
 import {
@@ -73,6 +76,8 @@ interface App {
    * watching at all.
    */
   spectating: boolean;
+  /** Two-step confirm on the wipe button. */
+  confirmWipe: boolean;
   /** Endless: raid until the Core falls, rather than stopping at 8 (§12a). */
   endless: boolean;
   season: SeasonState;
@@ -107,23 +112,31 @@ interface App {
 // Loaded before `app` exists: the first season needs the Codex applied, and
 // `newSeason()` reads `app`, which is not initialised yet.
 const bootProfile = loadProfile();
-const bootSeason = createSeason(Math.floor(Date.now() % 100000), true);
-applyProfile(bootSeason, bootProfile);
+// A run in progress outranks a fresh one: refreshing mid-game should put you
+// back where you were, not at a title screen with your dungeon gone.
+const bootRun = loadRun();
+const bootSeason = bootRun?.season
+  ?? (() => {
+    const fresh = createSeason(Math.floor(Date.now() % 100000), true);
+    applyProfile(fresh, bootProfile);
+    return fresh;
+  })();
 
 const app: App = {
   profile: bootProfile,
   lastInsight: null,
   idler: loadIdler(),
   spectating: false,
-  endless: true,
+  confirmWipe: false,
+  endless: bootRun?.endless ?? true,
   season: bootSeason,
-  phase: 'menu',
+  phase: bootRun ? 'build' : 'menu',
   sim: null,
   speedIdx: 1,
   log: [],
   events: [],
-  lastLog: [],
-  lastRaidNumber: 0,
+  lastLog: bootRun?.lastLog ?? [],
+  lastRaidNumber: bootRun?.lastRaidNumber ?? 0,
   showLastLog: false,
   selectedMob: null,
   selectedTrap: null,
@@ -133,6 +146,25 @@ const app: App = {
 };
 
 let timer: number | null = null;
+
+/** How long the Aftermath waits before continuing on its own. */
+const AUTO_CONTINUE_MS = 4000;
+let autoTimer: number | null = null;
+
+function clearAutoContinue(): void {
+  if (autoTimer !== null) { clearTimeout(autoTimer); autoTimer = null; }
+}
+
+/**
+ * Continue after a pause unless the player acts first.
+ *
+ * Cancelled by any interaction, so it never steals a click — the failure mode
+ * to avoid is advancing while someone is still reading the narration.
+ */
+function scheduleAutoContinue(ms: number, fn: () => void): void {
+  clearAutoContinue();
+  autoTimer = setTimeout(() => { autoTimer = null; fn(); }, ms) as unknown as number;
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -161,8 +193,16 @@ function ordinal(n: number): string {
 const esc = (s: string): string =>
   s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
+/**
+ * Report the outcome of a Build Phase action and repaint.
+ *
+ * Also the autosave hook: every purchase, placement and price change funnels
+ * through here, so persisting on this path means a refresh keeps the dungeon
+ * you just built rather than the one you had at the last raid.
+ */
 function fail(msg: string | null): boolean {
   app.error = msg ?? '';
+  if (app.phase === 'build') persistRun();
   render();
   return msg === null;
 }
@@ -359,6 +399,7 @@ function beginRaid(): void {
 }
 
 function finishRaid(): void {
+  clearAutoContinue();
   const sim = app.sim;
   if (!sim || sim.status !== 'complete') return;
   stopTimer();
@@ -384,16 +425,19 @@ function finishRaid(): void {
     // residue is what a meta-currency should be made of (§10).
     app.lastInsight = applyRun(app.profile, app.season, currentTier(app.season).tier);
     saveProfile(app.profile);
+    clearRun();
   }
   app.phase = app.season.over ? 'over' : 'aftermath';
   render();
 }
 
 function nextRaid(): void {
+  clearAutoContinue();
   app.phase = 'build';
   app.sim = null;
   app.aftermath = null;
   app.narration = null;
+  persistRun();
   render();
   // Spectating: the Understudy takes its next turn straight away, so the run
   // plays continuously instead of pausing for a click nobody is there to make.
@@ -409,6 +453,8 @@ function newSeason(seed: number): SeasonState {
 
 function restart(): void {
   stopTimer();
+  clearAutoContinue();
+  clearRun();
   app.lastInsight = null;
   Object.assign(app, {
     season: newSeason(Math.floor(Math.random() * 100000)),
@@ -571,7 +617,19 @@ function menuScreen(): HTMLElement {
       · <b>${p.insight}</b> Insight</div>`));
   }
 
-  const start = el('<button class="primary big">Begin a Delve</button>');
+  const saved = loadRun();
+  if (saved && !app.season.over) {
+    const resume = el(`<button class="primary big">Resume — raid ${saved.season.raidNumber}</button>`);
+    resume.onclick = () => {
+      app.season = saved.season;
+      app.endless = saved.endless;
+      app.phase = 'build';
+      render();
+    };
+    wrap.append(resume);
+  }
+
+  const start = el(`<button class="${saved ? '' : 'primary '}big">${saved ? 'Abandon and Begin Anew' : 'Begin a Delve'}</button>`);
   start.onclick = () => { restart(); };
   wrap.append(start);
 
@@ -630,6 +688,29 @@ function menuScreen(): HTMLElement {
   wrap.append(opts);
   wrap.append(el('<div class="hint">Endless runs until the Core falls. Off gives a fixed 8-raid season.</div>'));
 
+  // Wipe. Deliberately does NOT touch the Understudy's evolved population:
+  // that is the tool's learning, not the player's progress, and throwing it
+  // away would cost hours of search to punish a decision about a save file.
+  const wipe = el(`<button class="wipe">${app.confirmWipe ? 'Really wipe? This cannot be undone' : 'Wipe save'}</button>`);
+  wipe.onclick = () => {
+    if (!app.confirmWipe) { app.confirmWipe = true; render(); return; }
+    clearProfile();
+    clearRun();
+    app.profile = loadProfile();
+    app.season = createSeason(Math.floor(Math.random() * 100000), app.endless);
+    applyProfile(app.season, app.profile);
+    app.lastInsight = null;
+    app.lastLog = [];
+    app.confirmWipe = false;
+    render();
+  };
+  const wipeRow = el('<div class="wipe-row"></div>');
+  wipeRow.append(wipe);
+  wrap.append(wipeRow);
+  if (app.idler.generation > 0) {
+    wrap.append(el(`<div class="hint dim-t">The Understudy keeps what it has learned (generation ${app.idler.generation}).</div>`));
+  }
+
   return wrap;
 }
 
@@ -659,6 +740,7 @@ function startSpectating(): void {
 
 function stopSpectating(): void {
   app.spectating = false;
+  clearAutoContinue();
   render();
 }
 
@@ -667,6 +749,20 @@ function syncIdler(): void {
   startIdler(app.idler, app.profile, () => {
     saveIdler(app.idler);
     if (app.phase === 'menu') render();
+  });
+}
+
+/**
+ * Autosave the run. Called on entering the Build Phase, which is the only
+ * moment the whole thing is plain serialisable data (see `saveRun`).
+ */
+function persistRun(): void {
+  if (app.season.over) { clearRun(); return; }
+  saveRun({
+    season: app.season,
+    endless: app.endless,
+    lastLog: app.lastLog,
+    lastRaidNumber: app.lastRaidNumber,
   });
 }
 
@@ -1642,8 +1738,9 @@ function raidDoneBar(): HTMLElement {
       <p>${r.killed} killed · ${r.escaped} escaped · ${r.mobsDowned.length} monsters downed, ${r.mobsLost.length} slain</p>
       <div class="row"><button class="primary">Aftermath →</button></div>
     </div>`);
-  m.querySelector('button')!.onclick = finishRaid;
-  if (app.spectating) setTimeout(() => { if (app.spectating) finishRaid(); }, 900);
+  const btn = m.querySelector('button') as HTMLElement;
+  btn.onclick = () => { clearAutoContinue(); finishRaid(); };
+  scheduleAutoContinue(app.spectating ? 900 : AUTO_CONTINUE_MS, finishRaid);
   bg.append(m);
   return bg;
 }

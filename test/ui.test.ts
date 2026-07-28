@@ -63,7 +63,24 @@ function button(text: string): HTMLButtonElement | undefined {
     .find((b) => b.textContent?.includes(text)) as HTMLButtonElement | undefined;
 }
 
+/** An in-memory Storage, since jsdom here supplies none. */
+function fakeStorage(seed: Record<string, string> = {}): Map<string, string> {
+  const store = new Map(Object.entries(seed));
+  vi.stubGlobal('localStorage', {
+    getItem: (k: string) => store.get(k) ?? null,
+    setItem: (k: string, v: string) => { store.set(k, v); },
+    removeItem: (k: string) => { store.delete(k); },
+    clear: () => { store.clear(); },
+    key: () => null, length: 0,
+  } as unknown as Storage);
+  return store;
+}
+
 describe('UI smoke', () => {
+  // Unconditional, so a failing test cannot leak a stubbed global into the
+  // next one — that leak timed nine tests out at 12s each on CI.
+  afterEach(() => { vi.unstubAllGlobals(); });
+
   beforeEach(async () => {
     document.body.innerHTML = '<div id="app"></div>';
     vi.resetModules();
@@ -278,6 +295,54 @@ describe('UI smoke', () => {
     click(button('Take over'));
     expect(document.querySelector('.spectate-bar')).toBeFalsy();
     vi.doUnmock('../src/ui/storage');
+  });
+
+  it('a run in progress survives a reload, and can be abandoned', async () => {
+    fakeStorage();
+
+    // Play a bit: buy something so the dungeon is distinguishable.
+    document.body.innerHTML = '<div id="app"></div>';
+    vi.resetModules();
+    await import('../src/ui/main');
+    click(button('Begin a Delve'));
+    const buy = [...document.querySelectorAll('.buy')]
+      .find((b) => b.textContent?.includes('Ogre'));
+    click(buy);
+    click(document.querySelectorAll('.room')[0]);
+    expect(document.querySelector('.room .mob')).toBeTruthy();
+
+    // "Hard refresh": fresh DOM, fresh modules, same storage.
+    document.body.innerHTML = '<div id="app"></div>';
+    vi.resetModules();
+    await import('../src/ui/main');
+
+    // Straight back into the run, with the Ogre still placed.
+    expect(document.querySelector('.topbar')).toBeTruthy();
+    expect(document.querySelector('.room .mob')?.textContent).toContain('Ogre');
+
+  });
+
+  it('offers a wipe that spares the Understudy', async () => {
+    // Own setup: the shared beforeEach clicks into a delve, and this test
+    // needs the title screen.
+    const store = fakeStorage({
+      'coreward.idler.v1': JSON.stringify({
+        mode: 'off', population: [], generation: 42,
+        pendingInsight: 0, runsPlayed: 0, best: null,
+      }),
+    });
+
+    document.body.innerHTML = '<div id="app"></div>';
+    vi.resetModules();
+    await import('../src/ui/main');
+
+    click(button('Wipe save'));                 // two-step: arms first
+    click(button('Really wipe'));
+    // Profile and run are gone; the evolved population is not.
+    expect(store.has('coreward.profile.v1')).toBe(false);
+    expect(store.has('coreward.run.v1')).toBe(false);
+    expect(store.get('coreward.idler.v1')).toContain('"generation":42');
+
   });
 
   it('opens on a title screen, not straight into a delve', async () => {

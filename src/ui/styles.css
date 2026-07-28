@@ -494,3 +494,11 @@ button.big { padding: 12px; font-size: 14px; }
   background: #241f2e; border: 1px solid var(--souls); border-radius: 6px;
   padding: 7px 12px; margin-bottom: 12px; font-size: 11px; color: var(--souls);
 }
+
+.wipe-row { margin-top: 18px; text-align: right; }
+button.wipe {
+  background: transparent; border-color: #5a2b30; color: var(--danger);
+  font-size: 10px; padding: 4px 8px;
+}
+button.wipe:hover { background: #2a1a1e; border-color: var(--danger); }
+.hint.dim-t { color: var(--dim); font-size: 10px; text-align: right; }

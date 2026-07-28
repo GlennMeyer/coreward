@@ -2475,3 +2475,48 @@ which has been open since §12 and cannot be measured, only seen.
 strategy. That gap is the player's too. An advisor that says *"the current frontier runs
 cheap chaff behind a Snare and gouges the gate"* is teaching the game's actual strategy
 space, which nothing else in the UI does.
+
+
+---
+
+## 33. Persistence, and getting out of the player's way
+
+**Status: IMPLEMENTED (v0.17).**
+
+### 33.1 The run survives a refresh
+
+`SeasonState` is plain data — that is §13.2 paying off in a way that was never the point of
+the rule. A sim full of class instances or engine handles could not be written to storage
+at all; this one serialises whole.
+
+Autosaved on every Build Phase action (every purchase, placement and price change funnels
+through one function), and restored on load: a hard refresh puts you back in the run with
+the dungeon you built.
+
+**A raid in flight is deliberately not saved.** `RaidSim` *is* a class, and restoring a
+half-finished tick loop from JSON would mean reconstructing engaged lines, ATB accumulators
+and a seeded RNG mid-stream. A refresh mid-raid resumes at the Build Phase — the same trade
+the HMR handler makes (§13.2), for the same reason: the dungeon is the expensive thing to
+lose, one raid is not.
+
+### 33.2 Wipe spares the Understudy
+
+A wipe clears the profile and the run in progress and **leaves the evolved population
+alone**. That population is the tool's learning, not the player's progress, and throwing
+away hours of search to punish a decision about a save file would be the wrong trade.
+
+Two-step confirm, and the button says so.
+
+### 33.3 Auto-continue
+
+The Aftermath is a summary, not a decision. Holding a run hostage to a click every raid is
+friction, and over a forty-raid endless run it is a lot of friction. It now continues on
+its own after four seconds — **cancelled by any interaction**, so reading at your own pace
+still wins. The failure mode to avoid is advancing while someone is mid-narration.
+
+### 33.4 A spectator bug worth recording
+
+Watching the Understudy and choosing to play another round **hung**: `restart()` puts the
+game in the Build Phase, and while spectating there is nobody to press the buttons — so the
+banner said "watching" while nothing happened. Every path that lands in the Build Phase now
+has to hand the turn back to the Understudy explicitly.

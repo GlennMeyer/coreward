@@ -8,9 +8,11 @@
  */
 import { emptyProfile, type Profile } from '../sim/meta';
 import { emptyIdler, type IdlerState } from './idler';
+import type { SeasonState } from '../sim/types';
 
 const KEY = 'coreward.profile.v1';
 const IDLER_KEY = 'coreward.idler.v1';
+const RUN_KEY = 'coreward.run.v1';
 
 /**
  * Storage can throw — private browsing, disabled cookies, a full quota. None of
@@ -87,4 +89,57 @@ export function saveIdler(st: IdlerState): void {
   try {
     s.setItem(IDLER_KEY, JSON.stringify(st));
   } catch { /* quota; the search simply restarts next session */ }
+}
+
+// ─── The run in progress ─────────────────────────────────────────────────────
+
+export interface SavedRun {
+  season: SeasonState;
+  endless: boolean;
+  /** Log lines from the last finished raid, so the replay panel survives too. */
+  lastLog: { t: number; cls: string; text: string }[];
+  lastRaidNumber: number;
+}
+
+/**
+ * Autosave the run between raids.
+ *
+ * `SeasonState` is plain data — that is §13.2 paying off, since a sim full of
+ * class instances or engine handles could not be written to storage at all.
+ * `RaidSim` *is* a class, so a raid in flight is deliberately not saved: a
+ * refresh mid-raid resumes at the Build Phase with the dungeon intact, which is
+ * the same trade the HMR handler makes and for the same reason. Restoring a
+ * half-finished raid would mean reconstructing a tick loop from JSON, and the
+ * dungeon is the expensive thing to lose, not one raid.
+ */
+export function saveRun(run: SavedRun): void {
+  const s = storage();
+  if (!s) return;
+  try {
+    s.setItem(RUN_KEY, JSON.stringify(run));
+  } catch { /* quota — the run continues, it just will not survive a refresh */ }
+}
+
+export function loadRun(): SavedRun | null {
+  const s = storage();
+  if (!s) return null;
+  try {
+    const raw = s.getItem(RUN_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as SavedRun;
+    // A season with no dungeon is a save from a build that structured things
+    // differently; discard rather than crash on it.
+    if (!parsed?.season?.dungeon?.floors) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function clearRun(): void {
+  const s = storage();
+  if (!s) return;
+  try {
+    s.removeItem(RUN_KEY);
+  } catch { /* nothing to do */ }
 }
