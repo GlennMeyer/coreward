@@ -2800,3 +2800,53 @@ one decision. Patches keep buying room; none of them fix it.
 The fix is to keep the DOM and change only what moved: HP bar widths, the active-room
 outline, appended log lines. That is a real refactor of `main.ts` and it should come before
 any more UI is added on top.
+
+
+---
+
+## 40. The guild learns, not just the survivor
+
+Adventurers already learned (§9.3): nearly die to a Kit drain and you come back
+`provisioned`, nearly die to a bruiser and you come back `armored`. Five traits, each
+earned by the person who survived that specific thing.
+
+**The knowledge went nowhere.** A dungeon could run the same trick for thirty raids and
+every fresh face walked in blind, because only returning veterans carried what they had
+learned — and most arrivals are new.
+
+`SeasonState.guildLore` now pools it. Every grudge earned is recorded against the reason it
+was earned for, and a fresh adventurer arrives already carrying a counter-trait with
+probability `seen × guildLoreRate` (0.06), capped at 0.5 so a long run can never make every
+arrival pre-countered.
+
+Measured over fourteen raids, adventurers arriving after raid 8 carry **0.78–1.00 traits
+each**, where before they carried none unless they had personally been there.
+
+### 40.1 Why this is the right shape of difficulty
+
+It does not make adventurers flatly stronger — it makes **repetition** weaker. A dungeon
+that varies its approach teaches the guild little; one that runs the same trick every raid
+trains its own counter. That is pressure on the exact thing the game currently lacks
+(§, retention): a static optimal build.
+
+It is also the answer to "how do we let them learn more" that does not require a second
+genetic search. The adventurers do not need to be smart; they need to *remember*.
+
+### 40.2 Further, if it needs it
+
+- **Scouting**: a party that has been before enters knowing the layout and routes for it.
+- **Guild counters as picks**: rather than random traits, the guild deliberately brings the
+  counter to your most-used tactic — legible, and the player can watch it happen.
+- **Evolving the party side**, symmetric with the Understudy. Powerful and expensive; the
+  above is cheaper and probably enough.
+
+---
+
+## 41. A press stops the world
+
+Holding repaints (§39) stopped clicks being swallowed, but the raid clock kept running
+underneath — so by the time you read the result of a click, the thing you clicked on had
+moved on. A press now halts the tick as well and resumes it once the click has landed.
+
+You are always interacting with the frame you are looking at, which is the actual
+requirement behind "clicking should pause everything for a moment".

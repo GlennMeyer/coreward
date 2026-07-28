@@ -2396,8 +2396,24 @@ if (import.meta.hot) {
 
 // Capture phase, so the hold lands before the clicked control does its work —
 // otherwise a speed button would change speed and immediately be swept past.
-// Hold repaints across a press so the click can land — see renderHeldUntil.
-root.addEventListener('pointerdown', () => { renderHeldUntil = Date.now() + CLICK_GRACE_MS; }, true);
+/**
+ * Any press stops the world for a moment.
+ *
+ * Holding repaints (§39) stopped clicks being swallowed, but the raid clock
+ * kept running underneath — so the thing you clicked on had already moved on by
+ * the time you read the result. A press now halts the tick as well and lets it
+ * resume once the click has landed. You are always interacting with the frame
+ * you are looking at.
+ */
+root.addEventListener('pointerdown', () => {
+  renderHeldUntil = Date.now() + CLICK_GRACE_MS;
+  if (app.phase !== 'raid' || app.sim?.status !== 'running') return;
+  stopTimer();
+  setTimeout(() => {
+    // Only if nothing else has taken charge in the meantime.
+    if (app.phase === 'raid' && app.sim?.status === 'running') syncTimer();
+  }, CLICK_GRACE_MS);
+}, true);
 root.addEventListener('click', holdOnInteraction, true);
 // Do not leave a search running against a page that is going away.
 globalThis.addEventListener?.('pagehide', () => { stopIdler(); stopTimer(); });

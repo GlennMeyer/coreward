@@ -609,6 +609,15 @@ export interface SeasonState {
   nextVeteranId: number;
   /** Retired adventurers — a permanent passive Renown trickle. */
   legends: Legend[];
+  /**
+   * What the guild has worked out about this dungeon (§40).
+   *
+   * Keyed by grudge reason ('supplies', 'muscle', …), counting how often the
+   * dungeon has nearly killed someone that way. Individual grudges (§9.3) only
+   * ever taught the person who survived them, so a dungeon could run the same
+   * trick for thirty raids and every fresh party walked in blind. Word travels.
+   */
+  guildLore: Record<string, number>;
   over: boolean;
   /** Set when the season ends: 'survived' or 'overrun'. */
   ending: 'survived' | 'overrun' | null;

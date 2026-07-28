@@ -189,12 +189,14 @@ export class RaidSim {
     dungeon: Dungeon, tier: TierRow, seed: number, veterans: Veteran[] = [],
     /** Breaches already suffered this season — loot escalates with them (§5.4). */
     private readonly priorBreaches = 0,
+    /** What the guild has learned about this dungeon (§40). */
+    lore: Record<string, number> = {},
   ) {
     this.d = dungeon;
     this.tier = tier;
     this.rng = new Rng(seed);
     this.veterans = veterans;
-    this.party = generateParty(this.rng, tier, veterans);
+    this.party = generateParty(this.rng, tier, veterans, lore);
     this.formation = tier.formation;
     // Party generation puts the guaranteed fighter in slot 0 and headliners
     // ahead of everyone else, which is already the order a party would send

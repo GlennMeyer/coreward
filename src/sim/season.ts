@@ -31,6 +31,7 @@ export function createSeason(seed: number, endless = true): SeasonState {
     veterans: [],
     nextVeteranId: 1,
     legends: [],
+    guildLore: {},
     over: false,
     ending: null,
     log: [],
@@ -66,7 +67,9 @@ export function startRaid(s: SeasonState): RaidSim {
   const priorBreaches = s.log.filter((r) => r.outcome === 'breach').length;
   // The roster goes in by reference: returning faces are drawn from it during
   // party generation, and retirees are struck off it at raid end (§15.5).
-  return new RaidSim(s.dungeon, currentTier(s), raidSeed(s), s.veterans, priorBreaches);
+  return new RaidSim(
+    s.dungeon, currentTier(s), raidSeed(s), s.veterans, priorBreaches, s.guildLore,
+  );
 }
 
 export interface Aftermath {
@@ -227,6 +230,12 @@ export function applyAftermath(s: SeasonState, sim: RaidSim): Aftermath {
   s.gold += result.goldFromSales + result.goldFromCorpses
     + result.goldFromRescues + result.goldFromAdmission + result.goldFromInsurance;
   s.renown += result.renown;
+  // The guild pools what it learns (§40): a grudge teaches the survivor, and
+  // now also everyone who hears about it.
+  for (const r of result.rivals ?? []) {
+    if (r.grudge) s.guildLore[r.grudge] = (s.guildLore[r.grudge] ?? 0) + 1;
+  }
+
   s.log.push(result);
 
   const tierAfter = currentTier(s).tier;

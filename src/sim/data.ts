@@ -508,6 +508,17 @@ export const TUNING = {
    * walked out white-faced, not a silent one — their friends do the telling.
    * A full wipe still pays nothing: there is nobody left to carry anyone.
    */
+  /**
+   * How readily the guild passes on what it has learned (§40).
+   *
+   * Chance a fresh adventurer arrives already carrying a counter-trait, per
+   * raid in which the dungeon leaned on that tactic. A dungeon that varies
+   * teaches them little; one that runs the same trick every raid trains its own
+   * counter — which is the pressure that makes a static build stop working.
+   */
+  guildLoreRate: 0.06,
+  /** Ceiling, so a long run cannot make every arrival pre-countered. */
+  guildLoreCap: 0.5,
   casualtyTellerWeight: 0.4,
   renownPerThrill: 0.3,
   /**

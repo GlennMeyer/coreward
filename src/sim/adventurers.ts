@@ -6,7 +6,8 @@
  */
 import {
   ADV_ARMOR_PER_LEVEL, ADV_BASE_DMG, ADV_BASE_HP, ADV_KIT_BASE,
-  ADV_MAX_RESOLVE, CLASS_MODS, CLASS_WEIGHTS, EPITHETS, FIRST_NAMES, NAMED,
+  ADV_MAX_RESOLVE, CLASS_MODS, CLASS_WEIGHTS, EPITHETS, FIRST_NAMES,
+  GRUDGE_TRAIT, NAMED,
   TUNING, type TierRow,
 } from './data';
 import type { Rng } from './rng';
@@ -178,7 +179,28 @@ function makeAdventurer(
  *     headliner — counter-play that invalidates a specific build.
  *  3. **Ordinary returnees** (§15.5) and fresh rolls.
  */
-export function generateParty(rng: Rng, tier: TierRow, veterans: Veteran[] = []): Party {
+/**
+ * Traits a fresh adventurer arrives with, from what the guild has learned (§40).
+ *
+ * Individual grudges (§9.3) only ever taught the survivor, so a dungeon could
+ * run one trick for thirty raids and every new face walked in blind. A tactic
+ * used repeatedly now trains its own counter — which is the pressure that stops
+ * a static build working forever.
+ */
+function lodgedLore(rng: Rng, lore: Record<string, number>): string[] {
+  const out: string[] = [];
+  for (const [reason, seen] of Object.entries(lore)) {
+    const trait = GRUDGE_TRAIT[reason];
+    if (!trait) continue;
+    const chance = Math.min(TUNING.guildLoreCap, seen * TUNING.guildLoreRate);
+    if (rng.chance(chance)) out.push(trait);
+  }
+  return out;
+}
+
+export function generateParty(
+  rng: Rng, tier: TierRow, veterans: Veteran[] = [], lore: Record<string, number> = {},
+): Party {
   // Names carry the story now (§9.3, and the narrator reads them aloud), so a
   // party must not field two Sables. Track first names and re-roll collisions.
   const usedFirstNames = new Set<string>();
@@ -244,7 +266,13 @@ export function generateParty(rng: Rng, tier: TierRow, veterans: Veteran[] = [])
     if (vet) cls = vet.cls;
 
     const gold = Math.round(tier.gold * rng.float(0.8, 1.2));
-    members.push(makeAdventurer(rng, i, cls, level, gold, vet?.namedId ?? slotNamed, vet, usedFirstNames));
+    const m = makeAdventurer(rng, i, cls, level, gold, vet?.namedId ?? slotNamed, vet, usedFirstNames);
+    // A returning face already carries what it personally learned; a fresh one
+    // gets whatever the guild has worked out about this dungeon.
+    if (!vet) {
+      for (const t of lodgedLore(rng, lore)) if (!m.traits.includes(t)) m.traits.push(t);
+    }
+    members.push(m);
   }
 
   // Kit is the drain build's whole win condition, so the trait that counters it
