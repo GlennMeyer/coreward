@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MOBS, TIERS, TRAPS, TUNING, roomCapacity } from '../src/sim/data';
 import { buildAmenity, buyMob, createDungeon, placeMobInRoom } from '../src/sim/dungeon';
 import { predictThrill, thrillRating } from '../src/ui/predict';
+import { rulesHash as idlerRulesHash } from '../src/ui/idler';
 import type { SeasonState } from '../src/sim/types';
 
 function click(node: Element | null | undefined): void {
@@ -198,6 +199,29 @@ describe('UI smoke', () => {
     expect(document.querySelector('.room .mob')?.textContent).toContain('Ogre');
   });
 
+  it('a survived season does not report the Core as fallen', () => {
+    // Fixed-length seasons can be *survived*; endless ones always end overrun.
+    // Telling a player who finished with four Hearts intact that their Core
+    // fell is simply wrong.
+    const s = seasonDungeon();
+    s.hearts = 99;
+    for (let guard = 0; guard < 40; guard++) {
+      const start = button('Begin Raid');
+      if (!start) break;
+      click(start);
+      click(button('Instant'));
+      click(button('Aftermath'));
+      const done = button('Delve Again');
+      if (done) {
+        const modal = document.querySelector('.modal')!;
+        expect(modal.textContent).not.toContain('The Core has fallen');
+        expect(modal.textContent).toContain('the dungeon holds');
+        return;
+      }
+      click(button('Continue'));
+    }
+  });
+
   it('auto-continues from the Aftermath without a click', async () => {
     vi.useFakeTimers();
     try {
@@ -308,6 +332,8 @@ describe('UI smoke', () => {
         loadIdler: () => ({
           mode: 'off' as const, population: [], generation: 3,
           pendingInsight: 0, runsPlayed: 0,
+          // Current ruleset, or the staleness check discards it (§32.6).
+          rulesHash: idlerRulesHash(),
           best: { genome: seedGenome(), renown: 100, raids: 6 },
         }),
         saveIdler: () => {},
@@ -360,6 +386,7 @@ describe('UI smoke', () => {
       'coreward.idler.v1': JSON.stringify({
         mode: 'autoplay', population: [], generation: 42,
         pendingInsight: 250, runsPlayed: 90, best: null,
+        rulesHash: idlerRulesHash(),
       }),
     });
 

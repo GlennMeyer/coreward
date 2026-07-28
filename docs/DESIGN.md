@@ -2589,3 +2589,43 @@ Watching the Understudy and choosing to play another round **hung**: `restart()`
 game in the Build Phase, and while spectating there is nobody to press the buttons — so the
 banner said "watching" while nothing happened. Every path that lands in the Build Phase now
 has to hand the turn back to the Understudy explicitly.
+
+
+---
+
+## 34. Stale learning, admin tools, and a message that lied
+
+### 34.1 A population is only valid for the rules it was evolved against
+
+A genome is advice about a specific set of numbers. Change a trap's cost or the Renown
+thresholds and every stored build is advice about a game that no longer exists — **worse
+than no advice, because it still looks authoritative.**
+
+The idler now fingerprints everything a genome is scored against (`TUNING`, the monster,
+trap, amenity and gear tables, and the tier rows). When the fingerprint changes the
+population is discarded and the search restarts on the current rules. Automatic, and it
+protects every player, not just whoever remembers to clear it.
+
+### 34.2 Admin tools, and what they are not
+
+`?admin=1` reveals the ruleset fingerprint, the population size, and a button to force the
+search to forget.
+
+**This is hiding, not protecting.** The game is a static page: anyone who opens devtools can
+find it. That is fine here — there is nothing worth protecting, only worth keeping out of a
+normal player's way — but it should not be described as access control.
+
+### 34.3 "The Core has fallen" was unconditional
+
+Reported from play: *"How is my core fallen at four hearts?"*
+
+A run ends two ways. Endless runs always end overrun, but a **fixed-length season can be
+survived** — and the end-of-run screen said "The Core has fallen" either way. Finishing a
+season with four Hearts intact and being told you lost is the game misreporting its own
+result.
+
+It now distinguishes them and says how many Hearts are still standing.
+
+Worth noting how it got there: the endless work (§29) made "survived" the rare case, and
+the screen was rewritten during §31 with only the common one in mind. A branch that stops
+being exercised is one nobody re-reads.

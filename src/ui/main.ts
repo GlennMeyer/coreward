@@ -38,7 +38,7 @@ import { Rng } from '../sim/rng';
 import { buildPhaseFor } from './idlerBrain';
 import {
   IDLE_YIELD, collectIdle, describeGenome, startIdler, stopIdler,
-  wipeIdlerProgress, type IdlerMode,
+  invalidateIfStale, resetLearning, rulesHash, wipeIdlerProgress, type IdlerMode,
   type IdlerState,
 } from './idler';
 import { narrateRaid, type Narration } from '../sim/narrate';
@@ -133,6 +133,10 @@ const bootProfile = loadProfile();
 // A run in progress outranks a fresh one: refreshing mid-game should put you
 // back where you were, not at a title screen with your dungeon gone.
 const bootRun = loadRun();
+// Discard a population evolved against different numbers before anything can
+// act on it (§32.6).
+const bootIdler = loadIdler();
+invalidateIfStale(bootIdler);
 const bootSeason = bootRun?.season
   ?? (() => {
     const fresh = createSeason(Math.floor(Date.now() % 100000), true);
@@ -143,7 +147,7 @@ const bootSeason = bootRun?.season
 const app: App = {
   profile: bootProfile,
   lastInsight: null,
-  idler: loadIdler(),
+  idler: bootIdler,
   spectating: false,
   runStarted: bootRun !== null,
   confirmWipe: false,
@@ -752,6 +756,25 @@ function menuScreen(): HTMLElement {
     app.confirmWipe = false;
     render();
   };
+  // Admin tools. Gated on ?admin=1 purely to keep them out of a normal
+  // player's way — this is a static page, so anyone who looks can find them.
+  // There is nothing here worth protecting, only worth hiding.
+  if (isAdmin()) {
+    const adm = el('<div class="admin-box"></div>');
+    adm.append(el(`<div class="idler-head">Admin · ruleset ${rulesHash()}</div>`));
+    adm.append(el(`<div class="hint">Population: generation ${app.idler.generation}, ${app.idler.population.length} genomes.</div>`));
+    const reset = el('<button class="wipe">Forget the Understudy\u2019s learning</button>');
+    reset.onclick = () => {
+      resetLearning(app.idler);
+      saveIdler(app.idler);
+      syncIdler();
+      render();
+    };
+    adm.append(reset);
+    adm.append(el('<div class="hint">Stale populations are discarded automatically when the rules change; this is for forcing it.</div>'));
+    wrap.append(adm);
+  }
+
   const wipeRow = el('<div class="wipe-row"></div>');
   wipeRow.append(wipe);
   wrap.append(wipeRow);
@@ -833,6 +856,15 @@ function stopSpectating(): void {
   render();
 }
 
+/** Admin tools are opt-in via ?admin=1. Hidden, not protected — see the panel. */
+function isAdmin(): boolean {
+  try {
+    return new URLSearchParams(globalThis.location?.search ?? '').has('admin');
+  } catch {
+    return false;
+  }
+}
+
 /** (Re)start the background search to match the current mode. */
 function syncIdler(): void {
   startIdler(app.idler, app.profile, () => {
@@ -856,6 +888,15 @@ function persistRun(): void {
 }
 
 function render(): void {
+  // A pending timer can fire after the page (or, under test, the module) has
+  // moved on. Rendering into a detached root does nothing useful and can spin,
+  // so bail — and take the timers with us.
+  if (!root.isConnected) {
+    stopTimer();
+    clearAutoContinue();
+    stopIdler();
+    return;
+  }
   // Read-only debug handle onto the live season, refreshed each frame so it
   // survives a restart. The sim is the source of truth (§13.2); nothing in the
   // app ever reads this back.
@@ -1992,7 +2033,17 @@ function gameOverModal(): HTMLElement {
   const bg = el('<div class="modal-bg"></div>');
   const m = el('<div class="modal wide"></div>');
 
-  m.append(el(`<h3>The Core has fallen — ${s.log.length} raids, Tier ${currentTier(s).tier}</h3>`));
+  // A run ends two ways and they are not the same thing. Endless runs always
+  // end overrun; a fixed-length season can be *survived*, and telling a player
+  // who finished it with four Hearts intact that their Core fell is simply
+  // wrong.
+  const held = s.ending === 'survived';
+  m.append(el(`<h3>${held
+    ? `The season ends and the dungeon holds — ${s.log.length} raids, Tier ${currentTier(s).tier}`
+    : `The Core has fallen — ${s.log.length} raids, Tier ${currentTier(s).tier}`}</h3>`));
+  if (held) {
+    m.append(el(`<div class="hint good-t">${s.dungeon.hearts} Heart${s.dungeon.hearts === 1 ? '' : 's'} still standing.</div>`));
+  }
 
   if (gained) {
     // The whole point of §10: a lost run still moved you forward.

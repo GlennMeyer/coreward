@@ -15,6 +15,7 @@
  * millisecond, so a handful of generations per tick is imperceptible, and it
  * keeps the whole thing dependency-free and debuggable.
  */
+import { AMENITIES, GEAR, MOBS, TIERS, TRAPS, TUNING } from '../sim/data';
 import { Rng } from '../sim/rng';
 import { applyProfile, type Profile } from '../sim/meta';
 import { createSeason, startRaid, applyAftermath, currentTier } from '../sim/season';
@@ -36,6 +37,16 @@ export type IdlerMode = 'off' | 'advisor' | 'autoplay';
 
 export interface IdlerState {
   mode: IdlerMode;
+  /**
+   * Fingerprint of the ruleset the population was evolved against.
+   *
+   * A genome is only meaningful under the numbers it was scored on. Change a
+   * trap's cost or the Renown thresholds and every stored build is advice about
+   * a game that no longer exists — worse than no advice, because it looks
+   * authoritative. When this stops matching, the population is discarded and
+   * the search starts again on the current rules.
+   */
+  rulesHash?: string;
   /** Evolved population, carried across sessions. */
   population: Genome[];
   generation: number;
@@ -49,8 +60,44 @@ export interface IdlerState {
 export function emptyIdler(): IdlerState {
   return {
     mode: 'off', population: [], generation: 0, best: null,
-    pendingInsight: 0, runsPlayed: 0,
+    pendingInsight: 0, runsPlayed: 0, rulesHash: rulesHash(),
   };
+}
+
+/**
+ * A cheap fingerprint of everything a genome is scored against.
+ *
+ * Not cryptographic and does not need to be — it only has to change when the
+ * balance does.
+ */
+export function rulesHash(): string {
+  const src = JSON.stringify([TUNING, MOBS, TRAPS, AMENITIES, GEAR, TIERS]);
+  let h = 2166136261;
+  for (let i = 0; i < src.length; i++) {
+    h ^= src.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(36);
+}
+
+/** Throw away a population evolved against different numbers. Returns true if it did. */
+export function invalidateIfStale(state: IdlerState): boolean {
+  const now = rulesHash();
+  if (state.rulesHash === now) return false;
+  state.population = [];
+  state.generation = 0;
+  state.best = null;
+  state.rulesHash = now;
+  return true;
+}
+
+/** Forget everything the search has learned and start over. */
+export function resetLearning(state: IdlerState): void {
+  state.population = [];
+  state.generation = 0;
+  state.best = null;
+  state.rulesHash = rulesHash();
+  stopIdler();
 }
 
 const POPULATION = 16;
