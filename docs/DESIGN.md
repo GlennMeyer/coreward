@@ -2502,6 +2502,19 @@ Adjusting the view and taking the wheel are different acts. The guarantee is car
 spectate bar instead: it is always on screen with **Hold** and **Take over**, so control is
 one click away at any speed, always — which is what was actually being asked for.
 
+### 32.7 The Understudy is not a player-facing feature
+
+Advisor, Auto-play and Watch are all behind `?admin=1`. A visitor gets to learn the game;
+handing them a solved build or an idle income does neither of us any favours — §23.3
+measured the evolved build ~70% ahead of the best hand-written strategy, which is exactly
+the discovery the game is *for*.
+
+`syncIdler()` also forces the mode off for a non-admin regardless of what the save says, so
+a profile written with admin on cannot leave a search running for someone who can neither
+see nor stop it.
+
+The §34.2 caveat still stands: this is hiding, not access control. It is a static page.
+
 ### 32.2 Why an advisor is worth having at all
 
 §23.3 measured the gap: the evolved build scored ~70% higher than the best hand-written

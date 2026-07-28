@@ -64,6 +64,11 @@ function button(text: string): HTMLButtonElement | undefined {
     .find((b) => b.textContent?.includes(text)) as HTMLButtonElement | undefined;
 }
 
+/** Pretend the page was opened with ?admin=1. */
+function asAdmin(): void {
+  vi.stubGlobal('location', { search: '?admin=1' } as Location);
+}
+
 /** An in-memory Storage, since jsdom here supplies none. */
 function fakeStorage(seed: Record<string, string> = {}): Map<string, string> {
   const store = new Map(Object.entries(seed));
@@ -302,6 +307,7 @@ describe('UI smoke', () => {
   });
 
   it('offers the Understudy modes and switching one on starts a search', async () => {
+    asAdmin();
     document.body.innerHTML = '<div id="app"></div>';
     vi.resetModules();
     globalThis.localStorage?.clear();
@@ -321,6 +327,7 @@ describe('UI smoke', () => {
     // Seeded through storage rather than by waiting on the live search: a real
     // interval outlives the test and times CI out, and the thing under test is
     // the spectator loop, not the evolver.
+    asAdmin();
     document.body.innerHTML = '<div id="app"></div>';
     vi.resetModules();
     // jsdom here has no localStorage, so seed through the module the app reads
@@ -382,6 +389,7 @@ describe('UI smoke', () => {
   it('offers a wipe that spares the Understudy', async () => {
     // Own setup: the shared beforeEach clicks into a delve, and this test
     // needs the title screen.
+    asAdmin();
     const store = fakeStorage({
       'coreward.idler.v1': JSON.stringify({
         mode: 'autoplay', population: [], generation: 42,
@@ -418,6 +426,17 @@ describe('UI smoke', () => {
     expect(document.querySelector('.menu')).toBeTruthy();
     expect(document.querySelector('.topbar')).toBeFalsy();
 
+  });
+
+  it('hides the Understudy from a normal visitor', async () => {
+    // Not access control — a static page cannot have any (§34.2). It keeps the
+    // tool out of a player's way; they get to learn the game themselves.
+    document.body.innerHTML = '<div id="app"></div>';
+    vi.resetModules();
+    await import('../src/ui/main');
+    expect(button('Advisor')).toBeFalsy();
+    expect(button('Auto-play')).toBeFalsy();
+    expect(button('Watch the Understudy')).toBeFalsy();
   });
 
   it('opens on a title screen, not straight into a delve', async () => {

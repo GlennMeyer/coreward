@@ -670,7 +670,7 @@ function menuScreen(): HTMLElement {
   // The idler (§32). Advisor informs; auto-play also banks Insight, at a
   // reduced rate so leaving the tab open never beats playing.
   const banked = Math.floor(app.idler.pendingInsight);
-  if (app.idler.mode !== 'off') {
+  if (isAdmin() && app.idler.mode !== 'off') {
     const b = app.idler.best;
     const panel = el(`<div class="idler-box"></div>`);
     panel.append(el(`<div class="idler-head">Understudy — generation ${app.idler.generation}</div>`));
@@ -690,7 +690,7 @@ function menuScreen(): HTMLElement {
     wrap.append(panel);
   }
 
-  if (app.idler.best) {
+  if (isAdmin() && app.idler.best) {
     const watch = el('<button class="big">Watch the Understudy</button>');
     watch.onclick = startSpectating;
     wrap.append(watch);
@@ -700,7 +700,9 @@ function menuScreen(): HTMLElement {
   const endlessBtn = el(`<button class="${app.endless ? 'on' : ''}">Endless: ${app.endless ? 'on' : 'off'}</button>`);
   endlessBtn.onclick = () => { app.endless = !app.endless; render(); };
   opts.append(endlessBtn);
-  for (const m of ['off', 'advisor', 'autoplay'] as IdlerMode[]) {
+  // The Understudy is not a player-facing feature (§32.7): a random visitor
+  // gets to learn the game, not to be handed a solved build or an idle income.
+  for (const m of (isAdmin() ? ['off', 'advisor', 'autoplay'] : []) as IdlerMode[]) {
     const on = app.idler.mode === m;
     const label = { off: 'Understudy: off', advisor: 'Advisor', autoplay: 'Auto-play' }[m];
     const b = el(`<button class="${on ? 'on' : ''}"
@@ -895,6 +897,13 @@ function isAdmin(): boolean {
 
 /** (Re)start the background search to match the current mode. */
 function syncIdler(): void {
+  // Belt and braces: a save written while admin was on must not keep a search
+  // running for someone who cannot see or stop it.
+  if (!isAdmin() && app.idler.mode !== 'off') {
+    app.idler.mode = 'off';
+    stopIdler();
+    saveIdler(app.idler);
+  }
   startIdler(app.idler, app.profile, () => {
     saveIdler(app.idler);
     if (app.phase === 'menu') render();
