@@ -12,7 +12,8 @@
     "test:watch": "vitest",
     "balance": "tsx tools/balance.ts",
     "dev:host": "vite --host",
-    "rotate-key": "tsx tools/rotate-key.ts"
+    "rotate-key": "tsx tools/rotate-key.ts",
+    "audit-idler": "tsx tools/audit-idler.ts"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",

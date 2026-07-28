@@ -36,7 +36,7 @@ import {
 } from './storage';
 import { Rng } from '../sim/rng';
 import { ADMIN_HASH } from './adminKey';
-import { buildPhaseFor } from './idlerBrain';
+import { buildPhaseFor, EVAL_RAIDS } from './idlerBrain';
 import {
   IDLE_YIELD, collectIdle, describeGenome, startIdler, stopIdler,
   invalidateIfStale, nukeIdler, resetLearning, rulesHash, wipeIdlerProgress,
@@ -707,7 +707,7 @@ function menuScreen(): HTMLElement {
     const panel = el(`<div class="idler-box"></div>`);
     panel.append(el(`<div class="idler-head">Understudy — generation ${app.idler.generation}</div>`));
     panel.append(el(b
-      ? `<div class="idler-best">best: ${esc(describeGenome(b.genome))}<span class="sub">${Math.round(b.renown)} Renown over ${b.raids.toFixed(1)} raids</span></div>`
+      ? `<div class="idler-best">best: ${esc(describeGenome(b.genome))}<span class="sub">${Math.round(b.renown)} Renown over ${b.raids.toFixed(1)} of ${EVAL_RAIDS} scored raids${b.raids >= EVAL_RAIDS - 0.2 ? ' — hit the cap, not a survival result' : ''}</span></div>`
       : '<div class="idler-best sub">thinking…</div>'));
     if (app.idler.mode === 'autoplay') {
       const collect = el(`<button ${banked <= 0 ? 'disabled' : ''}>Collect ${banked} Insight</button>`);

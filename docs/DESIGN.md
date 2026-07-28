@@ -2731,3 +2731,36 @@ the width instead of the wider ones overflowing a fixed three-column grid.
 This is a stopgap on top of a renderer that still rebuilds the whole tree on every paint
 (§36). Condensing means fewer nodes, which helps — it does not make a rebuild cheap, and
 the real fix is to mutate the DOM rather than reconstruct it.
+
+
+---
+
+## 38. Is the Understudy cheating?
+
+Asked from play, because it makes the game look easy. **It is not** — `npm run audit-idler`
+walks its build phase against the same invariants a player is held to:
+
+```
+1336 build phases audited
+  negative mana:       0
+  negative gold:       0
+  rooms over capacity: 0
+  floors over max:     0
+```
+
+Two things were wrong nearby, though, and both are worth recording.
+
+**It was pricing upgrades from a hand-copied formula.** `18 × tier × 1.6^rank` was written
+out longhand in the build policy instead of calling `upgradeRankCost`. It happens to match
+today, which is the dangerous case: the moment the real curve moves, the idler buys at a
+price nobody else pays and nothing fails. It asks the game now.
+
+**It reported a capped evaluation as a survival result.** Evaluation stops at `EVAL_RAIDS`
+(§36), so "best: 14 raids" meant *the scoring ran out*, not *it survived fourteen raids* —
+which reads as invincibility. The panel now says "14 of 14 scored raids — hit the cap, not
+a survival result".
+
+So the honest answer to "why does it crush the difficulty" is that **it plays better than
+the difficulty is tuned for**, which §23.3 already measured at ~70% ahead of the best
+hand-written strategy. The evolved build is not the exploit; it is the frontier, and the
+balance is tuned somewhere well below it.

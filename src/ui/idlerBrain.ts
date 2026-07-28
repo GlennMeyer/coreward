@@ -13,7 +13,8 @@ import {
 } from '../sim/data';
 import {
   assignStaff, buildAmenity, buyMob, buyTrap, buyUpgrade, digCost, digFloor,
-  equipGear, livingMobs, nextReforgeCost, placeMobInRoom, placeTrapInRoom,
+  equipGear, livingMobs, nextReforgeCost, nextUpgradeCost, placeMobInRoom,
+  placeTrapInRoom,
   rearmTrap, reforgeGear, roomSlotsUsed, totalUpkeep, trapRearmPrice,
 } from '../sim/dungeon';
 import { Rng } from '../sim/rng';
@@ -185,7 +186,10 @@ export function buildPhaseFor(s: SeasonState, g: Genome, rng: Rng): void {
   for (const mob of livingMobs(d)) {
     if (mob.placement.kind !== 'room') continue;
     const track = rng.weighted(TRACKS.map((t) => [t, g.trackWeights[t] ?? 0] as const));
-    const price = 18 * (MOBS[mob.defId]!.tier) * 1.6 ** (mob.upgrades?.[track] ?? 0);
+    // Ask the game what it costs. This was a hand-copied formula, which is a
+    // silent drift waiting to happen: the moment the real curve changes, the
+    // idler is buying at a price nobody else pays.
+    const price = nextUpgradeCost(mob, track) ?? Infinity;
     if (upSpent + price > upBudget || s.mana < price) continue;
     if (buyUpgrade(d, mob.uid, track) === null) {
       s.mana -= Math.round(price);
