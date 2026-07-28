@@ -428,6 +428,30 @@ describe('UI smoke', () => {
 
   });
 
+  it('admin mode sticks once enabled, and can be switched off', async () => {
+    const store = fakeStorage();
+    vi.stubGlobal('location', { search: '?admin=1' } as Location);
+    document.body.innerHTML = '<div id="app"></div>';
+    vi.resetModules();
+    await import('../src/ui/main');
+    expect(button('Advisor')).toBeTruthy();
+    expect(store.get('coreward.admin')).toBe('1');
+
+    // Plain URL from now on: the flag carries it.
+    vi.stubGlobal('location', { search: '' } as Location);
+    document.body.innerHTML = '<div id="app"></div>';
+    vi.resetModules();
+    await import('../src/ui/main');
+    expect(button('Advisor')).toBeTruthy();
+
+    // ...and ?admin=0 turns it back off.
+    vi.stubGlobal('location', { search: '?admin=0' } as Location);
+    document.body.innerHTML = '<div id="app"></div>';
+    vi.resetModules();
+    await import('../src/ui/main');
+    expect(button('Advisor')).toBeFalsy();
+  });
+
   it('hides the Understudy from a normal visitor', async () => {
     // Not access control — a static page cannot have any (§34.2). It keeps the
     // tool out of a player's way; they get to learn the game themselves.

@@ -774,6 +774,15 @@ function menuScreen(): HTMLElement {
     };
     adm.append(reset);
     adm.append(el('<div class="hint">Stale populations are discarded automatically when the rules change; this is for forcing it.</div>'));
+    const off = el('<button class="wipe">Leave admin mode</button>');
+    off.onclick = () => {
+      try { globalThis.localStorage?.removeItem(ADMIN_KEY); } catch { /* ignore */ }
+      app.idler.mode = 'off';
+      stopIdler();
+      saveIdler(app.idler);
+      render();
+    };
+    adm.append(off);
     wrap.append(adm);
   }
 
@@ -886,10 +895,28 @@ function stopSpectating(): void {
   render();
 }
 
-/** Admin tools are opt-in via ?admin=1. Hidden, not protected — see the panel. */
+const ADMIN_KEY = 'coreward.admin';
+
+/**
+ * Admin tools are opt-in and sticky.
+ *
+ * `?admin=1` turns them on and remembers it, so the plain URL keeps working
+ * afterwards; `?admin=0` turns them off again. Without the sticky flag the only
+ * way in is a query string that any navigation or bookmark throws away.
+ *
+ * Hidden, not protected (§34.2) — it is a static page and there is nothing here
+ * worth protecting, only worth keeping out of a player's way.
+ */
 function isAdmin(): boolean {
   try {
-    return new URLSearchParams(globalThis.location?.search ?? '').has('admin');
+    const q = new URLSearchParams(globalThis.location?.search ?? '');
+    if (q.has('admin')) {
+      const on = q.get('admin') !== '0';
+      if (on) globalThis.localStorage?.setItem(ADMIN_KEY, '1');
+      else globalThis.localStorage?.removeItem(ADMIN_KEY);
+      return on;
+    }
+    return globalThis.localStorage?.getItem(ADMIN_KEY) === '1';
   } catch {
     return false;
   }
