@@ -435,7 +435,14 @@ describe('UI smoke', () => {
 
   it('unlocks on the right key, ignores a wrong one, and sticks', async () => {
     const store = fakeStorage();
-    const KEY = '665b900a-d757-4dc4-aeba-c6d5062639ee';
+    const enc = new TextEncoder().encode('test-key-not-the-real-one');
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', enc);
+    const hex = [...new Uint8Array(digest)]
+      .map((b) => b.toString(16).padStart(2, '0')).join('');
+    vi.doMock('../src/ui/adminKey', () => ({ ADMIN_HASH: hex }));
+    // The real key is never committed, so the test makes its own hash-matching
+    // pair by stubbing the module the check reads.
+    const KEY = 'test-key-not-the-real-one';
 
     // Wrong key: nothing happens, and nothing is written.
     vi.stubGlobal('location', { search: '?key=not-the-key' } as Location);
@@ -469,6 +476,7 @@ describe('UI smoke', () => {
     await import('../src/ui/main');
     await new Promise((r) => setTimeout(r, 30));
     expect(button('Advisor')).toBeFalsy();
+    vi.doUnmock('../src/ui/adminKey');
   });
 
   it('hides the Understudy from a normal visitor', async () => {

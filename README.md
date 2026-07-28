@@ -46,6 +46,17 @@ The bundle ships only a **SHA-256 of the key**, never the key, so reading the JS
 that a key exists and nothing more. Unlocking is remembered in `localStorage`, so the plain
 URL works afterwards; `?admin=0` or the panel button clears it.
 
+**Rotate it before a release:**
+
+```bash
+npm run rotate-key    # prints the new key once, writes only the hash
+```
+
+Run this **locally, never in CI**. The repository is public, which makes Actions logs
+public — a key generated in a workflow would be printed where anyone can read it, which is
+strictly worse than never rotating. Commit `src/ui/adminKey.ts`, keep the key; the previous
+one stops working as soon as the change deploys.
+
 **This is obscurity, not access control**, and the distinction matters. Anyone holding the
 key is in, and anyone who sets `coreward.admin` in their own `localStorage` is in. On a
 static page that is the entire range available — there is no server to ask. The bar being

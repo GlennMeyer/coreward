@@ -35,6 +35,7 @@ import {
   clearProfile,
 } from './storage';
 import { Rng } from '../sim/rng';
+import { ADMIN_HASH } from './adminKey';
 import { buildPhaseFor } from './idlerBrain';
 import {
   IDLE_YIELD, collectIdle, describeGenome, startIdler, stopIdler,
@@ -897,20 +898,8 @@ function stopSpectating(): void {
 
 const ADMIN_KEY = 'coreward.admin';
 
-/**
- * SHA-256 of the admin key. The key itself is never in the bundle.
- *
- * `?admin=1` was self-documenting — anyone glancing at the URL knew the tools
- * existed and how to get them. Shipping a hash instead means the JS reveals
- * only that *a* key exists, and a UUIDv4 preimage is not findable by reading
- * it or by guessing.
- *
- * Still not access control (§34.2): anyone who obtains the key, or who edits
- * the flag this sets in localStorage, is in. The bar is "not stumbled upon",
- * not "cannot be bypassed" — and on a static page that is the whole range
- * available.
- */
-const ADMIN_HASH = '6f39f7ba73962bce709b1e9180e48ab16cc8de44d53e960243efe3581958084b';
+// The hash lives in its own generated file so `npm run rotate-key` can
+// rewrite it without touching anything else.
 
 /** Set once the URL key has been checked, so `isAdmin()` can stay synchronous. */
 let adminChecked = false;

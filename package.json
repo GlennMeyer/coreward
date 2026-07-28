@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "balance": "tsx tools/balance.ts",
-    "dev:host": "vite --host"
+    "dev:host": "vite --host",
+    "rotate-key": "tsx tools/rotate-key.ts"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
