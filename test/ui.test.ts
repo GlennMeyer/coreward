@@ -25,6 +25,20 @@ function seasonDungeon(): import('../src/sim/types').Dungeon {
     .__coreward!.dungeon;
 }
 
+/** A minimal valid genome, for tests that need a build without evolving one. */
+function seedGenome(): import('../src/ui/idlerBrain').Genome {
+  const flat = (ids: string[]) => Object.fromEntries(ids.map((k) => [k, 1]));
+  return {
+    mobWeights: flat(['rat', 'slime', 'cutpurse', 'skeleton', 'ogre', 'ooze']),
+    trapWeights: flat(['darts', 'snare', 'gasvent', 'shrieker', 'deadfall']),
+    trapShare: 0.3, upgradeShare: 0.2,
+    trackWeights: { bite: 1, hide: 1, vigor: 1 },
+    amenityShare: 0.3, amenityPick: 'provisioner',
+    admission: 'standard', insurance: 'standard', shopPrice: 'standard',
+    digReserve: 120, tauntRate: 0.5, staffShops: false,
+  } as unknown as import('../src/ui/idlerBrain').Genome;
+}
+
 /** Current mana, read off the rendered top bar. */
 function app(): { mana: number; gold: number } {
   const num = (sel: string) => Number(document.querySelector(sel)?.textContent ?? '0');
@@ -232,27 +246,38 @@ describe('UI smoke', () => {
   });
 
   it('the Understudy can be watched playing the real game', async () => {
+    // Seeded through storage rather than by waiting on the live search: a real
+    // interval outlives the test and times CI out, and the thing under test is
+    // the spectator loop, not the evolver.
     document.body.innerHTML = '<div id="app"></div>';
     vi.resetModules();
-    globalThis.localStorage?.clear();
+    // jsdom here has no localStorage, so seed through the module the app reads
+    // rather than the storage it cannot see.
+    vi.doMock('../src/ui/storage', async () => {
+      const actual = await vi.importActual<typeof import('../src/ui/storage')>('../src/ui/storage');
+      return {
+        ...actual,
+        loadIdler: () => ({
+          mode: 'off' as const, population: [], generation: 3,
+          pendingInsight: 0, runsPlayed: 0,
+          best: { genome: seedGenome(), renown: 100, raids: 6 },
+        }),
+        saveIdler: () => {},
+      };
+    });
     await import('../src/ui/main');
 
-    // No evolved build yet, so nothing to watch.
-    expect(button('Watch the Understudy')).toBeFalsy();
-
-    // Let the search find something, then the option appears.
-    click(button('Advisor'));
-    await new Promise((r) => setTimeout(r, 1200));
     const watch = button('Watch the Understudy');
-    if (!watch) return;   // search may not have produced a best yet on a slow box
+    expect(watch).toBeTruthy();
+    watch!.click();
 
-    watch.click();
-    // It drives the REAL game: a dungeon on screen and a run under way.
+    // It drives the REAL game: the dungeon is on screen and a run is under way.
     expect(document.querySelector('.spectate-bar')).toBeTruthy();
     expect(document.querySelector('.topbar')).toBeTruthy();
-    // And it can be handed back.
+
     click(button('Take over'));
     expect(document.querySelector('.spectate-bar')).toBeFalsy();
+    vi.doUnmock('../src/ui/storage');
   });
 
   it('opens on a title screen, not straight into a delve', async () => {
