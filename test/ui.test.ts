@@ -383,9 +383,21 @@ describe('UI smoke', () => {
     });
     await import('../src/ui/main');
 
-    const watch = button('Watch the Understudy');
+    let watch = button('Watch the Understudy');
     expect(watch).toBeTruthy();
+    // Play a bit first, so there is a run to take over.
+    click(button('Begin a Delve'));
+    const buy = [...document.querySelectorAll('.buy')]
+      .find((b) => b.textContent?.includes('Ogre'));
+    click(buy);
+    click(document.querySelectorAll('.room')[0]);
+    const raidBefore = seasonDungeon();
+    click(document.querySelector('.menu-btn'));
+
     watch!.click();
+
+    // It continues THAT run — same dungeon object, not a fresh one.
+    expect(seasonDungeon()).toBe(raidBefore);
 
     // It drives the REAL game: the dungeon is on screen and a run is under way.
     expect(document.querySelector('.spectate-bar')).toBeTruthy();

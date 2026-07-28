@@ -2515,6 +2515,19 @@ see nor stop it.
 
 The §34.2 caveat still stands: this is hiding, not access control. It is a static page.
 
+### 32.6 Watching means taking over, not restarting
+
+`startSpectating()` called `restart()`, so choosing to watch **threw away the run you were
+playing** and began a fresh one. That is the opposite of what the feature means: "Take
+over" hands the same run back to you, so watching should hand it the other way.
+
+It now picks up your dungeon, your Codex bonuses and your raid number exactly as they are.
+With no run in progress it starts one, and the button says which it will do — *"Let the
+Understudy take this run"* versus *"Watch the Understudy"*.
+
+That also makes it useful rather than a demo: hand it a run you are losing and watch what
+it does differently with your dungeon.
+
 ### 32.2 Why an advisor is worth having at all
 
 §23.3 measured the gap: the evolved build scored ~70% higher than the best hand-written

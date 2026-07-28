@@ -723,7 +723,11 @@ function menuScreen(): HTMLElement {
   }
 
   if (isAdmin() && app.idler.best) {
-    const watch = el('<button class="big">Watch the Understudy</button>');
+    const takeOver = app.runStarted && !app.season.over;
+    const watch = el(`<button class="big" title="${takeOver
+      ? 'Hands your current run to the Understudy. Take over gives it back.'
+      : 'Starts a run and plays it.'}">${takeOver
+      ? 'Let the Understudy take this run' : 'Watch the Understudy'}</button>`);
     watch.onclick = startSpectating;
     wrap.append(watch);
   }
@@ -872,10 +876,24 @@ function understudyTurn(): void {
 /** Seeded so a spectated run is reproducible like everything else (§13.2). */
 const spectateRng = new Rng(0x5EEC7);
 
+/**
+ * Hand the current run to the Understudy.
+ *
+ * It used to call `restart()`, which threw away whatever you were playing — the
+ * opposite of what watching should mean, given "Take over" hands the same run
+ * back to you. If there is no run in progress it starts one; otherwise it picks
+ * up your dungeon, your Codex bonuses and your raid number exactly as they are.
+ */
 function startSpectating(): void {
   if (!app.idler.best) return;
   app.spectating = true;
-  restart();
+  app.spectatePaused = false;
+  if (!app.runStarted || app.season.over) {
+    restart();
+    return;   // restart() hands the turn over itself
+  }
+  app.phase = 'build';
+  render();
   understudyTurn();
 }
 
