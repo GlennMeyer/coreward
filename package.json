@@ -14,7 +14,8 @@
     "dev:host": "vite --host",
     "rotate-key": "tsx tools/rotate-key.ts",
     "audit-idler": "tsx tools/audit-idler.ts",
-    "release": "bash tools/release.sh"
+    "release": "bash tools/release.sh",
+    "prepare": "git config core.hooksPath .githooks || true"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",

@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+#
+# Refuse to push without rotating the admin key.
+#
+# The key is meant to change on every deploy, and every deploy is a push. Left
+# to discipline that lasted exactly two commits: `npm run release` was written
+# to do rotate-commit-push in one step and then bypassed twice by a plain
+# `git push`, so the live key silently outlived three deploys.
+#
+# This cannot rotate for you — a pre-push hook runs after the refs to push are
+# fixed, so a commit made here would not be included. It can only stop you.
+#
+# Escape hatch: `SKIP_KEY_ROTATION=1 git push` for a branch nobody deploys.
+set -euo pipefail
+
+[ "${SKIP_KEY_ROTATION:-}" = "1" ] && exit 0
+
+remote_sha=$(git rev-parse "origin/$(git rev-parse --abbrev-ref HEAD)" 2>/dev/null || echo "")
+range="${remote_sha:+$remote_sha..}HEAD"
+
+if git diff --name-only "$range" 2>/dev/null | grep -q '^src/ui/adminKey.ts$'; then
+  exit 0
+fi
+
+cat >&2 <<'MSG'
+
+  Push refused: the admin key has not been rotated.
+
+  This deploy would ship the same key as the last one, which means every browser
+  already unlocked stays unlocked. Rotate and push in one step:
+
+      npm run release
+
+  Or, for a branch that never reaches Pages:
+
+      SKIP_KEY_ROTATION=1 git push
+
+MSG
+exit 1
