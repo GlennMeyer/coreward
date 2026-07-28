@@ -33,6 +33,23 @@ import {
  */
 export const IDLE_YIELD = 0.3;
 
+/**
+ * Insight idle play may bank per real minute.
+ *
+ * The first attempt awarded `insight × IDLE_YIELD` **per generation**, and
+ * generations run about once a second — roughly 20 Insight/second against a
+ * whole manual run being worth ~23. A minute of idling was worth fifty runs.
+ * IDLE_YIELD was supposed to stop exactly that and could not, because it scaled
+ * the wrong quantity.
+ *
+ * Rate is now wall-clock. A manual run takes minutes and pays ~23, so ~6/min is
+ * parity; a third of that is the intended "worth having, never worth choosing".
+ */
+export const IDLE_INSIGHT_PER_MIN = 2;
+
+/** Wall-clock mark for the accrual above. */
+let lastAccrual = Date.now();
+
 export type IdlerMode = 'off' | 'advisor' | 'autoplay';
 
 export interface IdlerState {
@@ -91,6 +108,18 @@ export function invalidateIfStale(state: IdlerState): boolean {
   return true;
 }
 
+/**
+ * Erase everything the idler holds — learning included.
+ *
+ * Distinct from `wipeIdlerProgress` (§33.2a), which spares the population on
+ * purpose. This is the admin's blunt instrument for when the rules have moved
+ * far enough that even the search's memory is misleading.
+ */
+export function nukeIdler(state: IdlerState): void {
+  Object.assign(state, emptyIdler());
+  stopIdler();
+}
+
 /** Forget everything the search has learned and start over. */
 export function resetLearning(state: IdlerState): void {
   state.population = [];
@@ -118,12 +147,19 @@ export function stopIdler(): void {
  * this module owns no storage and no DOM, for the same reason `src/sim` does
  * not (§13.2).
  */
+export function resetAccrualClock(): void {
+  lastAccrual = Date.now();
+}
+
 export function startIdler(
   state: IdlerState,
   profile: Profile,
   onProgress: () => void,
 ): void {
   stopIdler();
+  // Do not pay for time the search was not running — a tab left closed
+  // overnight should not cash out on open.
+  lastAccrual = Date.now();
   if (state.mode === 'off') return;
 
   const rng = new Rng(0xA1DE7 ^ state.generation);
@@ -154,8 +190,12 @@ function step(state: IdlerState, profile: Profile, rng: Rng): void {
   }
 
   if (state.mode === 'autoplay') {
-    // Bank what the best genome actually earned, at the idle rate.
-    state.pendingInsight += top.f.insight * IDLE_YIELD * SEASONS_PER_EVAL;
+    // Paid by the clock, not by the generation: how fast the search happens to
+    // run must not decide how fast the player gets paid.
+    const now = Date.now();
+    const minutes = Math.min(5, (now - lastAccrual) / 60_000);
+    lastAccrual = now;
+    state.pendingInsight += minutes * IDLE_INSIGHT_PER_MIN;
     state.runsPlayed += SEASONS_PER_EVAL * state.population.length;
   }
 

@@ -39,7 +39,8 @@ import { ADMIN_HASH } from './adminKey';
 import { buildPhaseFor } from './idlerBrain';
 import {
   IDLE_YIELD, collectIdle, describeGenome, startIdler, stopIdler,
-  invalidateIfStale, resetLearning, rulesHash, wipeIdlerProgress, type IdlerMode,
+  invalidateIfStale, nukeIdler, resetLearning, rulesHash, wipeIdlerProgress,
+  type IdlerMode,
   type IdlerState,
 } from './idler';
 import { narrateRaid, type Narration } from '../sim/narrate';
@@ -96,6 +97,8 @@ interface App {
   stack: { defId: string; uids: number[] } | null;
   /** Two-step confirm on the wipe button. */
   confirmWipe: boolean;
+  /** Two-step confirm on the admin-only total erase. */
+  confirmNuke: boolean;
   /**
    * The Understudy is holding, because you touched something.
    *
@@ -161,6 +164,7 @@ const app: App = {
   stack: null,
   runStarted: bootRun !== null,
   confirmWipe: false,
+  confirmNuke: false,
   spectatePaused: false,
   endless: bootRun?.endless ?? true,
   season: bootSeason,
@@ -802,6 +806,32 @@ function menuScreen(): HTMLElement {
     };
     adm.append(reset);
     adm.append(el('<div class="hint">Stale populations are discarded automatically when the rules change; this is for forcing it.</div>'));
+
+    // The blunt instrument: everything, including the learning. Admin only,
+    // two-step, and it says exactly what it takes.
+    const nuke = el(`<button class="wipe">${app.confirmNuke
+      ? 'Really erase EVERYTHING? Profile, run and learning'
+      : 'Erase all data'}</button>`);
+    nuke.onclick = () => {
+      if (!app.confirmNuke) { app.confirmNuke = true; render(); return; }
+      clearProfile();
+      clearRun();
+      nukeIdler(app.idler);
+      saveIdler(app.idler);
+      app.profile = loadProfile();
+      app.season = createSeason(Math.floor(Math.random() * 100000), app.endless);
+      applyProfile(app.season, app.profile);
+      app.phase = 'menu';
+      app.sim = null;
+      app.runStarted = false;
+      app.lastInsight = null;
+      app.lastLog = [];
+      app.spectating = false;
+      app.confirmNuke = false;
+      syncIdler();
+      render();
+    };
+    adm.append(nuke);
     const off = el('<button class="wipe">Leave admin mode</button>');
     off.onclick = () => {
       try { globalThis.localStorage?.removeItem(ADMIN_KEY); } catch { /* ignore */ }

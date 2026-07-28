@@ -506,6 +506,36 @@ describe('UI smoke', () => {
     vi.doUnmock('../src/ui/adminKey');
   });
 
+  it('the total erase is admin-only and takes the learning too', async () => {
+    const store = fakeStorage({
+      'coreward.admin': '1',
+      'coreward.profile.v1': JSON.stringify({ insight: 99, ranks: {}, runs: 4, bestRaids: 9, bestTier: 3 }),
+      'coreward.idler.v1': JSON.stringify({
+        mode: 'off', population: [], generation: 42,
+        pendingInsight: 0, runsPlayed: 0, best: null, rulesHash: idlerRulesHash(),
+      }),
+    });
+    document.body.innerHTML = '<div id="app"></div>';
+    vi.resetModules();
+    await import('../src/ui/main');
+    if (!document.querySelector('.menu')) click(document.querySelector('.menu-btn'));
+
+    click(button('Erase all data'));
+    click(button('Really erase EVERYTHING'));
+    expect(store.has('coreward.profile.v1')).toBe(false);
+    // Unlike the player-facing wipe, this one takes the population as well.
+    expect(store.get('coreward.idler.v1')).toContain('"generation":0');
+  });
+
+  it('a normal visitor gets no total-erase button', async () => {
+    fakeStorage();
+    document.body.innerHTML = '<div id="app"></div>';
+    vi.resetModules();
+    await import('../src/ui/main');
+    expect(button('Erase all data')).toBeFalsy();
+    expect(button('Wipe save')).toBeTruthy();   // the player-facing one remains
+  });
+
   it('hides the Understudy from a normal visitor', async () => {
     // Not access control — a static page cannot have any (§34.2). It keeps the
     // tool out of a player's way; they get to learn the game themselves.
