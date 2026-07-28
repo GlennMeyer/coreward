@@ -419,8 +419,8 @@ describe('UI smoke', () => {
   it('offers a wipe that spares the Understudy', async () => {
     // Own setup: the shared beforeEach clicks into a delve, and this test
     // needs the title screen.
-    asAdmin();
     const store = fakeStorage({
+      'coreward.admin': '1',
       'coreward.idler.v1': JSON.stringify({
         mode: 'autoplay', population: [], generation: 42,
         pendingInsight: 250, runsPlayed: 90, best: null,
@@ -432,6 +432,8 @@ describe('UI smoke', () => {
     vi.resetModules();
     await import('../src/ui/main');
 
+    // Get to the title screen however we booted — the ☰ is always there.
+    if (!document.querySelector('.menu')) click(document.querySelector('.menu-btn'));
     click(button('Wipe save'));                 // two-step: arms first
     click(button('Really wipe'));
     // Profile and run are gone; the evolved population is not. Asserting the

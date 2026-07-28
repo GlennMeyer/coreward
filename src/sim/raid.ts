@@ -1637,7 +1637,10 @@ export class RaidSim {
     // survived, Renown ran to 225/season, the tier ratchet outran the dungeon
     // to 3.9, and season survival collapsed from 71% to 14%. Being dragged
     // unconscious past a Rot-Gas Vent is not a delve anybody recounts.
-    const survivors = aliveMembers(this.party).filter((m) => !m.stable && !m.downed);
+    // Score Thrill over everyone who came back, walking or carried. Scoring
+    // only the walkers meant a party stretchered out wholesale had no
+    // low-water marks to average and read as a delve where nothing happened.
+    const survivors = aliveMembers(this.party);
     // Dead men tell no tales. A wipe scores nothing, which is the principled
     // replacement for the old flat ×0.5 wipe multiplier (§15.3).
     if (survivors.length === 0) {
@@ -1859,7 +1862,10 @@ export class RaidSim {
     // (§19.4). Someone carried out unconscious contributes nothing to the
     // dungeon's reputation, and counting them was inflating Renown by roughly
     // 70% and running the tier ratchet away from the player.
-    const tellers = aliveMembers(this.party).filter((m) => !m.stable && !m.downed).length;
+    const walked = aliveMembers(this.party).filter((m) => !m.stable && !m.downed);
+    const carried = aliveMembers(this.party).length - walked.length;
+    // Carried-out casualties count part-way (§19.4): their friends tell it.
+    const tellers = walked.length + carried * TUNING.casualtyTellerWeight;
     const namedKilled = this.party.members.filter((m) => !m.alive && m.namedId).length;
 
     // Killing a recurring character ends something (§9.3, §9.4).

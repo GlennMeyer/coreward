@@ -495,6 +495,20 @@ export const TUNING = {
    * what the flat `6 × escapees` formula produced (§14.6). At the 0.1 it
    * shipped with, combat never left Tier 1.1 and the ratchet was inert.
    */
+  /**
+   * How much a carried-out casualty counts toward telling the story (§19.4).
+   *
+   * Was zero, and that left a hole: a dungeon that downs the entire party and
+   * has them stretchered out — arguably the best defensive result available —
+   * paid nothing at all, because nobody walked out under their own power.
+   * Measured on a strong two-floor dungeon at Tier 1, **13% of raids scored
+   * zero Thrill** while only 5% were actual wipes.
+   *
+   * Someone carried out unconscious is a worse advertisement than someone who
+   * walked out white-faced, not a silent one — their friends do the telling.
+   * A full wipe still pays nothing: there is nobody left to carry anyone.
+   */
+  casualtyTellerWeight: 0.4,
   renownPerThrill: 0.3,
   /**
    * Mana per point of Thrill (§4.1).
