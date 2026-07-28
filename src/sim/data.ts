@@ -1287,6 +1287,16 @@ export const LEARNED: Record<string, LearnedDef> = {
 };
 
 /** Grudge → the trait it teaches. The player's dungeon picks this, not the RNG. */
+/**
+ * How many monsters and traps a run offers (§44).
+ *
+ * Not "most of them" — a roster that leaves one or two out is one you route
+ * around, not one that changes your plan. Four of nine and three of five is
+ * enough that the known-best pair is frequently unavailable.
+ */
+export const ROSTER_MOBS = 4;
+export const ROSTER_TRAPS = 3;
+
 export const GRUDGE_TRAIT: Record<string, string> = {
   supplies: 'provisioned',
   muscle: 'armored',

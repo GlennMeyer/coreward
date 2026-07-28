@@ -2,7 +2,7 @@
  * Season orchestration and the Aftermath economy (§3, §4).
  */
 import {
-  ENDLESS_RAIDS, ENDLESS_SAFETY_CAP, GRUDGE_TRAIT, PARTY_FORMATION_RAID, tierAt, tierFloorFromRaids, MAX_TIER_PROTOTYPE, SEASON_RAIDS, TUNING,
+  ENDLESS_RAIDS, ENDLESS_SAFETY_CAP, GRUDGE_TRAIT, MOBS, PARTY_FORMATION_RAID, ROSTER_MOBS, ROSTER_TRAPS, TRAPS, tierAt, tierFloorFromRaids, MAX_TIER_PROTOTYPE, SEASON_RAIDS, TUNING,
   tierForRenown,
   type TierRow,
 } from './data';
@@ -10,6 +10,7 @@ import {
   canReturn, isNemesis, isPatron, makeVeteran,
 } from './adventurers';
 import { createDungeon, healAllMobs, totalUpkeep } from './dungeon';
+import { Rng } from './rng';
 import { RaidSim } from './raid';
 import type { Adventurer, RaidResult, SeasonState, Veteran } from './types';
 
@@ -18,6 +19,33 @@ import type { Adventurer, RaidResult, SeasonState, Veteran } from './types';
  * counter expires. Pass `endless: false` for the fixed 8-raid prototype season,
  * which some tests still rely on for a bounded fixture.
  */
+/**
+ * Roll the roster for a run (§44).
+ *
+ * Tier-1 picks are guaranteed: a run that cannot field anything on floor one is
+ * not variety, it is a loss. Everything above is drawn without replacement from
+ * the same seeded Rng as the rest of the sim, so a seed still reproduces a run
+ * exactly (§13.2) — which is what lets the balance runner and the evolver keep
+ * comparing builds rather than luck.
+ */
+export function rollRoster(seed: number): { mobs: string[]; traps: string[] } {
+  const rng = new Rng(seed ^ 0x0D5A);
+  const draw = <T extends { id: string; tier: number }>(all: T[], keep: number): string[] => {
+    const opening = all.filter((x) => x.tier <= 1).map((x) => x.id);
+    const rest = all.filter((x) => x.tier > 1).map((x) => x.id);
+    // Shuffle rather than `rng.pick`, which repeats and would shrink the draft.
+    for (let i = rest.length - 1; i > 0; i--) {
+      const j = rng.int(0, i);
+      [rest[i], rest[j]] = [rest[j]!, rest[i]!];
+    }
+    return [...opening, ...rest.slice(0, Math.max(0, keep - opening.length))];
+  };
+  return {
+    mobs: draw(Object.values(MOBS), ROSTER_MOBS),
+    traps: draw(Object.values(TRAPS), ROSTER_TRAPS),
+  };
+}
+
 export function createSeason(seed: number, endless = true): SeasonState {
   return {
     seed,
@@ -32,6 +60,7 @@ export function createSeason(seed: number, endless = true): SeasonState {
     nextVeteranId: 1,
     legends: [],
     guildLore: {},
+    roster: rollRoster(seed),
     over: false,
     ending: null,
     log: [],

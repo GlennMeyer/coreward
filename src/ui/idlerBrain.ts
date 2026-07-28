@@ -146,6 +146,12 @@ export function placeAnywhere(s: SeasonState, slots: number, put: (f: number, r:
   return false;
 }
 
+/** Ids this run offers, or every id when a season predates the draft (§44). */
+function offered(s: SeasonState, all: Record<string, unknown>, kind: 'mobs' | 'traps'): string[] {
+  const r = s.roster?.[kind];
+  return r ? r.slice() : Object.keys(all);
+}
+
 export function buildPhaseFor(s: SeasonState, g: Genome, rng: Rng): void {
   const d = s.dungeon;
   d.admission = g.admission;
@@ -226,7 +232,7 @@ export function buildPhaseFor(s: SeasonState, g: Genome, rng: Rng): void {
   const trapBudget = s.gold * g.trapShare;
   let trapSpent = 0;
   for (let i = 0; i < 20; i++) {
-    const affordable = TRAP_IDS.filter((id) => TRAPS[id]!.cost <= Math.min(s.gold, trapBudget - trapSpent));
+    const affordable = offered(s, TRAPS, 'traps').filter((id) => TRAPS[id]!.cost <= Math.min(s.gold, trapBudget - trapSpent));
     const pickId = weightedPick(g.trapWeights, affordable, rng);
     if (!pickId) break;
     const t = buyTrap(d, pickId);
@@ -247,7 +253,7 @@ export function buildPhaseFor(s: SeasonState, g: Genome, rng: Rng): void {
 
   for (let i = 0; i < 30; i++) {
     const reserve = totalUpkeep(d);
-    const affordable = MOB_IDS.filter((id) => MOBS[id]!.cost + reserve <= s.mana);
+    const affordable = offered(s, MOBS, 'mobs').filter((id) => MOBS[id]!.cost + reserve <= s.mana);
     const pickId = weightedPick(g.mobWeights, affordable, rng);
     if (!pickId) break;
     const m = buyMob(d, pickId);

@@ -109,10 +109,13 @@ function fakeStorage(seed: Record<string, string> = {}): Map<string, string> {
 function placeMob(role: string, roomIdx = 0): string {
   const row = document.querySelector(`.buy[data-role="${role}"]:not(.off)`);
   if (!row) throw new Error(`no affordable ${role} on offer`);
-  const name = row.querySelector('span')!.childNodes[0]!.textContent!.trim();
+  const id = row.getAttribute('data-mob')!;
   click(row);
   click(document.querySelectorAll('.room')[roomIdx]);
-  return name;
+  // The id, not the name: a test that needs to price what it bought can look
+  // the cost up instead of hard-coding the Ogre's, which is the same failure as
+  // hard-coding its name one layer down.
+  return id;
 }
 
 /** The same, for traps, by what the trap is *for* rather than what it is called. */
@@ -217,10 +220,7 @@ describe('UI smoke', () => {
   });
 
   it('runs a full raid to completion via Instant', () => {
-    const buy = [...document.querySelectorAll('.buy')]
-      .find((b) => b.textContent?.includes('Ogre'));
-    click(buy);
-    click(document.querySelectorAll('.room')[0]);
+    placeMob('bruiser', 0);
 
     click(button('Begin Raid'));
     expect(document.querySelector('.log')).toBeTruthy();
@@ -233,10 +233,7 @@ describe('UI smoke', () => {
   });
 
   it('can step back to the menu mid-run without losing the run', () => {
-    const buy = [...document.querySelectorAll('.buy')]
-      .find((b) => b.textContent?.includes('Ogre'));
-    click(buy);
-    click(document.querySelectorAll('.room')[0]);
+    const placed = placeMob('bruiser', 0);
 
     click(document.querySelector('.menu-btn'));
     expect(document.querySelector('.menu')).toBeTruthy();
@@ -244,7 +241,7 @@ describe('UI smoke', () => {
     expect(button('Resume')).toBeTruthy();
 
     click(button('Resume'));
-    expect(document.querySelector('.room .mob')?.textContent).toContain('Ogre');
+    expect(document.querySelector('.room .mob')?.textContent).toContain(MOBS[placed]!.name);
   });
 
   it('an endless run survives the round trip through JSON', async () => {
@@ -411,10 +408,7 @@ describe('UI smoke', () => {
   });
 
   it('shows the delvers standing in the active room, one at a time', () => {
-    const buy = [...document.querySelectorAll('.buy')]
-      .find((b) => b.textContent?.includes('Ogre'));
-    click(buy);
-    click(document.querySelectorAll('.room')[0]);
+    placeMob('bruiser', 0);
     click(button('Begin Raid'));
 
     const stage = document.querySelector('.room.active .stage');
@@ -474,10 +468,7 @@ describe('UI smoke', () => {
     expect(watch).toBeTruthy();
     // Play a bit first, so there is a run to take over.
     click(button('Begin a Delve'));
-    const buy = [...document.querySelectorAll('.buy')]
-      .find((b) => b.textContent?.includes('Ogre'));
-    click(buy);
-    click(document.querySelectorAll('.room')[0]);
+    placeMob('bruiser', 0);
     const raidBefore = seasonDungeon();
     click(document.querySelector('.menu-btn'));
 
@@ -511,10 +502,7 @@ describe('UI smoke', () => {
     vi.resetModules();
     await import('../src/ui/main');
     click(button('Begin a Delve'));
-    const buy = [...document.querySelectorAll('.buy')]
-      .find((b) => b.textContent?.includes('Ogre'));
-    click(buy);
-    click(document.querySelectorAll('.room')[0]);
+    const placed = placeMob('bruiser', 0);
     expect(document.querySelector('.room .mob')).toBeTruthy();
 
     // "Hard refresh": fresh DOM, fresh modules, same storage.
@@ -522,9 +510,9 @@ describe('UI smoke', () => {
     vi.resetModules();
     await import('../src/ui/main');
 
-    // Straight back into the run, with the Ogre still placed.
+    // Straight back into the run, with the bruiser still placed.
     expect(document.querySelector('.topbar')).toBeTruthy();
-    expect(document.querySelector('.room .mob')?.textContent).toContain('Ogre');
+    expect(document.querySelector('.room .mob')?.textContent).toContain(MOBS[placed]!.name);
 
   });
 
@@ -774,11 +762,13 @@ describe('UI smoke', () => {
     const bare = document.querySelector('.fc-verdict')!.className;
     expect(bare).toContain('outmatched');
 
-    for (let i = 0; i < 3; i++) {
-      const buy = [...document.querySelectorAll('.buy')]
-        .find((b) => b.textContent?.includes('Ogre'));
-      click(buy);
-      click(document.querySelectorAll('.room')[i]);
+    // Fill the floor with whatever this run's roster offers, rather than three
+    // of a named monster whose stats the assertion silently depended on.
+    app$().mana = 9999;
+    for (let pass = 0; pass < 2; pass++) {
+      for (let i = 0; i < 3; i++) {
+        try { placeMob('bruiser', i); } catch { placeMob('skirmisher', i); }
+      }
     }
     expect(document.querySelector('.fc-verdict')!.className).not.toContain('outmatched');
   });
@@ -940,7 +930,7 @@ describe('UI smoke', () => {
       click(document.querySelectorAll('.room')[0]);
     };
     place('Cave Rat');
-    place('Ogre');
+    const bruiser = placeMob('bruiser');
 
     const dock = () => document.querySelector('.panel.dock h2')?.textContent ?? '';
     const chips = () => [...document.querySelectorAll('.room .mob')];
@@ -953,10 +943,10 @@ describe('UI smoke', () => {
     // Ogre into the room it was already in, clear the selection, and repaint —
     // leaving the panel describing the Cave Rat forever.
     drift(chips()[1]!, room());
-    expect(dock()).toContain('Ogre');
+    expect(dock()).toContain(MOBS[bruiser]!.name);
 
     // And it keeps working: pressing the same one again folds it away.
-    drift(chips().find((c) => c.textContent?.includes('Ogre'))!, room());
+    drift(chips().find((c) => c.textContent?.includes(MOBS[bruiser]!.name))!, room());
     expect(document.querySelector('.panel.dock')).toBeFalsy();
   });
 
@@ -983,7 +973,7 @@ describe('UI smoke', () => {
     };
     buy('Cave Rat');
     buy('Cave Rat');
-    buy('Ogre');
+    const bruiser = placeMob('bruiser');
 
     click(button('Begin Raid'));
     click(button('Instant'));
@@ -996,7 +986,7 @@ describe('UI smoke', () => {
     // is one line reading "×2", not two rows pushing the Ogre off the card.
     const bought = receipt.querySelector('.rc-col')!.textContent!;
     expect(bought).toContain('Cave Rat ×2');
-    expect(bought).toContain('Ogre');
+    expect(bought).toContain(MOBS[bruiser]!.name);
     expect(bought).toContain('Spent');
 
     // Worked and Died both exist and say something, whichever way the raid went.
@@ -1156,17 +1146,14 @@ describe('UI smoke', () => {
 
   it('sells a monster back for half its base cost', () => {
     const before = app().mana;
-    const buy = [...document.querySelectorAll('.buy')]
-      .find((b) => b.textContent?.includes('Ogre'));
-    click(buy);
-    click(document.querySelectorAll('.room')[0]);
+    const id = placeMob('bruiser', 0);
     const afterBuy = app().mana;
-    expect(afterBuy).toBe(before - MOBS['ogre']!.cost);
+    expect(afterBuy).toBe(before - MOBS[id]!.cost);
 
     click(document.querySelector('.room .mob'));  // select it
     click(button('Dismiss'));
     // Half of base cost back, and the monster is gone from the room.
-    expect(app().mana).toBe(afterBuy + Math.floor(MOBS['ogre']!.cost * 0.5));
+    expect(app().mana).toBe(afterBuy + Math.floor(MOBS[id]!.cost * 0.5));
     expect(document.querySelector('.room .mob')).toBeFalsy();
   });
 
@@ -1187,10 +1174,17 @@ describe('UI smoke', () => {
 
   it('the prediction reacts to what gets built', () => {
     const before = document.querySelector('.thrill-score b')?.textContent;
-    const buy = [...document.querySelectorAll('.buy')]
-      .find((b) => b.textContent?.includes('Ogre'));
-    click(buy);
-    click(document.querySelectorAll('.room')[0]);
+    // Enough to move the number whatever the roster handed us — a single
+    // cheap skirmisher can round to the same score, which made this pass on
+    // the Ogre's stats rather than on the behaviour it claims to test.
+    // Place first, then top up and place more: poking mana directly does not
+    // repaint, so the buy rows still carry `.off` until something renders.
+    for (let pass = 0; pass < 3; pass++) {
+      for (let i = 0; i < 3; i++) {
+        try { placeMob('bruiser', i); } catch { try { placeMob('skirmisher', i); } catch { /* full */ } }
+      }
+      app$().mana = 9999;
+    }
     const panel = [...document.querySelectorAll('.panel')]
       .find((p) => p.querySelector('h2')?.textContent?.includes('Predicted Thrill'))!;
     expect(panel.textContent).not.toContain('Nothing is defending');
@@ -1422,8 +1416,8 @@ describe('test hooks survive a changing offer (§44 groundwork)', () => {
     // bruiser and a damage trap, and reports back whatever it was given — so a
     // roster that stops offering the Ogre changes the name, not the outcome.
     const mob = placeMob('bruiser');
-    expect(mob.length).toBeGreaterThan(0);
-    expect(document.querySelector('.room .mob')?.textContent).toContain(mob);
+    expect(MOBS[mob]).toBeTruthy();
+    expect(document.querySelector('.room .mob')?.textContent).toContain(MOBS[mob]!.name);
 
     const trap = placeTrap('damage');
     expect(document.querySelector('.room .trap')?.textContent).toContain(trap);

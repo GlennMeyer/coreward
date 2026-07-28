@@ -635,6 +635,18 @@ export interface SeasonState {
    * trick for thirty raids and every fresh party walked in blind. Word travels.
    */
   guildLore: Record<string, number>;
+  /**
+   * Monsters and traps this run offers (§44).
+   *
+   * Every run offered the whole bestiary, so there was one optimal build and
+   * you found it once — the sameness the genetic search keeps confirming
+   * (§43.1). A rolled subset changes the *question* per run, so there is
+   * nothing stable to converge on.
+   *
+   * Optional: a season written before this reads as "everything", which keeps
+   * the tools and fixtures that build seasons directly valid.
+   */
+  roster?: { mobs: string[]; traps: string[] };
   over: boolean;
   /** Set when the season ends: 'survived' or 'overrun'. */
   ending: 'survived' | 'overrun' | null;

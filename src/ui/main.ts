@@ -1961,7 +1961,11 @@ function buildPanel(): HTMLElement {
   // Monster shop
   const shop = el('<div class="panel"></div>');
   shop.append(el('<h2>Monsters</h2>'));
+  // Only what this run offers (§44). A missing roster means "everything", so a
+  // season saved before the draft still shows the full bestiary.
+  const roster = app.season.roster;
   for (const def of Object.values(MOBS)) {
+    if (roster && !roster.mobs.includes(def.id)) continue;
     const off = s.mana < def.cost;
     // Identified by id, not by the name printed on it. Tests that reach for
     // "Ogre" encode a bestiary that a per-run roster (§44) will stop
@@ -1997,6 +2001,7 @@ function buildPanel(): HTMLElement {
   const traps = el('<div class="panel"></div>');
   traps.append(el('<h2>Traps &nbsp;·&nbsp; no upkeep</h2>'));
   for (const def of Object.values(TRAPS)) {
+    if (roster && !roster.traps.includes(def.id)) continue;
     const price = trapCost(def.id);
     const off = s.mana < price;
     const b = el(`<div class="buy trap-buy ${off ? "off" : ""}" data-trap="${def.id}" data-job="${def.job}">
