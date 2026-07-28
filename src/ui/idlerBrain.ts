@@ -273,6 +273,21 @@ export interface GenomeScore {
   insight: number;
 }
 
+/**
+ * Raids a scored season is allowed to run for.
+ *
+ * Evaluation used to inherit the game's endless default, so every genome played
+ * until its Core fell — up to the 200-raid safety cap. At 16 genomes × 3 seasons
+ * that is up to 9,600 raids per generation, every 900ms, which is what made the
+ * browser feel like it was leaking: not a retained reference, just relentless
+ * allocation the collector could not keep ahead of.
+ *
+ * A fixed length is also the fairer comparison. Genomes should be ranked on the
+ * same amount of game, not on who happened to survive long enough to accrue
+ * more of it.
+ */
+export const EVAL_RAIDS = 14;
+
 export function evaluateGenome(
   g: Genome, seasons: number, seedBase: number, profile?: Profile,
 ): GenomeScore {
@@ -280,6 +295,7 @@ export function evaluateGenome(
   for (let i = 0; i < seasons; i++) {
     const seed = seedBase + i * 7919;
     const s = createSeason(seed, true);
+    s.totalRaids = EVAL_RAIDS;   // bounded: see EVAL_RAIDS
     if (profile) applyProfile(s, profile);
     const rng = new Rng(seed ^ 0x5eed);
     while (!s.over) {

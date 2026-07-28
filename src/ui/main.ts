@@ -987,7 +987,13 @@ function syncIdler(): void {
     stopIdler();
     saveIdler(app.idler);
   }
+  // Persist and repaint every few generations, not every one. Serialising 16
+  // genomes and rebuilding the whole menu DOM once a second is a lot of garbage
+  // to make for a counter ticking over.
+  let sinceFlush = 0;
   startIdler(app.idler, app.profile, () => {
+    if (++sinceFlush < 5) return;
+    sinceFlush = 0;
     saveIdler(app.idler);
     if (app.phase === 'menu') render();
   });

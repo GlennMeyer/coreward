@@ -2678,3 +2678,29 @@ before you could reach anything.
 A click now buys a **three-second grace window**: enough to reach the menu, change speed or
 hit Hold, and if you do not use it the run carries on by itself. Reaching into the dungeon
 still holds it outright — that is intervening rather than watching.
+
+
+---
+
+## 36. The idler was not leaking, it was thrashing
+
+Reported from play: leaving the Understudy running made the browser eat memory.
+
+Nothing was retained. `evaluateGenome` inherited the game's **endless** default when §29
+made it the default, so every scored genome played until its Core fell — up to the 200-raid
+safety cap. At 16 genomes × 3 seasons that is **up to 9,600 raids per generation, every
+900ms**. The collector simply could not keep ahead of the allocation.
+
+Evaluation is now capped at `EVAL_RAIDS` (14). One generation costs **163ms** against a
+900ms tick.
+
+A fixed length is also the fairer comparison: genomes should be ranked on the same amount
+of game, not on who happened to survive long enough to accrue more of it.
+
+Persistence and the menu repaint are throttled to every fifth generation as well —
+serialising sixteen genomes and rebuilding the menu DOM once a second is a lot of garbage
+for a counter ticking over.
+
+**The lesson is the one from §25 and §35 in a new place:** changing a default changes
+everything that reads it. Endless was a *game* decision, and it silently became a *tooling*
+decision because the evaluator asked for a season the same way the game did.
