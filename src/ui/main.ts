@@ -898,6 +898,53 @@ function stopSpectating(): void {
 const ADMIN_KEY = 'coreward.admin';
 
 /**
+ * SHA-256 of the admin key. The key itself is never in the bundle.
+ *
+ * `?admin=1` was self-documenting — anyone glancing at the URL knew the tools
+ * existed and how to get them. Shipping a hash instead means the JS reveals
+ * only that *a* key exists, and a UUIDv4 preimage is not findable by reading
+ * it or by guessing.
+ *
+ * Still not access control (§34.2): anyone who obtains the key, or who edits
+ * the flag this sets in localStorage, is in. The bar is "not stumbled upon",
+ * not "cannot be bypassed" — and on a static page that is the whole range
+ * available.
+ */
+const ADMIN_HASH = '6f39f7ba73962bce709b1e9180e48ab16cc8de44d53e960243efe3581958084b';
+
+/** Set once the URL key has been checked, so `isAdmin()` can stay synchronous. */
+let adminChecked = false;
+
+async function sha256Hex(text: string): Promise<string> {
+  const bytes = new TextEncoder().encode(text);
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(digest)]
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+/**
+ * Check a `?key=` in the URL once at boot and remember the answer.
+ *
+ * Async because SubtleCrypto is; everything downstream reads the stored flag,
+ * so the rest of the app can treat admin as a plain synchronous question.
+ */
+async function checkAdminKey(): Promise<void> {
+  try {
+    const q = new URLSearchParams(globalThis.location?.search ?? '');
+    const key = q.get('key');
+    if (q.get('admin') === '0' || key === '') {
+      globalThis.localStorage?.removeItem(ADMIN_KEY);
+    } else if (key) {
+      if (await sha256Hex(key) === ADMIN_HASH) {
+        globalThis.localStorage?.setItem(ADMIN_KEY, '1');
+      }
+    }
+  } catch { /* no crypto, no storage, no admin */ }
+  adminChecked = true;
+}
+
+/**
  * Admin tools are opt-in and sticky.
  *
  * `?admin=1` turns them on and remembers it, so the plain URL keeps working
@@ -909,13 +956,6 @@ const ADMIN_KEY = 'coreward.admin';
  */
 function isAdmin(): boolean {
   try {
-    const q = new URLSearchParams(globalThis.location?.search ?? '');
-    if (q.has('admin')) {
-      const on = q.get('admin') !== '0';
-      if (on) globalThis.localStorage?.setItem(ADMIN_KEY, '1');
-      else globalThis.localStorage?.removeItem(ADMIN_KEY);
-      return on;
-    }
     return globalThis.localStorage?.getItem(ADMIN_KEY) === '1';
   } catch {
     return false;
@@ -961,10 +1001,12 @@ function render(): void {
     stopIdler();
     return;
   }
-  // Read-only debug handle onto the live season, refreshed each frame so it
-  // survives a restart. The sim is the source of truth (§13.2); nothing in the
-  // app ever reads this back.
-  (globalThis as unknown as { __coreward: SeasonState }).__coreward = app.season;
+  // Debug handle onto the live season, refreshed each frame. Dev and test only:
+  // a shipped bundle should not hang game state off the window where it can be
+  // read or poked from a console. Vite strips this branch from the build.
+  if (import.meta.env.DEV) {
+    (globalThis as unknown as { __coreward: SeasonState }).__coreward = app.season;
+  }
   root.innerHTML = '';
   if (app.phase === 'menu') {
     root.append(menuScreen());
@@ -2223,6 +2265,12 @@ root.addEventListener('click', holdOnInteraction, true);
 // Do not leave a search running against a page that is going away.
 globalThis.addEventListener?.('pagehide', () => { stopIdler(); stopTimer(); });
 
-syncIdler();
+// Check the URL key first, then paint — otherwise the first frame would be
+// drawn as a non-admin and the tools would pop in a moment later.
+void checkAdminKey().then(() => {
+  void adminChecked;
+  syncIdler();
+  render();
+});
 render();
 

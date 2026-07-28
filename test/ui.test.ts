@@ -64,9 +64,15 @@ function button(text: string): HTMLButtonElement | undefined {
     .find((b) => b.textContent?.includes(text)) as HTMLButtonElement | undefined;
 }
 
-/** Pretend the page was opened with ?admin=1. */
+/**
+ * Pretend admin is already unlocked.
+ *
+ * Sets the stored flag rather than the URL key: the key check is async and
+ * hashed, and what every other test actually needs is "the tools are visible".
+ * The key path itself is covered by its own test.
+ */
 function asAdmin(): void {
-  vi.stubGlobal('location', { search: '?admin=1' } as Location);
+  fakeStorage({ 'coreward.admin': '1' });
 }
 
 /** An in-memory Storage, since jsdom here supplies none. */
@@ -307,10 +313,9 @@ describe('UI smoke', () => {
   });
 
   it('offers the Understudy modes and switching one on starts a search', async () => {
-    asAdmin();
     document.body.innerHTML = '<div id="app"></div>';
     vi.resetModules();
-    globalThis.localStorage?.clear();
+    asAdmin();   // after the clear, or the flag it sets is wiped again
     await import('../src/ui/main');
 
     expect(button('Understudy: off')).toBeTruthy();
@@ -428,13 +433,25 @@ describe('UI smoke', () => {
 
   });
 
-  it('admin mode sticks once enabled, and can be switched off', async () => {
+  it('unlocks on the right key, ignores a wrong one, and sticks', async () => {
     const store = fakeStorage();
-    vi.stubGlobal('location', { search: '?admin=1' } as Location);
+    const KEY = '665b900a-d757-4dc4-aeba-c6d5062639ee';
+
+    // Wrong key: nothing happens, and nothing is written.
+    vi.stubGlobal('location', { search: '?key=not-the-key' } as Location);
     document.body.innerHTML = '<div id="app"></div>';
     vi.resetModules();
     await import('../src/ui/main');
-    expect(button('Advisor')).toBeTruthy();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(store.has('coreward.admin')).toBe(false);
+    expect(button('Advisor')).toBeFalsy();
+
+    // Right key: unlocked and remembered.
+    vi.stubGlobal('location', { search: `?key=${KEY}` } as Location);
+    document.body.innerHTML = '<div id="app"></div>';
+    vi.resetModules();
+    await import('../src/ui/main');
+    await new Promise((r) => setTimeout(r, 30));
     expect(store.get('coreward.admin')).toBe('1');
 
     // Plain URL from now on: the flag carries it.
@@ -442,13 +459,15 @@ describe('UI smoke', () => {
     document.body.innerHTML = '<div id="app"></div>';
     vi.resetModules();
     await import('../src/ui/main');
+    await new Promise((r) => setTimeout(r, 30));
     expect(button('Advisor')).toBeTruthy();
 
-    // ...and ?admin=0 turns it back off.
+    // ...and ?admin=0 clears it.
     vi.stubGlobal('location', { search: '?admin=0' } as Location);
     document.body.innerHTML = '<div id="app"></div>';
     vi.resetModules();
     await import('../src/ui/main');
+    await new Promise((r) => setTimeout(r, 30));
     expect(button('Advisor')).toBeFalsy();
   });
 

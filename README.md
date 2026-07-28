@@ -36,13 +36,21 @@ predation and commerce genuinely compete for the same person.
 ## Admin mode
 
 The Understudy — the genetic search, its advisor and auto-play, and the spectator view — is
-kept out of a normal visitor's way. Turn it on once with `?admin=1`; the flag sticks in
-`localStorage`, so the plain URL works afterwards. `?admin=0`, or the button in the panel,
-turns it back off.
+kept out of a normal visitor's way behind a key:
 
-This is hiding, not access control: it is a static page and anyone who looks can find it.
-There is nothing here worth protecting, only worth keeping out of the way — a new player
-should get to discover the strategy space, not be handed a build measured ~70% ahead of
+```
+https://glennmeyer.github.io/coreward/?key=<the key>
+```
+
+The bundle ships only a **SHA-256 of the key**, never the key, so reading the JS tells you
+that a key exists and nothing more. Unlocking is remembered in `localStorage`, so the plain
+URL works afterwards; `?admin=0` or the panel button clears it.
+
+**This is obscurity, not access control**, and the distinction matters. Anyone holding the
+key is in, and anyone who sets `coreward.admin` in their own `localStorage` is in. On a
+static page that is the entire range available — there is no server to ask. The bar being
+cleared is "not stumbled upon", which is enough for what it guards: a new player should get
+to discover the strategy space rather than be handed a build measured ~70% ahead of
 anything hand-written.
 
 ## Architecture
