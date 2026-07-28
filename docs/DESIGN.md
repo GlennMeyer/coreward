@@ -366,12 +366,20 @@ Bought with Gold, equipped in the Build Phase. Two slots per mob (a third at lev
 | Dread Standard | 130 | Attacks also deal 2 Resolve damage |
 | Phylactery Shard | 200 | On death, revive once at 30% HP (consumed) |
 
-**Gear survives its wearer.** When a mob dies, its equipment returns to your Armory
-undamaged. This is the intended counterweight to permanent mob death — you lose the levels
-and the history, but not the investment.
+**Gear dies with its wearer.** *(Revised — see §43.)* The original rule was the opposite:
+equipment returned to an Armory undamaged, as a counterweight to permanent mob death. Two
+things were wrong with it. The Armory was never built — `slayMob` stripped the gear and
+discarded it, so the code had always done the reverse of what this paragraph promised. And
+once upgrade ranks became permanent (§23.1), "everything you buy is permanent" left nothing
+at risk in a raid.
 
-It also gives Gold a job that Mana cannot do, which is what keeps the second economy from
-collapsing into "Mana, but yellow."
+So the two currencies now differ in *kind*, not just in what they buy: **Mana buys the
+bloodline and keeps it; Gold buys this creature's kit and loses it when this creature
+dies.** That is what makes equipping your front-liner a bet rather than an accumulation,
+and it is a better answer to "what job does Gold do that Mana cannot" than the original.
+
+Dismissing a monster still recovers its gear. Selling a creature is a decision; dying is
+not.
 
 ---
 
@@ -1999,7 +2007,7 @@ them back rather than failing to threaten them at all.
 
 ### 23.1 Upgrade tracks (§6.6)
 
-Monsters buy ranks on three named tracks with Mana, four ranks each:
+Ranks are bought **per species, not per creature** *(revised — see §43)*, four ranks each:
 
 | Track | Effect | Cave Rat | Ogre |
 |---|---|---|---|
@@ -2009,6 +2017,16 @@ Monsters buy ranks on three named tracks with Mana, four ranks each:
 
 `18 × tier × 1.6^rank` Mana. Same arithmetic a level would have been, but "Sharper Teeth"
 is a decision about what a creature becomes and "train to level 3" is a number going up.
+
+Sharper Teeth is a **breeding programme, not a whetstone**: buy it once and every Cave Rat
+you own has it, including ones bought afterwards, and it survives any of them dying. Held
+per-creature — as it was originally — a slain veteran took the entire Mana investment with
+it, so one bad raid meant rebuilding from zero. Ranks live on `Dungeon.upgrades`, keyed by
+species then track.
+
+Buying `vigor` grants the increase to living members rather than refilling them: a wounded
+rat stays wounded with more room. Topping them up would quietly make Higher Metabolism a
+heal you could spam.
 Hide is deliberately **flat** damage reduction, so it is worth most on whatever holds the
 front against many small blows — which is exactly the screening role §22 created.
 
@@ -2912,3 +2930,52 @@ And almost every bug the owner found was invisible to a green test suite: a file
 does not emit events, `JSON.stringify(Infinity)`, a modal that never checked which ending
 it was reporting, damage landing on people two rooms away. **Tests prove the code does what
 it was written to do; they say nothing about whether that was the right thing.**
+
+---
+
+## 43. Mana buys the bloodline, Gold buys the corpse's kit
+
+Two rules changed together, because neither works alone.
+
+**Upgrade ranks moved from the creature to the species** (§23.1). Held per-creature, a
+slain veteran took the whole Mana investment with it and one bad raid meant rebuilding from
+zero — which made Mana feel like rent rather than progress.
+
+**Gear now dies with its wearer** (§6.5). This was already true in the code and false in
+this document: `slayMob` called `salvageGear` and threw the result away, while the doc
+promised an Armory that was never built. Behaviour right, documentation wrong, which is the
+worse way round — I would have reasoned from the paragraph.
+
+The pair gives the two currencies different *kinds* of value rather than different price
+tags. Mana compounds and cannot be taken from you. Gold is a bet on the raid in front of
+you. "Everything you buy is permanent" would have left nothing at risk.
+
+### 43.1 What the measurement said
+
+Balance runner, 300 seasons per scripted strategy, after the change:
+
+| | best scripted | GA, fitness=survival |
+|---|---|---|
+| raids | 13.4 (patron) | **127.0** |
+| survival | — | 25% |
+| tier | 3.8 | 21.5 |
+
+The scripted strategies are healthy and clustered — 9.2 to 13.4 raids, no outlier, Thrill
+21–38. The genetic search is the finding: **127 raids is roughly ten times the best
+hand-written build**, on a policy spending 36% of its Mana on upgrades and reaching mob
+level 4.
+
+That is the expected direction and quite possibly too much of it. A species-wide rank now
+buys *N creatures'* worth of benefit for one creature's price, so `18 × tier × 1.6^rank`
+is priced for a rule that no longer exists — the more of a species you field, the cheaper
+each effective upgrade gets, which rewards exactly the wide-swarm build the cost curve was
+meant to tax.
+
+**Not yet fixed, and deliberately recorded rather than patched on a hunch.** The honest fix
+is to scale rank cost by living population of that species, or to raise the base and flatten
+the curve, and then re-measure. Guessing at a multiplier is how §14/§25.4/§28.3 happened.
+
+This is also the fifth entry in the §42.4 pattern, from the other side: not a ceiling that
+turned out to be load-bearing, but a **cost curve that quietly stopped matching what it was
+pricing.** Whenever the *unit* a price applies to changes, the price is wrong until
+re-measured, even though nothing about the number changed.
