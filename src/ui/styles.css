@@ -478,3 +478,12 @@ h2 .chev { float: right; color: var(--dim); }
 .menu .record b { color: var(--souls); }
 button.big { padding: 12px; font-size: 14px; }
 .menu .opts { justify-content: center; margin-top: 10px; }
+
+/* ─── Idler ──────────────────────────────────────────────────────────────── */
+.idler-box {
+  border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px;
+  text-align: left; font-size: 11px; margin-top: 6px;
+}
+.idler-head { color: var(--dim); text-transform: uppercase; letter-spacing: .08em; }
+.idler-best { color: var(--ink); margin: 4px 0 6px; line-height: 1.4; }
+.idler-best .sub { display: block; color: var(--dim); margin-top: 2px; }

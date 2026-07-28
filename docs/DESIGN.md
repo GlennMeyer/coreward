@@ -2420,3 +2420,41 @@ Every read and write is guarded: private browsing, disabled storage and a full q
 fall back to an in-memory profile rather than costing the player their run. A save written
 by an older build is merged over a fresh profile, so a missing field loads instead of
 crashing.
+
+
+---
+
+## 32. The Understudy — a search that keeps running
+
+**Status: IMPLEMENTED (v0.16).** Two modes, chosen in the title screen.
+
+- **Advisor** evolves builds against your *current* Codex ranks and reports what it found.
+  It never plays, so it cannot compete with you.
+- **Auto-play** additionally banks Insight from the runs it plays, at `IDLE_YIELD` (**30%**)
+  of what a delve earns.
+
+That 30% is the load-bearing number. **If idling out-earns playing, the optimal strategy
+becomes "leave the tab open" and the game deletes itself.** A third makes a session of
+idling worth having and never worth choosing over a delve. It is a single sweepable
+constant, and it should be re-checked whenever run length changes.
+
+The population persists to `localStorage`, so the search genuinely gets smarter across
+sessions rather than restarting cold — which is the whole point of an idler.
+
+### 32.1 One brain, two callers
+
+`src/ui/idlerBrain.ts` holds the genome and the build policy, and **both `tools/evolve.ts`
+and the in-game idler import it**. They were going to drift otherwise, and a build the CLI
+calls strong has to be the same build the game plays. It is pure and headless like
+`src/sim` (§13.2): no DOM, all randomness through the injected seeded Rng.
+
+It runs in chunked timer ticks rather than a Worker — a season resolves in about a
+millisecond, so a generation per tick is imperceptible, and it keeps the thing
+dependency-free and debuggable.
+
+### 32.2 Why an advisor is worth having at all
+
+§23.3 measured the gap: the evolved build scored ~70% higher than the best hand-written
+strategy. That gap is the player's too. An advisor that says *"the current frontier runs
+cheap chaff behind a Snare and gouges the gate"* is teaching the game's actual strategy
+space, which nothing else in the UI does.

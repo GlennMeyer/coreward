@@ -215,6 +215,22 @@ describe('UI smoke', () => {
     expect(stage!.querySelector('.queued')?.textContent).toMatch(/\+\d+ at the door/);
   });
 
+  it('offers the Understudy modes and switching one on starts a search', async () => {
+    document.body.innerHTML = '<div id="app"></div>';
+    vi.resetModules();
+    globalThis.localStorage?.clear();
+    await import('../src/ui/main');
+
+    expect(button('Understudy: off')).toBeTruthy();
+    expect(button('Advisor')).toBeTruthy();
+    expect(button('Auto-play')).toBeTruthy();
+
+    click(button('Advisor'));
+    // The panel appears; the generation counter is the search actually running.
+    expect(document.querySelector('.idler-box')).toBeTruthy();
+    expect(document.querySelector('.idler-head')?.textContent).toContain('generation');
+  });
+
   it('opens on a title screen, not straight into a delve', async () => {
     document.body.innerHTML = '<div id="app"></div>';
     vi.resetModules();

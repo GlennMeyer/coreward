@@ -7,8 +7,10 @@
  * drive a Profile without a browser anywhere near them.
  */
 import { emptyProfile, type Profile } from '../sim/meta';
+import { emptyIdler, type IdlerState } from './idler';
 
 const KEY = 'coreward.profile.v1';
+const IDLER_KEY = 'coreward.idler.v1';
 
 /**
  * Storage can throw — private browsing, disabled cookies, a full quota. None of
@@ -59,4 +61,30 @@ export function clearProfile(): void {
   try {
     s.removeItem(KEY);
   } catch { /* nothing to do */ }
+}
+
+// ─── Idler ───────────────────────────────────────────────────────────────────
+
+/**
+ * The evolved population, persisted so the search gets smarter across sessions
+ * instead of restarting cold every time the tab opens (§32).
+ */
+export function loadIdler(): IdlerState {
+  const s = storage();
+  if (!s) return emptyIdler();
+  try {
+    const raw = s.getItem(IDLER_KEY);
+    if (!raw) return emptyIdler();
+    return { ...emptyIdler(), ...(JSON.parse(raw) as Partial<IdlerState>) };
+  } catch {
+    return emptyIdler();
+  }
+}
+
+export function saveIdler(st: IdlerState): void {
+  const s = storage();
+  if (!s) return;
+  try {
+    s.setItem(IDLER_KEY, JSON.stringify(st));
+  } catch { /* quota; the search simply restarts next session */ }
 }

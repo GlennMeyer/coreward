@@ -30,7 +30,11 @@ import {
   CODEX, applyProfile, applyRun, nextCodexCost, rankOf, buyCodex,
   startingBonuses, type CodexId, type InsightBreakdown, type Profile,
 } from '../sim/meta';
-import { loadProfile, saveProfile } from './storage';
+import { loadProfile, saveProfile, loadIdler, saveIdler } from './storage';
+import {
+  IDLE_YIELD, collectIdle, describeGenome, startIdler, type IdlerMode,
+  type IdlerState,
+} from './idler';
 import { narrateRaid, type Narration } from '../sim/narrate';
 import { forecast, predictThrill, thrillRating, type ThrillPrediction } from './predict';
 import type { RaidSim } from '../sim/raid';
@@ -58,6 +62,8 @@ interface App {
   profile: Profile;
   /** Insight earned by the run that just ended, for the summary screen. */
   lastInsight: InsightBreakdown | null;
+  /** Background genetic search (§32). */
+  idler: IdlerState;
   /** Endless: raid until the Core falls, rather than stopping at 8 (§12a). */
   endless: boolean;
   season: SeasonState;
@@ -98,6 +104,7 @@ applyProfile(bootSeason, bootProfile);
 const app: App = {
   profile: bootProfile,
   lastInsight: null,
+  idler: loadIdler(),
   endless: true,
   season: bootSeason,
   phase: 'menu',
@@ -559,14 +566,60 @@ function menuScreen(): HTMLElement {
   codex.onclick = () => { app.phase = 'over'; render(); };
   wrap.append(codex);
 
+  // The idler (§32). Advisor informs; auto-play also banks Insight, at a
+  // reduced rate so leaving the tab open never beats playing.
+  const banked = Math.floor(app.idler.pendingInsight);
+  if (app.idler.mode !== 'off') {
+    const b = app.idler.best;
+    const panel = el(`<div class="idler-box"></div>`);
+    panel.append(el(`<div class="idler-head">Understudy — generation ${app.idler.generation}</div>`));
+    panel.append(el(b
+      ? `<div class="idler-best">best: ${esc(describeGenome(b.genome))}<span class="sub">${Math.round(b.renown)} Renown over ${b.raids.toFixed(1)} raids</span></div>`
+      : '<div class="idler-best sub">thinking…</div>'));
+    if (app.idler.mode === 'autoplay') {
+      const collect = el(`<button ${banked <= 0 ? 'disabled' : ''}>Collect ${banked} Insight</button>`);
+      collect.onclick = () => {
+        collectIdle(app.idler, app.profile);
+        saveProfile(app.profile);
+        saveIdler(app.idler);
+        render();
+      };
+      panel.append(collect);
+    }
+    wrap.append(panel);
+  }
+
   const opts = el('<div class="row opts"></div>');
   const endlessBtn = el(`<button class="${app.endless ? 'on' : ''}">Endless: ${app.endless ? 'on' : 'off'}</button>`);
   endlessBtn.onclick = () => { app.endless = !app.endless; render(); };
   opts.append(endlessBtn);
+  for (const m of ['off', 'advisor', 'autoplay'] as IdlerMode[]) {
+    const on = app.idler.mode === m;
+    const label = { off: 'Understudy: off', advisor: 'Advisor', autoplay: 'Auto-play' }[m];
+    const b = el(`<button class="${on ? 'on' : ''}"
+      title="${m === 'advisor' ? 'Evolves builds against your Codex and reports what it finds. Never plays for you.'
+        : m === 'autoplay' ? `Also plays runs in the background, banking ${Math.round(IDLE_YIELD * 100)}% of what a delve would earn.`
+        : 'No background search.'}">${label}</button>`);
+    b.onclick = () => {
+      app.idler.mode = m;
+      saveIdler(app.idler);
+      syncIdler();
+      render();
+    };
+    opts.append(b);
+  }
   wrap.append(opts);
   wrap.append(el('<div class="hint">Endless runs until the Core falls. Off gives a fixed 8-raid season.</div>'));
 
   return wrap;
+}
+
+/** (Re)start the background search to match the current mode. */
+function syncIdler(): void {
+  startIdler(app.idler, app.profile, () => {
+    saveIdler(app.idler);
+    if (app.phase === 'menu') render();
+  });
 }
 
 function render(): void {
@@ -1765,5 +1818,6 @@ if (import.meta.hot) {
   import.meta.hot.accept();
 }
 
+syncIdler();
 render();
 
