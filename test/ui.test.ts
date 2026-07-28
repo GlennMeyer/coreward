@@ -356,6 +356,11 @@ describe('UI smoke', () => {
     // The panel appears; the generation counter is the search actually running.
     expect(document.querySelector('.idler-box')).toBeTruthy();
     expect(document.querySelector('.idler-head')?.textContent).toContain('generation');
+
+    // Switch it off again. A live search outlives the test — its interval keeps
+    // writing to whatever storage is stubbed next, which silently overwrote the
+    // seeded state two tests later.
+    click(button('Understudy: off'));
   });
 
   it('the Understudy can be watched playing the real game', async () => {
@@ -403,8 +408,13 @@ describe('UI smoke', () => {
     expect(document.querySelector('.spectate-bar')).toBeTruthy();
     expect(document.querySelector('.topbar')).toBeTruthy();
 
-    // A new run starts running, not held: carrying a hold across restart meant
-    // every game began paused with no pause having been asked for.
+    // Reaching into the dungeon holds it; the bar offers the way back.
+    // The reach has to be into the dungeon itself. This used to assert the hold
+    // without performing one, and passed because the old rule held on *any*
+    // button during the Build Phase — including the ones that exist to get you
+    // out of a hold, which is what made "resume" feel mandatory between games.
+    click(document.querySelectorAll('.room')[0]);
+    expect(button('Resume')).toBeTruthy();
     click(button('Resume'));
     click(button('Take over'));
     expect(document.querySelector('.spectate-bar')).toBeFalsy();

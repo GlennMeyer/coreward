@@ -185,8 +185,29 @@ const app: App = {
 
 let timer: number | null = null;
 
-/** How long the Aftermath waits before continuing on its own. */
+/** Floor for any auto-continue: long enough to register that a modal appeared. */
 const AUTO_CONTINUE_MS = 4000;
+
+/**
+ * How long the Aftermath waits before continuing on its own.
+ *
+ * This was a flat four seconds, which is fine for the raid-summary bar and much
+ * too fast for the Aftermath: "Word from the stair" is a headline plus three or
+ * four sentences, and four seconds pulled it off screen mid-paragraph. The prose
+ * is the reason to build another floor (§15.2) — auto-continue exists so nobody
+ * has to click through an empty result, not to hurry the one part worth reading.
+ *
+ * So it is reading time, not a constant. ~210ms/word is a relaxed 285wpm, which
+ * suits skimmable game prose; the base covers the ledger below it, and the cap
+ * stops a long narration from feeling like the game has stalled. Any of this can
+ * be cut short with Continue, so the cost of being generous is nothing.
+ */
+function aftermathDwellMs(n: Narration | null): number {
+  if (!n) return AUTO_CONTINUE_MS;
+  const words = [n.headline, ...n.sentences].join(' ').split(/\s+/).length;
+  return Math.min(12_000, Math.max(AUTO_CONTINUE_MS, 2600 + words * 210));
+}
+
 let autoTimer: number | null = null;
 
 function clearAutoContinue(): void {
@@ -2241,7 +2262,7 @@ function aftermathModal(a: AftermathType): HTMLElement {
   // raid, and it was the one my earlier edit missed — the raid-summary bar got
   // it, this did not. Cancelled by any interaction, so reading at your own pace
   // still wins.
-  scheduleAutoContinue(app.spectating ? 1400 : AUTO_CONTINUE_MS, nextRaid);
+  scheduleAutoContinue(app.spectating ? 1400 : aftermathDwellMs(app.narration), nextRaid);
   bg.append(m);
   return bg;
 }
