@@ -1122,6 +1122,8 @@ function stopSpectating(): void {
 
 const ADMIN_KEY = 'coreward.admin';
 const ADMIN_AUTO_KEY = 'coreward.adminAuto';
+/** Which key hash unlocked this browser, so a rotation can revoke it. */
+const ADMIN_SEAL = 'coreward.adminSeal';
 
 // The hash lives in its own generated file so `npm run rotate-key` can
 // rewrite it without touching anything else.
@@ -1145,13 +1147,25 @@ async function sha256Hex(text: string): Promise<string> {
  */
 async function checkAdminKey(): Promise<void> {
   try {
+    const store = globalThis.localStorage;
+    // Rotation has to revoke. The flag used to be a bare '1', so once any key
+    // had ever unlocked a browser that browser was admin forever — rotating
+    // wrote a new hash that nothing ever compared against, and every previously
+    // unlocked session stayed unlocked. Storing which key opened it means a
+    // rotated key logs out everyone holding the old one, including me.
+    if (store?.getItem(ADMIN_KEY) && store.getItem(ADMIN_SEAL) !== ADMIN_HASH) {
+      store.removeItem(ADMIN_KEY);
+      store.removeItem(ADMIN_SEAL);
+    }
     const q = new URLSearchParams(globalThis.location?.search ?? '');
     const key = q.get('key');
     if (q.get('admin') === '0' || key === '') {
-      globalThis.localStorage?.removeItem(ADMIN_KEY);
+      store?.removeItem(ADMIN_KEY);
+      store?.removeItem(ADMIN_SEAL);
     } else if (key) {
       if (await sha256Hex(key) === ADMIN_HASH) {
-        globalThis.localStorage?.setItem(ADMIN_KEY, '1');
+        store?.setItem(ADMIN_KEY, '1');
+        store?.setItem(ADMIN_SEAL, ADMIN_HASH);
       }
     }
   } catch { /* no crypto, no storage, no admin */ }

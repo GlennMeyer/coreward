@@ -10,6 +10,7 @@ import { GEAR, MOBS, TIERS, TRAPS, TUNING, roomCapacity } from '../src/sim/data'
 import { buildAmenity, buyMob, createDungeon, placeMobInRoom } from '../src/sim/dungeon';
 import { predictThrill, thrillRating } from '../src/ui/predict';
 import { rulesHash as idlerRulesHash } from '../src/ui/idler';
+import { ADMIN_HASH } from '../src/ui/adminKey';
 import type { SeasonState } from '../src/sim/types';
 
 function click(node: Element | null | undefined): void {
@@ -77,7 +78,9 @@ function button(text: string): HTMLButtonElement | undefined {
  * The key path itself is covered by its own test.
  */
 function asAdmin(): void {
-  fakeStorage({ 'coreward.admin': '1' });
+  // The seal too: a browser unlocked by a key it cannot name is revoked on
+  // load, which is the whole point of rotation revoking sessions.
+  fakeStorage({ 'coreward.admin': '1', 'coreward.adminSeal': ADMIN_HASH });
 }
 
 /** An in-memory Storage, since jsdom here supplies none. */
@@ -500,7 +503,7 @@ describe('UI smoke', () => {
     // Own setup: the shared beforeEach clicks into a delve, and this test
     // needs the title screen.
     const store = fakeStorage({
-      'coreward.admin': '1',
+      'coreward.admin': '1', 'coreward.adminSeal': ADMIN_HASH,
       'coreward.idler.v1': JSON.stringify({
         mode: 'autoplay', population: [], generation: 42,
         pendingInsight: 250, runsPlayed: 90, best: null,
@@ -588,7 +591,7 @@ describe('UI smoke', () => {
 
   it('the total erase is admin-only and takes the learning too', async () => {
     const store = fakeStorage({
-      'coreward.admin': '1',
+      'coreward.admin': '1', 'coreward.adminSeal': ADMIN_HASH,
       'coreward.profile.v1': JSON.stringify({ insight: 99, ranks: {}, runs: 4, bestRaids: 9, bestTier: 3 }),
       'coreward.idler.v1': JSON.stringify({
         mode: 'off', population: [], generation: 42,

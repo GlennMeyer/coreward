@@ -13,7 +13,8 @@
     "balance": "tsx tools/balance.ts",
     "dev:host": "vite --host",
     "rotate-key": "tsx tools/rotate-key.ts",
-    "audit-idler": "tsx tools/audit-idler.ts"
+    "audit-idler": "tsx tools/audit-idler.ts",
+    "release": "bash tools/release.sh"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
