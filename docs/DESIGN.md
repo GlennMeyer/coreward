@@ -1583,6 +1583,47 @@ trusting the numbers.
 3. Does an asymmetric floor plan emerge on its own, or does everyone widen everything in
    the same order?
 
+### 16.12 What the slice measured — **built, and it is a nerf at these numbers**
+
+Built as specced: `capacityTier` per room, Hewn 3 / Widened 5, `40 × (1 + 0.30 × floorIndex)`,
+one Crew, 1 raid, 50% cancel refund, breach cancels, the scaffolded-room Tedium term, and an
+excavation policy in the scripted AI. The mechanism works and the AI uses it — 1.8–3.8 rooms
+widened per season, 13–27% of all rooms — so this is **not** the §11 Q8 failure of measuring
+an AI that never touches the feature.
+
+300 seasons per strategy, against the same seeds:
+
+| strategy | raids before | raids @3/5 | raids @4/6 | renown before | @3/5 | @4/6 |
+|---|---|---|---|---|---|---|
+| combat | 12.5 | 12.1 | 12.3 | 340 | 213 | 254 |
+| commerce | 13.2 | 10.0 | 12.7 | 366 | 184 | 253 |
+| balanced | 11.7 | 11.9 | 11.7 | 366 | 238 | 261 |
+| swarm | 11.0 | 8.8 | 9.8 | 149 | 107 | 134 |
+| wardens | 11.2 | 8.7 | 9.9 | 204 | 131 | 173 |
+| showman | 9.8 | 9.6 | 9.8 | 313 | 247 | 275 |
+| patron | 13.4 | 10.1 | 12.6 | 344 | 185 | 245 |
+| traps | 9.2 | 7.2 | 8.8 | 213 | 125 | 177 |
+
+**Answer to question 1: at these numbers it is a tax, not a decision.** Every strategy is
+worse off on every headline — shorter seasons, lower tier, less Renown, lower monster levels
+(combat 2.5 → 1.9), less `variety` (0.75 → 0.56, because fewer bodies fit per room). Nothing
+here says the *decision* is bad; it says the dungeon lost a lot of capacity and got nothing
+back.
+
+**The nerf has two separable halves, and the third column separates them.** Hewn 4 / Widened
+6 — the old floor-1 capacity, with purchase layered on top rather than under — recovers most
+of the gap but not all of it. What it does not recover is the loss of the depth gradient:
+the old rule handed out 4/5/6/7 by depth, and widening only ever reaches 13–27% of rooms, so
+total capacity across a dungeon still falls. §16.3 wants that inversion deliberately, which
+means the compensation has to come from somewhere else — mana income, cheaper widening, more
+Crew, or an AI that widens better than "shallowest full room first".
+
+**So the slice is built but should not ship at 3/5 as-is.** Not because the design is wrong —
+question 1 is about whether the decision is interesting, and a uniform nerf tells us nothing
+about that either way. It is that a change which costs every strategy a third of its Renown
+needs its compensating tuning found *before* it reaches a player, not after. Questions 2 and
+3 are still open and cannot be answered until the economy around this is level.
+
 ---
 
 ## 17. Traps — the cheap defence

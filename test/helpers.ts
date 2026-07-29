@@ -1,6 +1,6 @@
 import {
-  assignStaff, buildAmenity, buyMob, buyTrap, digFloor, placeMobInRoom,
-  placeTrapInRoom,
+  advanceProject, assignStaff, buildAmenity, buyMob, buyTrap, digFloor,
+  placeMobInRoom, placeTrapInRoom, startWiden,
 } from '../src/sim/dungeon';
 import { createSeason } from '../src/sim/season';
 import type { AmenityId, Dungeon, SeasonState } from '../src/sim/types';
@@ -55,4 +55,19 @@ export function seasonWithFloors(
     if (err) throw new Error(err);
   }
   return s;
+}
+
+/**
+ * Widen a room and finish the work at once (§16.3).
+ *
+ * Fixtures that predate purchased capacity were written against rooms that held
+ * 4-6 slots by depth; a Hewn room holds 3. Where such a fixture genuinely needs
+ * the space — an Ogre *and* a Deadfall, say — this is the honest translation:
+ * it buys the room rather than pretending the cap never changed. Skips the
+ * build time on purpose, because none of those tests are about waiting.
+ */
+export function widenRoom(d: Dungeon, floor: number, room: number): void {
+  const started = startWiden(d, floor, room);
+  if (typeof started === 'string') throw new Error(started);
+  advanceProject(d);
 }

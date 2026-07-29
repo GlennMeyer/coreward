@@ -6,8 +6,10 @@
  * Runs in jsdom — see environmentMatchGlobs in vite.config.ts.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { GEAR, MOBS, TIERS, TRAPS, TUNING, roomCapacity } from '../src/sim/data';
-import { buildAmenity, buyMob, createDungeon, placeMobInRoom } from '../src/sim/dungeon';
+import { GEAR, MOBS, TIERS, TRAPS, TUNING } from '../src/sim/data';
+import {
+  buildAmenity, buyMob, createDungeon, placeMobInRoom, roomCapacityAt,
+} from '../src/sim/dungeon';
 import { predictThrill, thrillRating } from '../src/ui/predict';
 import { rulesHash as idlerRulesHash } from '../src/ui/idler';
 import { ADMIN_HASH } from '../src/ui/adminKey';
@@ -161,11 +163,9 @@ describe('UI smoke', () => {
     // Buying selects the monster; clicking a room places it.
     click(document.querySelectorAll('.room')[0]);
     expect(document.querySelector('.room .mob')).toBeTruthy();
-    // The readout used to print a hardcoded "/3" while `roomCapacity(0)` was
-    // actually 4 — harmless while monsters were the only occupants, a lie once
-    // traps draw on the same budget.
+    // Reads the room, not the floor: capacity is per room since §16.3.
     expect(document.querySelector('.room .slots')?.textContent)
-      .toBe(`1/${roomCapacity(0)}`);
+      .toBe(`1/${roomCapacityAt(seasonDungeon(), 0, 0)}`);
   });
 
   it('digs a floor, which opens another landing', () => {

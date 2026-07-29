@@ -10,7 +10,7 @@ import {
   MAX_UPGRADE_RANK, REFORGE_EFFECT, UPGRADE_EFFECT, reforgeCost,
   upgradeRankCost, type UpgradeTrack,
   MAX_LEVEL, MOBS, STARTING_HEARTS, TRAPS, XP_THRESHOLDS, mobDmg, mobMaxHp,
-  roomCapacity, roomsOnFloor, trapCost, trapRearmCost,
+  roomCapacity, roomsOnFloor, trapCost, trapRearmCost, widenCostFor, TUNING,
 } from './data';
 import type {
   Amenity, AmenityId, Dungeon, Landing, Mob, PriceTier, Room, Trap,
@@ -90,6 +90,17 @@ export function buyMob(d: Dungeon, defId: string): Mob | string {
 }
 
 /**
+ * Capacity of one room, by coordinates — the counterpart to `roomSlotsUsed`.
+ *
+ * Exists so the dozen call sites that already hold `(d, floor, room)` did not
+ * all have to learn to reach into `d.floors[f].rooms[r]` when capacity stopped
+ * being a function of depth (§16.3).
+ */
+export function roomCapacityAt(d: Dungeon, floor: number, room: number): number {
+  return roomCapacity(d.floors[floor]?.rooms[room]);
+}
+
+/**
  * Room capacity used by everything in the room — monsters AND traps.
  *
  * **Traps share the monster slot budget; they do not get a layer of their own.**
@@ -101,12 +112,12 @@ export function buyMob(d: Dungeon, defId: string): Mob | string {
  *    the dungeon gets one, no room is ever "empty" for Tedium (§15.3), and the
  *    §15.1 exploit reopens through the back door — reputation for a delve
  *    nobody paid for. Capacity is the price that keeps the choice honest.
- * 2. It is the interesting decision. A Hewn floor-1 room holds 4 slots: an Ogre
- *    (3) plus a Snare, or a Skeleton (2) plus two traps, or four traps and
- *    nothing that can finish anybody. Every trap you install is a monster you
- *    did not, in that room, on that floor — which is exactly the "soften, then
- *    kill" arrangement §7.5 describes, arrived at as a budget rather than a
- *    rule.
+ * 2. It is the interesting decision. A Hewn room holds 3 slots: an Ogre (3) and
+ *    nothing else, or a Skeleton (2) plus one trap, or three traps and nothing
+ *    that can finish anybody. Every trap you install is a monster you did not,
+ *    in that room, on that floor — which is exactly the "soften, then kill"
+ *    arrangement §7.5 describes, arrived at as a budget rather than a rule.
+ *    Widening to 5 is what buys you a big body *and* a screen (§16.3).
  */
 export function roomSlotsUsed(d: Dungeon, floor: number, room: number): number {
   const r = d.floors[floor]?.rooms[room];
@@ -120,6 +131,70 @@ export function roomSlotsUsed(d: Dungeon, floor: number, room: number): number {
     return sum + (t ? TRAPS[t.defId]!.slots : 0);
   }, 0);
   return mobSlots + trapSlots;
+}
+
+// ─── Excavation: widening rooms (§16.3, §16.4, §16.11) ───────────────────────
+
+/**
+ * Start widening a room. Mana is the caller's to deduct — this reports the
+ * price and books the Crew.
+ *
+ * One Crew, one job. That restriction *is* the mechanic: the cost of widening
+ * this room is not only its mana, it is every other room you did not widen
+ * while the Crew was busy. Making it a queue instead would turn a commitment
+ * into a shopping list.
+ */
+export function startWiden(
+  d: Dungeon, floor: number, room: number,
+): { cost: number } | string {
+  const target = d.floors[floor]?.rooms[room];
+  if (!target) return 'No such room.';
+  if (d.project) {
+    const p = d.project;
+    return `The Crew is already widening floor ${p.floor + 1}, room ${p.room + 1}.`;
+  }
+  if ((target.capacityTier ?? 'hewn') === 'widened') return 'That room is already widened.';
+  const cost = widenCostFor(floor);
+  d.project = { floor, room, raidsLeft: TUNING.widenRaids, paid: cost };
+  return { cost };
+}
+
+/**
+ * Call off the work. Returns the mana to refund (§16.11: half of what was paid).
+ *
+ * Half, not all, so that starting a widening is a real decision rather than a
+ * free option you can park the Crew on and reverse when something better comes
+ * up. Returns 0 when there is nothing to cancel, so a breach can call it
+ * blindly.
+ */
+export function cancelWiden(d: Dungeon): number {
+  if (!d.project) return 0;
+  const refund = Math.round(d.project.paid * TUNING.widenRefund);
+  d.project = null;
+  return refund;
+}
+
+/**
+ * One raid of work has passed. Returns the room that finished, if any.
+ *
+ * Called from the Aftermath, so the widening lands *between* raids — you fight
+ * the raid you committed during with the room you had, which is the entire
+ * point of build time (§16.4).
+ */
+export function advanceProject(d: Dungeon): { floor: number; room: number } | null {
+  const p = d.project;
+  if (!p) return null;
+  p.raidsLeft -= 1;
+  if (p.raidsLeft > 0) return null;
+  const target = d.floors[p.floor]?.rooms[p.room];
+  if (target) target.capacityTier = 'widened';
+  d.project = null;
+  return { floor: p.floor, room: p.room };
+}
+
+/** Is this room the one currently full of scaffolding? */
+export function isScaffolded(d: Dungeon, floor: number, room: number): boolean {
+  return !!d.project && d.project.floor === floor && d.project.room === room;
 }
 
 // ─── Traps (§5.2) ────────────────────────────────────────────────────────────
@@ -192,7 +267,7 @@ export function placeTrapInRoom(
   const already = trap.placement.kind === 'room'
     && trap.placement.floor === floor && trap.placement.room === room;
   const used = roomSlotsUsed(d, floor, room) - (already ? def.slots : 0);
-  const cap = roomCapacity(floor);
+  const cap = roomCapacityAt(d, floor, room);
   if (used + def.slots > cap) {
     return `Room is full — ${used}/${cap} slots, ${def.name} needs ${def.slots}.`;
   }
@@ -300,7 +375,7 @@ export function placeMobInRoom(
   const already = mob.placement.kind === 'room'
     && mob.placement.floor === floor && mob.placement.room === room;
   const used = roomSlotsUsed(d, floor, room) - (already ? cost : 0);
-  const cap = roomCapacity(floor);
+  const cap = roomCapacityAt(d, floor, room);
   if (used + cost > cap) {
     return `Room is full — ${used}/${cap} slots, ${MOBS[mob.defId]!.name} needs ${cost}.`;
   }

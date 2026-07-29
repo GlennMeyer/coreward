@@ -6,11 +6,20 @@ import { describe, expect, it } from 'vitest';
 import { RaidSim } from '../src/sim/raid';
 import { Rng } from '../src/sim/rng';
 import { TIERS } from '../src/sim/data';
-import { addMob, addStaffedAmenity, addTrap, seasonWithFloors } from './helpers';
+import {
+  addMob, addStaffedAmenity, addTrap, seasonWithFloors, widenRoom,
+} from './helpers';
 import type { SeasonState } from '../src/sim/types';
 
 function buildScenario(seed: number): SeasonState {
   const s = seasonWithFloors(seed, 3);
+  // Three of these rooms hold a body and a trap, which is 4-5 slots — more than
+  // a Hewn room's 3 since §16.3. Widened rather than thinned out: the point of
+  // the fixture is a dungeon busy enough that an ordering bug has somewhere to
+  // show up, and dropping occupants to fit would cost exactly that.
+  widenRoom(s.dungeon, 0, 0);
+  widenRoom(s.dungeon, 1, 0);
+  widenRoom(s.dungeon, 2, 1);
   addMob(s.dungeon, 'rat', 0, 0);
   addMob(s.dungeon, 'slime', 0, 1);
   addMob(s.dungeon, 'cutpurse', 1, 0);

@@ -13,7 +13,7 @@ import {
   type GearDef,
   INSURANCE_BASE, STAFFED_REVENUE_MULT,
   admissionPrice,
-  PRICE_TIERS, TRAPS, TUNING, roomCapacity, trapCost,
+  CAPACITY_TIERS, PRICE_TIERS, TRAPS, TUNING, trapCost, widenCostFor,
   trapRearmCost,
 } from '../sim/data';
 import {
@@ -24,7 +24,8 @@ import {
   hireStaff, isOpen, mobArmor, mobEffectiveDmg, mobEffectiveHp,
   placeMobInRoom, placeTrapInRoom, rearmAll,
   rearmTrap, trapRearmPrice,
-  rearmAllPrice, removeTrap, roomSlotsUsed, setPrice, totalUpkeep, trapsInRoom,
+  isScaffolded, rearmAllPrice, removeTrap, roomCapacityAt, roomSlotsUsed, setPrice,
+  startWiden, totalUpkeep, trapsInRoom,
   trapSalvageValue,
 } from '../sim/dungeon';
 import { applyAftermath, createSeason, currentTier, startRaid } from '../sim/season';
@@ -1733,8 +1734,9 @@ function dungeonPanel(): HTMLElement {
         && sim?.currentFloor === fi && sim?.currentRoom === ri;
       const canDrop = app.phase === 'build'
         && (app.selectedMob !== null || app.selectedTrap !== null);
+      const isWide = (d.floors[fi]!.rooms[ri]!.capacityTier ?? 'hewn') === 'widened';
       const room = el(
-        `<div class="room ${isActive ? 'active' : ''} ${canDrop ? 'droppable' : ''}"
+        `<div class="room ${isActive ? 'active' : ''} ${canDrop ? 'droppable' : ''} ${isWide ? 'widened' : ''}"
               data-floor="${fi}" data-room="${ri}"></div>`,
       );
 
@@ -1752,9 +1754,49 @@ function dungeonPanel(): HTMLElement {
       if (isActive && sim) room.append(stageStrip(sim));
       // Traps draw on the same capacity as monsters (§16.3), so the readout
       // has to show the real ceiling rather than the doc's flat 3.
+      const scaffolded = isScaffolded(d, fi, ri);
+      const widened = isWide;
       room.append(el(
-        `<div class="slots">${roomSlotsUsed(d, fi, ri)}/${roomCapacity(fi)}</div>`,
+        `<div class="slots">${roomSlotsUsed(d, fi, ri)}/${roomCapacityAt(d, fi, ri)}</div>`,
       ));
+
+      // Say what the Crew is doing, in the room they are doing it in (§16.11).
+      // Build time is only a decision if the player can see the raid they are
+      // about to fight with a room full of scaffolding — a silent timer would
+      // just be a room that changes size for no visible reason.
+      if (scaffolded) {
+        const left = d.project!.raidsLeft;
+        room.append(el(
+          `<div class="scaffold" title="The Crew is widening this room. It fights at its current size until the work lands.">
+             widening · ${left} raid${left === 1 ? '' : 's'}</div>`,
+        ));
+      }
+
+      // The Widen affordance. Only in the Build Phase, only when nothing else
+      // is selected — clicking a room with a monster in hand means "place it",
+      // and that gesture must not become ambiguous.
+      if (app.phase === 'build' && !widened && !scaffolded
+        && app.selectedMob === null && app.selectedTrap === null) {
+        const cost = widenCostFor(fi);
+        const busy = !!d.project;
+        const poor = s.mana < cost;
+        const btn = el(
+          `<button class="widen" ${busy || poor ? 'disabled' : ''}
+             title="${busy
+            ? 'The Crew is already working somewhere else — one project at a time.'
+            : poor ? `Costs ${cost} mana; you have ${Math.round(s.mana)}.`
+              : `Widen to ${CAPACITY_TIERS.widened} slots. Takes ${TUNING.widenRaids} raid — you fight the next one at the current size.`}"
+           >widen ${cost}</button>`,
+        );
+        btn.onclick = (ev) => {
+          ev.stopPropagation();
+          const started = startWiden(d, fi, ri);
+          if (typeof started === 'string') return fail(started);
+          spend('mana', started.cost, `Widen floor ${fi + 1}, room ${ri + 1}`);
+          return fail(null);
+        };
+        room.append(btn);
+      }
 
       room.onclick = (ev) => {
         ev.stopPropagation();
@@ -2827,6 +2869,21 @@ function aftermathModal(a: AftermathType): HTMLElement {
   }));
 
   if (r.retired.length) m.append(retirementBlock(r.retired));
+
+  // Excavation news (§16.11). Both directions have to be said out loud: a room
+  // that quietly changed size between raids reads as a bug, and mana appearing
+  // back in the purse after a breach reads as one too.
+  if (a.widenFinished) {
+    const w = a.widenFinished;
+    m.append(el(`<div class="note">The Crew finished widening
+      floor ${w.floor + 1}, room ${w.room + 1} — it holds
+      ${CAPACITY_TIERS.widened} slots now.</div>`));
+  }
+  if (a.widenRefunded > 0) {
+    m.append(el(`<div class="note warn">They reached the Core, so the Crew
+      downed tools. ${a.widenRefunded} mana back; the rest is under the
+      rubble.</div>`));
+  }
 
   // Renown is stated as a derivation, not a number out of nowhere.
   const renownFrom = survivors

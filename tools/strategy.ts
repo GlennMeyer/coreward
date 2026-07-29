@@ -6,13 +6,14 @@
  * getting lucky.
  */
 import {
-  AMENITIES, GEAR, HIRED_STAFF_COST, MAX_GEAR_SLOTS, MOBS, TRAPS, roomCapacity,
-  trapCost,
+  AMENITIES, GEAR, HIRED_STAFF_COST, MAX_GEAR_SLOTS, MOBS, TRAPS,
+  trapCost, widenCostFor,
 } from '../src/sim/data';
 import {
   allTraps, assignStaff, buildAmenity, buyMob, buyTrap, digCost, digFloor,
   equipGear, hireStaff, livingMobs, mobsInRoom, placeMobInRoom,
-  placeTrapInRoom, rearmAll, rearmAllPrice, roomSlotsUsed, setPrice,
+  placeTrapInRoom, rearmAll, rearmAllPrice, roomCapacityAt, roomSlotsUsed, setPrice,
+  startWiden,
   totalUpkeep, trapsInRoom,
 } from '../src/sim/dungeon';
 import type { Rng } from '../src/sim/rng';
@@ -234,6 +235,24 @@ export const AI = {
    * Concentration is not a placement bug, it is what makes a room winnable.
    */
   fillEmptyFirst: false,
+  /**
+   * Mana kept back over a widening, and the last raid worth starting one on.
+   *
+   * §16.11's warning, taken seriously: "an AI that never widens a room, or
+   * widens rooms at random, will report that this system does nothing." §11 Q8
+   * is the cautionary tale — the commerce strategy measured at 8% partly
+   * because the AI staffed shops with Cave Rats, and that read as a verdict on
+   * commerce rather than on the AI.
+   *
+   * The policy is deliberately the *simplest defensible* one rather than a
+   * clever one: widen the room that is already full and already fights, so the
+   * space bought is space immediately used. A widening finished after the last
+   * raid is pure waste, hence the cutoff.
+   */
+  widenReserve: 70,
+  widenUntilRaid: 6,
+  /** Do not widen a room unless it is this full — space nobody needs is dead mana. */
+  widenAtLeastFull: 1,
 };
 
 const AI_DEFAULTS = { ...AI };
@@ -257,6 +276,38 @@ export function buildPhaseFor(s: SeasonState, strat: Strategy, rng: Rng): void {
   const cost = digCost(d);
   if (cost !== null && s.mana >= cost + AI.digReserve && s.raidNumber <= AI.digUntilRaid) {
     if (digFloor(d) === null) s.mana -= cost;
+  }
+
+  // 1a. Widen (§16.3, §16.11).
+  //
+  // After the dig and before anything is bought, because widening competes with
+  // the dig for the same mana and the dig is worth more: a floor pays
+  // `manaPerFloor` every raid thereafter, a wider room pays nothing directly.
+  //
+  // Target the fullest room that is at capacity — the space then gets used the
+  // raid it lands, rather than sitting empty while the Crew is booked. One
+  // project at a time is enforced by `startWiden`, so this is a no-op while
+  // work is already under way.
+  if (!d.project && s.raidNumber <= AI.widenUntilRaid) {
+    let best: { floor: number; room: number; cost: number } | null = null;
+    for (let f = 0; f < d.floors.length; f++) {
+      for (let r = 0; r < d.floors[f]!.rooms.length; r++) {
+        const room = d.floors[f]!.rooms[r]!;
+        if ((room.capacityTier ?? 'hewn') === 'widened') continue;
+        const used = roomSlotsUsed(d, f, r);
+        // Full, and defended — an empty room does not need to be bigger.
+        if (used < roomCapacityAt(d, f, r) || used < AI.widenAtLeastFull) continue;
+        const cost = widenCostFor(f);
+        if (s.mana < cost + AI.widenReserve) continue;
+        // Shallowest first: it is cheapest, and floor 1 is the room every party
+        // actually walks through (the runner reports ~2.5 floors of ~4 reached).
+        if (!best || cost < best.cost) best = { floor: f, room: r, cost };
+      }
+    }
+    if (best) {
+      const started = startWiden(d, best.floor, best.room);
+      if (typeof started !== 'string') s.mana -= started.cost;
+    }
   }
 
   // 1b. Re-arm. This is deliberately the FIRST thing any purse touches after
@@ -420,7 +471,7 @@ function placeTrap(s: SeasonState, trap: Trap): boolean {
   const d = s.dungeon;
   const slots = TRAPS[trap.defId]!.slots;
   const fits = (f: number, r: number): boolean =>
-    roomSlotsUsed(d, f, r) + slots <= roomCapacity(f)
+    roomSlotsUsed(d, f, r) + slots <= roomCapacityAt(d, f, r)
     && !trapsInRoom(d, f, r).some((t) => t.defId === trap.defId);
 
   for (let f = d.floors.length - 1; f >= 0; f--) {
@@ -468,7 +519,7 @@ export function placeAnywhere(s: SeasonState, mob: Mob): boolean {
   for (const emptyOnly of passes) {
     for (let f = d.floors.length - 1; f >= 0; f--) {
       for (let r = 0; r < d.floors[f]!.rooms.length; r++) {
-        if (roomSlotsUsed(d, f, r) + slots > roomCapacity(f)) continue;
+        if (roomSlotsUsed(d, f, r) + slots > roomCapacityAt(d, f, r)) continue;
         if (emptyOnly && mobsInRoom(d, f, r).length > 0) continue;
         return placeMobInRoom(d, mob.uid, f, r) === null;
       }
@@ -502,7 +553,7 @@ export function placeForVariety(s: SeasonState, mob: Mob): boolean {
   let bestFloor = -1, bestRoom = -1, bestScore = -Infinity;
   for (let f = 0; f < d.floors.length; f++) {
     for (let r = 0; r < d.floors[f]!.rooms.length; r++) {
-      if (roomSlotsUsed(d, f, r) + slots > roomCapacity(f)) continue;
+      if (roomSlotsUsed(d, f, r) + slots > roomCapacityAt(d, f, r)) continue;
       const here = mobsInRoom(d, f, r);
       const prev = r > 0 ? mobsInRoom(d, f, r - 1) : [];
 

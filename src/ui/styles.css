@@ -69,11 +69,31 @@ h2 { font-size: 12px; margin: 0 0 8px; color: var(--dim); text-transform: upperc
   min-height: 74px; background: var(--panel-2); border: 1px solid var(--line);
   border-radius: 4px; padding: 6px; display: flex; flex-direction: column; gap: 4px;
   cursor: pointer; transition: border-color .12s, background .12s;
+  /* Anchors the Widen button in the corner (§16.11). */
+  position: relative;
 }
 .room:hover { border-color: var(--dim); }
 .room.active { border-color: var(--adv); background: #232a34; box-shadow: 0 0 0 1px var(--adv) inset; }
 .room.droppable { border-color: var(--renown); border-style: dashed; }
 .room .slots { color: var(--dim); font-size: 10px; margin-top: auto; text-align: right; }
+/* Excavation (§16.3, §16.11). A widened room reads at a glance; a room being
+   worked on reads louder, because it is about to fight at the wrong size. */
+.room.widened { border-color: #3d4859; }
+.room .scaffold {
+  color: var(--warn, #d9a441); font-size: 10px; text-align: right;
+  letter-spacing: .02em;
+}
+.room .widen {
+  position: absolute; top: 3px; right: 3px;
+  font-size: 9px; padding: 1px 4px; line-height: 1.4; white-space: nowrap;
+  background: transparent; color: var(--dim);
+  border: 1px solid var(--dim); border-radius: 3px; cursor: pointer;
+  opacity: 0; transition: opacity .12s;
+}
+.room:hover .widen { opacity: 1; }
+.room .widen:hover:not(:disabled) { color: var(--renown); border-color: var(--renown); }
+.room .widen:disabled { cursor: default; opacity: 0; }
+.room:hover .widen:disabled { opacity: .35; }
 
 .mob {
   background: #33242a; border-left: 3px solid var(--mob); border-radius: 3px;
@@ -670,3 +690,11 @@ button.wipe:hover { background: #2a1a1e; border-color: var(--danger); }
 .hist-row.breach .h-out { color: var(--danger); }
 .hist-row .h-kv { color: var(--dim); text-align: right; }
 .hist-row .h-lost { color: var(--mob); text-align: right; }
+
+/* Aftermath excavation notes (§16.11). */
+.note {
+  margin: 8px 0; padding: 6px 9px; font-size: 12px;
+  border-left: 2px solid var(--renown); background: var(--panel-2);
+  border-radius: 0 3px 3px 0; color: var(--fg);
+}
+.note.warn { border-left-color: var(--warn, #d9a441); }

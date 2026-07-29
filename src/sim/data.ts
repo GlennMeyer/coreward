@@ -3,7 +3,8 @@
  * one, change the doc too, or the doc becomes a lie.
  */
 import type {
-  AdventurerClass, AmenityDef, AmenityId, Formation, MobDef, PriceTier, TrapDef,
+  AdventurerClass, AmenityDef, AmenityId, CapacityTier, Formation, MobDef,
+  PriceTier, Room, TrapDef,
 } from './types';
 
 // ─── Monsters (§6.3, prototype subset of 6) ──────────────────────────────────
@@ -503,6 +504,21 @@ export const TUNING = {
   tediumPerEmptyRoom: 4,
   tediumPerRepeatedRoom: 8,
   /**
+   * A room with scaffolding in it is a building site, not a dungeon (§16.11).
+   *
+   * Deliberately larger than `tediumPerEmptyRoom`: an empty room is boring, a
+   * room full of workmen breaks the fiction. It does **not** stack with the
+   * empty-room penalty — a scaffolded room charges this instead, or the two
+   * would double-bill the same disappointment and make widening a trap.
+   */
+  tediumPerScaffoldedRoom: 5,
+  /** Widening: base mana, the per-floor multiplier, and how long it takes. */
+  widenBaseCost: 40,
+  widenCostPerFloor: 0.30,
+  widenRaids: 1,
+  /** Share of the mana returned when a project is cancelled (§16.11). */
+  widenRefund: 0.5,
+  /**
    * Renown per point of Thrill, per surviving adventurer.
    *
    * This is the gear ratio of the whole difficulty ratchet, so it is set by
@@ -820,18 +836,41 @@ export function roomsOnFloor(floorIndex: number): number {
 }
 
 /**
- * Slot capacity per room, growing one slot per floor of depth.
+ * Slot capacity per room — **purchased, not granted** (§16.3, §16.11).
  *
- * Capacity is what makes body size a real decision. An Ogre is 4 slots and
- * fills a Floor-1 room by itself; four Cave Rats fit in the same space for
+ * Capacity is what makes body size a real decision. At Hewn an Ogre (3 slots)
+ * exactly fills a room by itself; three Cave Rats fit in the same space for
  * roughly half the mana, with more total damage but far less staying power.
- * Deeper rooms are the only place a big monster AND a screen of chaff fit
- * together.
+ * You may not have both until you pay.
+ *
+ * **This replaces `ROOM_CAPACITY_BASE + floorIndex`, and the inversion is the
+ * point.** Under the old formula the deepest floor was unconditionally the best
+ * place to put everything — it handed out capacity for free with depth, so
+ * there was never a reason to think about the upper floors. Now depth is earned
+ * twice, once by the dig and once by the widening, and a wide room on floor 3
+ * is a statement of intent. Deeper floors still get more *rooms*
+ * (`ROOMS_BY_FLOOR` is untouched), so §5.1's "digging is worth it" survives.
+ *
+ * Hewn is 3, not the old base of 4: §6.2 has said rooms hold 3 slots all along
+ * and the 4 was drift (§16.3).
  */
-export const ROOM_CAPACITY_BASE = 4;
+export const CAPACITY_TIERS: Record<CapacityTier, number> = { hewn: 3, widened: 5 };
 
-export function roomCapacity(floorIndex: number): number {
-  return ROOM_CAPACITY_BASE + floorIndex;
+/** Missing tier reads as Hewn, so every Room literal written before this loads. */
+export function roomCapacity(room: Room | undefined): number {
+  return CAPACITY_TIERS[room?.capacityTier ?? 'hewn'];
+}
+
+/**
+ * Mana to widen a room on floor `n` (0-indexed): 40 / 52 / 64 / 76 …
+ *
+ * Deeper rock is harder to move, which is the other half of the inversion
+ * above — the floors that used to get capacity free now charge most for it.
+ */
+export function widenCostFor(floorIndex: number): number {
+  return Math.round(
+    TUNING.widenBaseCost * (1 + TUNING.widenCostPerFloor * floorIndex),
+  );
 }
 
 // ─── Amenities (§8.2, prototype subset of 2) ─────────────────────────────────

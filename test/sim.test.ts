@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   AMENITIES, GEAR, MOBS, RENOWN_PER_ESCAPEE, RENOWN_WIPE_MULT, TIERS, TRAPS, TUNING,
-  MAX_FLOORS, STARTING_HEARTS, XP_THRESHOLDS, digCostFor, mobMaxHp, resetTuning, roomCapacity, roomsOnFloor,
+  MAX_FLOORS, STARTING_HEARTS, XP_THRESHOLDS, digCostFor, mobMaxHp, resetTuning, roomsOnFloor,
+  widenCostFor,
   tierForRenown, trapCost, trapRearmCost, MAX_TIER_PROTOTYPE, mobDmg,
 } from '../src/sim/data';
 import { generateParty } from '../src/sim/adventurers';
@@ -12,12 +13,15 @@ import {
   buyUpgrade, grantXp, healAllMobs, hireStaff, mobEffectiveDmg, mobEffectiveHp, mobStripsKit,
   slayMob,
   mobsInRoom, packMultiplier, placeMobInRoom, placeTrapInRoom, rearmAll,
-  rearmAllPrice, removeTrap, roomSlotsUsed, totalUpkeep, unplace,
+  rearmAllPrice, removeTrap, roomCapacityAt, roomSlotsUsed, startWiden, advanceProject,
+  cancelWiden, isScaffolded, totalUpkeep, unplace,
 } from '../src/sim/dungeon';
 import { RaidSim } from '../src/sim/raid';
 import { applyAftermath, createSeason, startRaid } from '../src/sim/season';
 import type { Dungeon, Mob } from '../src/sim/types';
-import { addMob, addStaffedAmenity, addTrap, seasonWithFloors } from './helpers';
+import {
+  addMob, addStaffedAmenity, addTrap, seasonWithFloors, widenRoom,
+} from './helpers';
 
 describe('dungeon construction', () => {
   let d: Dungeon;
@@ -48,15 +52,25 @@ describe('dungeon construction', () => {
   });
 
   it('enforces room slot capacity', () => {
-    // Ogre 3 + Cave Rat 1 exactly fills a Floor-1 room (capacity 4)...
+    // An Ogre (3) exactly fills a Hewn room by itself (§16.3) — that equality
+    // is the cleanest statement of what capacity means, so it is asserted
+    // rather than assumed.
     addMob(d, 'ogre', 0, 0);
-    addMob(d, 'rat', 0, 0);
+    expect(roomSlotsUsed(d, 0, 0)).toBe(roomCapacityAt(d, 0, 0));
+
+    // So even a single Cave Rat has nowhere to go.
+    const rat = buyMob(d, 'rat') as Mob;
+    expect(placeMobInRoom(d, rat.uid, 0, 0)).toMatch(/full/);
+    expect(mobsInRoom(d, 0, 0)).toHaveLength(1);
+
+    // Widening is what buys the big body AND a screen.
+    widenRoom(d, 0, 0);
+    expect(placeMobInRoom(d, rat.uid, 0, 0)).toBeNull();
     expect(mobsInRoom(d, 0, 0)).toHaveLength(2);
 
-    // ...so a 2-slot Skeleton has nowhere to go.
+    // Still not room for a 2-slot Skeleton: 5 slots, 4 spoken for.
     const skeleton = buyMob(d, 'skeleton') as Mob;
     expect(placeMobInRoom(d, skeleton.uid, 0, 0)).toMatch(/full/);
-    expect(mobsInRoom(d, 0, 0)).toHaveLength(2);
   });
 
   it('Pack Tactics scales with living allies, and only for small monsters', () => {
@@ -68,24 +82,76 @@ describe('dungeon construction', () => {
   });
 
   it('fits a swarm of cheap monsters in the space of one big one', () => {
-    // The whole point of slot costs: 4 rats or 1 ogre, same room.
-    for (let i = 0; i < roomCapacity(0); i++) addMob(d, 'rat', 0, 0);
-    expect(mobsInRoom(d, 0, 0)).toHaveLength(4);
+    // The whole point of slot costs: 3 rats or 1 ogre, same Hewn room (§16.3).
+    for (let i = 0; i < roomCapacityAt(d, 0, 0); i++) addMob(d, 'rat', 0, 0);
+    expect(mobsInRoom(d, 0, 0)).toHaveLength(3);
     const extra = buyMob(d, 'rat') as Mob;
     expect(placeMobInRoom(d, extra.uid, 0, 0)).toMatch(/full/);
   });
 
-  it('rooms get bigger with depth', () => {
+  /**
+   * Replaces 'rooms get bigger with depth'. That rule is gone on purpose
+   * (§16.3): depth used to hand out capacity free, which made the deepest floor
+   * unconditionally the best place for everything and the upper floors an
+   * afterthought. Capacity is bought per room now, and the same size costs more
+   * the deeper you go.
+   */
+  /**
+   * The point of build time (§16.4): you fight the next raid with the room you
+   * had, not the room you paid for. If the widening landed on commit this would
+   * just be a slower shop.
+   */
+  it('a widening lands between raids, not when it is bought', () => {
+    const d2 = createDungeon();
+    addMob(d2, 'ogre', 0, 0);
+    const started = startWiden(d2, 0, 0);
+    expect(typeof started).not.toBe('string');
+
+    // Paid, booked — and still the old size for the raid you are about to fight.
+    expect(roomCapacityAt(d2, 0, 0)).toBe(3);
+    expect(isScaffolded(d2, 0, 0)).toBe(true);
+
+    expect(advanceProject(d2)).toEqual({ floor: 0, room: 0 });
+    expect(roomCapacityAt(d2, 0, 0)).toBe(5);
+    expect(isScaffolded(d2, 0, 0)).toBe(false);
+  });
+
+  it('books one Crew at a time, and refunds half when the work is called off', () => {
+    const d2 = createDungeon();
+    const first = startWiden(d2, 0, 0);
+    expect(typeof first).not.toBe('string');
+
+    // One project at a time is the commitment (§16.11) — not a queue.
+    expect(startWiden(d2, 0, 1)).toMatch(/already widening/);
+
+    expect(cancelWiden(d2)).toBe(Math.round(widenCostFor(0) * TUNING.widenRefund));
+    expect(d2.project ?? null).toBeNull();
+    // Cancelling frees the Crew, so the next room can be started.
+    expect(typeof startWiden(d2, 0, 1)).not.toBe('string');
+  });
+
+  it('rooms are the same size at every depth until you pay to widen one', () => {
     digFloor(d);
     digFloor(d);
-    expect(roomCapacity(0)).toBe(4);
-    expect(roomCapacity(1)).toBe(5);
-    expect(roomCapacity(2)).toBe(6);
-    // A Floor-3 room fits an Ogre and a pair of rats; Floor 1 does not.
+    expect(roomCapacityAt(d, 0, 0)).toBe(3);
+    expect(roomCapacityAt(d, 1, 0)).toBe(3);
+    expect(roomCapacityAt(d, 2, 0)).toBe(3);
+    // Deeper rock costs more to move, the inversion of the old rule.
+    expect(widenCostFor(0)).toBe(40);
+    expect(widenCostFor(2)).toBe(64);
+
+    // An Ogre alone fills a Hewn room; it takes a widening to add a screen.
     addMob(d, 'ogre', 2, 0);
-    addMob(d, 'rat', 2, 0);
-    addMob(d, 'rat', 2, 0);
-    expect(mobsInRoom(d, 2, 0)).toHaveLength(3);
+    expect(mobsInRoom(d, 2, 0)).toHaveLength(1);
+    const spare = buyMob(d, 'rat') as Mob;
+    expect(placeMobInRoom(d, spare.uid, 2, 0)).toMatch(/full/);
+
+    const started = startWiden(d, 2, 0);
+    expect(typeof started).not.toBe('string');
+    expect(advanceProject(d)).toEqual({ floor: 2, room: 0 });
+    expect(roomCapacityAt(d, 2, 0)).toBe(5);
+    expect(placeMobInRoom(d, spare.uid, 2, 0)).toBeNull();
+    expect(mobsInRoom(d, 2, 0)).toHaveLength(2);
   });
 
   it('deeper floors have more rooms (§5.1)', () => {
@@ -409,6 +475,7 @@ describe('traps (§5.2)', () => {
 
   it('installs armed, costs no upkeep, and draws on the room slot budget', () => {
     const d = createDungeon();
+    widenRoom(d, 0, 0);               // 5 slots: an Ogre and a trap need 4
     addMob(d, 'ogre', 0, 0);          // 3 slots
     const uid = addTrap(d, 'darts', 0, 0);  // 1 slot
 
@@ -421,7 +488,7 @@ describe('traps (§5.2)', () => {
   it('refuses a trap that will not fit', () => {
     const d = createDungeon();
     addMob(d, 'ogre', 0, 0);
-    // roomCapacity(0) is 4; Ogre takes 3 and a Deadfall needs 2.
+    // A Hewn room holds 3; the Ogre takes all of it and a Deadfall needs 2.
     const trap = buyTrap(d, 'deadfall');
     if (typeof trap === 'string') throw new Error(trap);
     expect(placeTrapInRoom(d, trap.uid, 0, 0)).toMatch(/full/);
@@ -501,6 +568,7 @@ describe('traps (§5.2)', () => {
   it('a delay trap costs the party turns while the room keeps swinging', () => {
     const taken = (snare: boolean): number => {
       const s = seasonWithFloors(905, 1);
+      widenRoom(s.dungeon, 0, 0);
       addMob(s.dungeon, 'ogre', 0, 0);
       if (snare) addTrap(s.dungeon, 'snare', 0, 0);
       const sim = new RaidSim(s.dungeon, TIERS[0]!, 13);
@@ -674,8 +742,10 @@ describe('season economy (§4.1)', () => {
 function findWipe(): { season: ReturnType<typeof seasonWithFloors>; sim: RaidSim } {
   for (let seed = 0; seed < 600; seed++) {
     const season = seasonWithFloors(900 + seed, 1);
-    // Ogre (3 slots) + Cave Rat (1) fills a Floor-1 room exactly.
+    // Ogre (3) + Cave Rat (1) needs 4 slots, so each room is widened first —
+    // "heavily defended" is the point of the fixture and a Hewn room cannot be.
     for (let r = 0; r < 3; r++) {
+      widenRoom(season.dungeon, 0, r);
       addMob(season.dungeon, 'ogre', 0, r);
       addMob(season.dungeon, 'rat', 0, r);
     }
@@ -932,7 +1002,7 @@ function restock(s: ReturnType<typeof createSeason>): void {
       // is always still standing when they reach the bottom.
       let guard = 0;
       while (guard++ < 6
-        && roomSlotsUsed(s.dungeon, f, r) + MOBS[defId]!.slots <= roomCapacity(f)) {
+        && roomSlotsUsed(s.dungeon, f, r) + MOBS[defId]!.slots <= roomCapacityAt(s.dungeon, f, r)) {
         addMob(s.dungeon, defId, f, r);
       }
     }

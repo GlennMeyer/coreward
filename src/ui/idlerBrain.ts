@@ -8,14 +8,15 @@
  */
 
 import {
-  AMENITIES, GEAR, MAX_GEAR_SLOTS, MOBS, TRAPS, roomCapacity,
+  AMENITIES, GEAR, MAX_GEAR_SLOTS, MOBS, TRAPS,
   type UpgradeTrack,
 } from '../sim/data';
 import {
   assignStaff, buildAmenity, buyMob, buyTrap, buyUpgrade, digCost, digFloor,
   equipGear, livingMobs, nextReforgeCost, nextUpgradeCost, placeMobInRoom,
   placeTrapInRoom,
-  rearmTrap, reforgeGear, roomSlotsUsed, totalUpkeep, trapRearmPrice,
+  rearmTrap, reforgeGear, roomCapacityAt, roomSlotsUsed, totalUpkeep,
+  trapRearmPrice,
 } from '../sim/dungeon';
 import { Rng } from '../sim/rng';
 import { applyAftermath, createSeason, currentTier, startRaid } from '../sim/season';
@@ -140,7 +141,7 @@ export function placeAnywhere(s: SeasonState, slots: number, put: (f: number, r:
   const d = s.dungeon;
   for (let f = d.floors.length - 1; f >= 0; f--) {
     for (let r = 0; r < d.floors[f]!.rooms.length; r++) {
-      if (roomSlotsUsed(d, f, r) + slots <= roomCapacity(f) && put(f, r)) return true;
+      if (roomSlotsUsed(d, f, r) + slots <= roomCapacityAt(d, f, r) && put(f, r)) return true;
     }
   }
   return false;

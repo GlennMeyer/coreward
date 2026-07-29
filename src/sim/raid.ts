@@ -19,7 +19,8 @@ import {
 } from './data';
 import {
   armedTrapsInRoom, downMob, getMob, getTrap, grantCommerceXp, grantXp, isOpen,
-  mobArmor, mobEffectiveDmg, mobStripsKit, mobsInRoom, packMultiplier, slayMob,
+  isScaffolded, mobArmor, mobEffectiveDmg, mobStripsKit, mobsInRoom,
+  packMultiplier, slayMob,
 } from './dungeon';
 import { Rng } from './rng';
 import {
@@ -160,6 +161,8 @@ export class RaidSim {
 
   // Thrill inputs, tallied as the delve happens (§15.3).
   private emptyRooms = 0;
+  /** Rooms the party walked through while the Crew was working in them (§16.11). */
+  private scaffoldedRooms = 0;
   private repeatedRooms = 0;
   private lastRoomSig: string | null = null;
   private rolesFaced = new Set<MobRole>();
@@ -656,6 +659,16 @@ export class RaidSim {
     // raid forever. Keeping the room "occupied" means paying to re-arm it, and
     // `trapRearmScalar` is set so that bill exceeds the Tedium it saves.
     const traps = armedTrapsInRoom(this.d, this.floor, this.room);
+
+    // A building site reads worse than an empty room, and charges instead of
+    // it rather than on top (§16.11). Stacking the two would double-bill the
+    // same disappointment and make widening a trap — you would pay mana, wait a
+    // raid, and be punished twice for the privilege.
+    if (isScaffolded(this.d, this.floor, this.room)) {
+      this.scaffoldedRooms++;
+      this.lastRoomSig = null;
+      return;
+    }
 
     if (mobs.length === 0 && traps.length === 0) {
       this.emptyRooms++;
@@ -1631,6 +1644,7 @@ export class RaidSim {
   private scoreDelve(): void {
     const tedium =
       TUNING.tediumPerEmptyRoom * this.emptyRooms
+      + TUNING.tediumPerScaffoldedRoom * this.scaffoldedRooms
       + TUNING.tediumPerRepeatedRoom * this.repeatedRooms;
 
     // Only those who walked out under their own power tell the story (§19.4).

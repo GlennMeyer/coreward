@@ -175,6 +175,13 @@ export interface Amenity {
   hired: boolean;
 }
 
+/**
+ * Room size tiers (§16.3). The names are the player-facing ones; the numbers
+ * live in `CAPACITY_TIERS` in data.ts, which is where tuning belongs. Declared
+ * here rather than there because data.ts imports this file, not the reverse.
+ */
+export type CapacityTier = 'hewn' | 'widened';
+
 export interface Room {
   mobUids: number[];
   /**
@@ -183,6 +190,29 @@ export interface Room {
    * `trapsInRoom()`, which treats "missing" as "none".
    */
   trapUids?: number[];
+  /**
+   * How much room there is (§16.3). Optional for the same reason `trapUids` is:
+   * absent reads as `'hewn'` through `roomCapacity()`, so a Dungeon written
+   * before rooms could be widened — including a saved run — still loads.
+   */
+  capacityTier?: CapacityTier;
+}
+
+/**
+ * Work in progress on a room (§16.4, §16.11).
+ *
+ * The prototype slice has **one Crew**, so the dungeon holds at most one of
+ * these. That is the whole commitment mechanic: starting a widening is also
+ * choosing not to widen anywhere else this raid. Mana is spent at commit time,
+ * not on completion, so cancelling refunds rather than un-charges.
+ */
+export interface WidenProject {
+  floor: number;
+  room: number;
+  /** Raids still to go. Decremented once per Aftermath; 0 means it lands. */
+  raidsLeft: number;
+  /** What was actually paid, so a refund does not have to re-derive the price. */
+  paid: number;
 }
 
 export interface Floor {
@@ -236,6 +266,11 @@ export interface Dungeon {
    */
   traps?: Trap[];
   nextTrapUid?: number;
+  /**
+   * The Crew's current job, or nothing (§16.11). One at a time, by design.
+   * Optional so a Dungeon literal written before excavation still loads.
+   */
+  project?: WidenProject | null;
 }
 
 // ─── Adventurers ─────────────────────────────────────────────────────────────

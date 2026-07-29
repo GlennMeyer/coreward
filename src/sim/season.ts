@@ -9,7 +9,9 @@ import {
 import {
   canReturn, isNemesis, isPatron, makeVeteran,
 } from './adventurers';
-import { createDungeon, healAllMobs, totalUpkeep } from './dungeon';
+import {
+  advanceProject, cancelWiden, createDungeon, healAllMobs, totalUpkeep,
+} from './dungeon';
 import { Rng } from './rng';
 import { RaidSim } from './raid';
 import type { Adventurer, RaidResult, SeasonState, Veteran } from './types';
@@ -116,6 +118,14 @@ export interface Aftermath {
   tierBefore: number;
   tierAfter: number;
   seasonOver: boolean;
+  /**
+   * Excavation news for the Aftermath screen (§16.11). A widening that landed
+   * this raid, and mana handed back because a breach stopped the work. The
+   * player has to be told both — a room that silently changed size between
+   * raids is the kind of thing that reads as a bug.
+   */
+  widenFinished: { floor: number; room: number } | null;
+  widenRefunded: number;
 }
 
 /**
@@ -265,6 +275,22 @@ export function applyAftermath(s: SeasonState, sim: RaidSim): Aftermath {
     if (r.grudge) s.guildLore[r.grudge] = (s.guildLore[r.grudge] ?? 0) + 1;
   }
 
+  // The Crew's raid of work (§16.4, §16.11).
+  //
+  // A breach cancels everything: adventurers reached the Core, and the first
+  // thing that stops is the building work. Refunded at the usual half — the
+  // materials are down there with them. Otherwise the project advances, and a
+  // widening that completes here lands BETWEEN raids, which is the whole point
+  // of build time: you fought the last raid with the room you had.
+  let widenFinished: { floor: number; room: number } | null = null;
+  let widenRefunded = 0;
+  if (result.outcome === 'breach') {
+    widenRefunded = cancelWiden(s.dungeon);
+    s.mana += widenRefunded;
+  } else {
+    widenFinished = advanceProject(s.dungeon);
+  }
+
   s.log.push(result);
 
   const tierAfter = currentTier(s).tier;
@@ -286,5 +312,7 @@ export function applyAftermath(s: SeasonState, sim: RaidSim): Aftermath {
     tierBefore,
     tierAfter,
     seasonOver: s.over,
+    widenFinished,
+    widenRefunded,
   };
 }

@@ -101,6 +101,17 @@ export interface SeasonOutcome {
   reachedMax: number;
   /** Deepest floor dug at any point, in case a breach cost them one later. */
   maxFloorsBuilt: number;
+  /**
+   * Rooms actually widened, and rooms in total (§16.3, §16.11).
+   *
+   * The column §16.11 asks for by name: "an AI that never widens a room, or
+   * widens rooms at random, will report that this system does nothing." Without
+   * this, a flat survival number after adding purchased capacity is
+   * uninterpretable — it cannot distinguish "widening does not matter" from
+   * "the AI never widened anything".
+   */
+  widenedRooms: number;
+  totalRooms: number;
 }
 
 export function runSeason(seed: number, strat: Strategy): SeasonOutcome {
@@ -201,6 +212,10 @@ export function runSeason(seed: number, strat: Strategy): SeasonOutcome {
     partyRaids,
     metParty: partyRaids > 0,
     floorsBuilt: s.dungeon.floors.length,
+    widenedRooms: s.dungeon.floors.reduce(
+      (n, f) => n + f.rooms.filter((r) => r.capacityTier === 'widened').length, 0,
+    ),
+    totalRooms: s.dungeon.floors.reduce((n, f) => n + f.rooms.length, 0),
     reachedMean: reachedSum / raids,
     reachedMax,
     maxFloorsBuilt,
@@ -243,6 +258,8 @@ interface Agg {
   avgReachedMean: number;
   avgReachedMax: number;
   /** Share of seasons that dug at all, got past the DIG_COST_TABLE knee, capped. */
+  avgWidened: number;
+  widenedShare: number;
   dugRate: number;
   deepRate: number;
   capRate: number;
@@ -288,6 +305,12 @@ function aggregate(runs: SeasonOutcome[]): Agg {
     avgFloorsBuilt: mean((r) => r.maxFloorsBuilt),
     avgReachedMean: mean((r) => r.reachedMean),
     avgReachedMax: mean((r) => r.reachedMax),
+    avgWidened: mean((r) => r.widenedRooms),
+    widenedShare: (() => {
+      const w = mean((r) => r.widenedRooms);
+      const t = mean((r) => r.totalRooms);
+      return t > 0 ? w / t : 0;
+    })(),
     dugRate: mean((r) => (r.maxFloorsBuilt > 1 ? 1 : 0)),
     // 4 is where DIG_COST_TABLE turns steep (180 -> 270) and where the rooms
     // table widens to 4 — the first floor that is a real commitment.
@@ -430,15 +453,16 @@ function excavationReport(aggs: readonly (readonly [Strategy, Agg])[]): void {
   console.log(`\n─── Excavation & depth (§5.1, §16) ───\n`);
   header([
     'strategy'.padEnd(11), 'built'.padStart(8), 'reach/raid'.padStart(12),
-    'reachMax'.padStart(10), 'dug%'.padStart(7), 'floor4+%'.padStart(10),
-    'capped%'.padStart(9), 'depth'.padStart(8),
+    'widened'.padStart(9), 'wide%'.padStart(8), 'dug%'.padStart(7),
+    'floor4+%'.padStart(10), 'capped%'.padStart(9), 'depth'.padStart(8),
   ]);
   for (const [strat, a] of aggs) {
     console.log([
       strat.name.padEnd(11), f2(a.avgFloorsBuilt).padStart(8),
-      f2(a.avgReachedMean).padStart(12), f2(a.avgReachedMax).padStart(10),
-      pct(a.dugRate).padStart(7), pct(a.deepRate).padStart(10),
-      pct(a.capRate).padStart(9), f2(a.avgDepth).padStart(8),
+      f2(a.avgReachedMean).padStart(12), f2(a.avgWidened).padStart(9),
+      pct(a.widenedShare).padStart(8), pct(a.dugRate).padStart(7),
+      pct(a.deepRate).padStart(10), pct(a.capRate).padStart(9),
+      f2(a.avgDepth).padStart(8),
     ].join(''));
   }
 
