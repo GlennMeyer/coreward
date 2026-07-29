@@ -845,6 +845,8 @@ function headlinePool(d: RaidDigest): readonly string[] {
       'No more queueing.',
       'The first organised party. It will not be the last.',
       'We are popular now. This is what that looks like.',
+      'Six of them, moving like they had rehearsed it.',
+      'Word has reached somebody who owns a map table.',
     ];
   }
   if (d.breachHearts !== null) {
@@ -853,6 +855,9 @@ function headlinePool(d: RaidDigest): readonly string[] {
       'A Heart, gone.',
       'The Core has visitors.',
       'Deep enough to touch us. They did.',
+      'Something down there is quieter than it was this morning.',
+      'They will describe this room to people who have not seen it.',
+      'We are one Heart poorer and considerably better known.',
     ];
   }
   if (d.outcome === 'wiped') {
@@ -861,6 +866,8 @@ function headlinePool(d: RaidDigest): readonly string[] {
       'A clean sweep, and not a word of it leaves this dungeon.',
       'Total loss, their side.',
       'The stair goes both ways. Not tonight.',
+      'The stair kept every one of them.',
+      'No survivors, and therefore no story. A pity, commercially.',
     ];
   }
   if (d.retired.length > 0) {
@@ -868,6 +875,8 @@ function headlinePool(d: RaidDigest): readonly string[] {
       'Someone hung it up.',
       'A career ends on our stair.',
       'Retired, on the premises.',
+      'They looked at the next door and chose not to.',
+      'A last delve, decided halfway down.',
     ];
   }
   if (d.thrill >= 55) {
