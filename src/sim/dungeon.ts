@@ -422,12 +422,17 @@ export function mobArmor(d: Dungeon, mob: Mob): number {
   return UPGRADE_EFFECT.hide.armor * upgradeRank(d, mob.defId, 'hide');
 }
 
+/** Living members of a species — what a species-wide rank is actually bought for. */
+export function kinCount(d: Dungeon, defId: string): number {
+  return d.mobs.filter((m) => m.alive && m.defId === defId).length;
+}
+
 export function nextUpgradeCost(
   d: Dungeon, defId: string, track: UpgradeTrack,
 ): number | null {
   const rank = upgradeRank(d, defId, track);
   if (rank >= MAX_UPGRADE_RANK) return null;
-  return upgradeRankCost(defId, rank);
+  return upgradeRankCost(defId, rank, kinCount(d, defId));
 }
 
 /**

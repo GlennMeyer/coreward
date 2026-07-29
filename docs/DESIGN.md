@@ -2998,3 +2998,49 @@ and §28.3 happened.
 This is the fifth entry in the §42.4 pattern, from the other side: not a ceiling that turned
 out to be load-bearing, but a **cost curve that quietly stopped matching the unit it
 prices.** Nothing about the number changed — what changed is what one purchase buys.
+
+---
+
+## 46. Pricing an upgrade by what it actually buys
+
+§43.1 found the upgrade curve was priced for a rule that no longer existed: ranks became
+species-wide, so one purchase buys *N creatures'* worth of benefit, and the wider your
+swarm the cheaper each effective upgrade got. `upgradeRankCost` now scales by living
+population of that species — `1 + 0.22 × (kin − 1)`, sub-linear so breadth is taxed rather
+than banned.
+
+The change is principled: buying Sharper Teeth for one rat is cheap, buying it for eight is
+eight rats' worth of teeth. That much stands on its own.
+
+### 46.1 The re-measure was inconclusive, and the metric is why
+
+Re-ran the search at **12 seasons per evaluation** rather than four — the sample size §43.1
+identified as too small to trust.
+
+| | before (4 seasons) | after (12 seasons, new pricing) |
+|---|---|---|
+| best raids | 127.0 | 41.1 |
+| survival | 25% | 0% |
+| mana on upgrades | 36% | 58% |
+
+Two things to read carefully, in opposite directions.
+
+**The 127-raid outlier is gone**, which confirms the §43.1 diagnosis rather than the
+pricing fix. It was four lucky seeds. At a sample that can hold a run's variance the
+ceiling is 41 raids and survival is 0% throughout — the prototype is lethal, consistently.
+
+**Upgrade share went up, not down, and that is not evidence the exploit survived.**
+`upgradeShare` is a *budget fraction*, not a count. Raising the price of a rank raises the
+share required to buy the same number of ranks, so the metric moves with the fix by
+construction. It cannot distinguish "buying more upgrades" from "paying more for the same
+ones" — which means it was never the right measurement, including when §43.1 cited its
+monotonic climb as the finding.
+
+**What would actually answer it:** ranks bought per run, per species, against dungeon size.
+That is a genome-level statistic the evolver does not currently report. Until it does, this
+pricing change is justified by the argument rather than by the number, and this section
+exists so nobody later reads the 58% as a regression it is not.
+
+Third time in this document that a measurement has been quoted before checking what it
+could distinguish (§14, §25.4, §43.1). The recurring fault is not the number, it is
+reaching for whichever one is already printed.

@@ -51,12 +51,28 @@ export const UPGRADE_EFFECT: Record<UpgradeTrack, { dmg: number; armor: number; 
 export const MAX_UPGRADE_RANK = 4;
 
 /**
- * Mana per rank. Rises steeply so a single monster cannot absorb the whole
- * dungeon budget, and so breadth stays competitive with depth.
+ * Mana per rank, scaled by how many of that species you field (§43.1).
+ *
+ * The curve was written when a rank upgraded one creature. Ranks are now
+ * species-wide (§6.6), so one purchase buys *N creatures'* worth of benefit —
+ * and the wider your swarm, the cheaper each effective upgrade got. That
+ * rewarded exactly the build the steep curve was written to tax, and the
+ * genetic search walked straight at it: Mana on upgrades climbed monotonically
+ * 16% → 36% across ten generations, the one parameter it pushed in a consistent
+ * direction.
+ *
+ * Pricing by living population restores what the curve was always for. Buying
+ * Sharper Teeth for one rat is cheap; buying it for eight is eight rats' worth
+ * of teeth and should cost accordingly. Sub-linear (`UPGRADE_KIN_SCALE` per
+ * extra head) so breadth is taxed rather than banned — a swarm should still be
+ * able to afford being a swarm, just not for free.
  */
-export function upgradeRankCost(defId: string, rank: number): number {
+export const UPGRADE_KIN_SCALE = 0.22;
+
+export function upgradeRankCost(defId: string, rank: number, kin = 1): number {
   const tier = MOBS[defId]?.tier ?? 1;
-  return Math.round(18 * tier * 1.6 ** rank);
+  const breadth = 1 + UPGRADE_KIN_SCALE * Math.max(0, kin - 1);
+  return Math.round(18 * tier * 1.6 ** rank * breadth);
 }
 
 /**
