@@ -10,7 +10,7 @@
  *   npm run balance -- headtohead   # Thrill Renown vs the flat formula (§15)
  *   npm run balance -- all          # all three
  */
-import { TUNING, resetTuning, type Tuning } from '../src/sim/data';
+import { MAX_FLOORS, TUNING, resetTuning, type Tuning } from '../src/sim/data';
 import { Rng } from '../src/sim/rng';
 import { applyAftermath, createSeason, currentTier, startRaid } from '../src/sim/season';
 import { STRATEGY_LIST, buildPhaseFor, type Strategy } from './strategy';
@@ -72,6 +72,35 @@ export interface SeasonOutcome {
   partyRaids: number;
   /** Seasons that met a coordinated party at least once. */
   metParty: boolean;
+
+  // ── Excavation (§5.1, §16) ──
+  /**
+   * How deep the dungeon got, and how deep anyone actually went.
+   *
+   * These are two different questions and only the second one is about the
+   * game. `floorsBuilt` says the dig button was affordable; the reached figures
+   * say a party walked down there. A floor that is dug and never reached is
+   * decoration the player paid for — the same "implemented vs happens"
+   * distinction `partyRaids` draws for formation.
+   *
+   * Nothing reported depth before this. `depth` in the Thrill table is the
+   * §15.3 *component* — a 0–1 ratio of how far down the party got relative to
+   * the dungeon — which by construction cannot distinguish a party walking the
+   * whole of a two-floor dungeon from one walking the whole of a nine-floor
+   * one. It reads as a depth readout and answers a different question.
+   */
+  floorsBuilt: number;
+  /**
+   * Per raid, deliberately — not a season maximum. Comparing two season maxima
+   * carries almost no information: over a dozen raids somebody nearly always
+   * reaches the bottom once, so max-built and max-reached coincide and the pair
+   * always reads as equal. The mean says whether the lower floors are on the
+   * path of a typical delve or storage the player paid for.
+   */
+  reachedMean: number;
+  reachedMax: number;
+  /** Deepest floor dug at any point, in case a breach cost them one later. */
+  maxFloorsBuilt: number;
 }
 
 export function runSeason(seed: number, strat: Strategy): SeasonOutcome {
@@ -80,6 +109,7 @@ export function runSeason(seed: number, strat: Strategy): SeasonOutcome {
 
   let killed = 0, escaped = 0, breaches = 0, mobsLost = 0;
   let partyRaids = 0;
+  let reachedMax = 0, reachedSum = 0, maxFloorsBuilt = 1;
   let goldFromSales = 0, goldFromCorpses = 0;
   let retirements = 0;
   let nemesesKilled = 0, patronsKilled = 0;
@@ -89,6 +119,9 @@ export function runSeason(seed: number, strat: Strategy): SeasonOutcome {
 
   while (!s.over) {
     buildPhaseFor(s, strat, rng);
+    // After the build phase, before the raid — this is the moment the dungeon
+    // is as deep as the strategy chose to make it.
+    maxFloorsBuilt = Math.max(maxFloorsBuilt, s.dungeon.floors.length);
     const sim = startRaid(s);
 
     while (sim.status !== 'complete') {
@@ -100,6 +133,10 @@ export function runSeason(seed: number, strat: Strategy): SeasonOutcome {
 
     const r = sim.result;
     if (r.formation === 'party') partyRaids++;
+    // Already 1-indexed: raid.ts sets it to `floor + 1` as each floor clears,
+    // so it is a count of floors gone through, not an index. No adjustment.
+    reachedMax = Math.max(reachedMax, r.deepestFloorReached);
+    reachedSum += r.deepestFloorReached;
     killed += r.killed;
     escaped += r.escaped;
     mobsLost += r.mobsLost.length;
@@ -163,6 +200,10 @@ export function runSeason(seed: number, strat: Strategy): SeasonOutcome {
     patronsKilled,
     partyRaids,
     metParty: partyRaids > 0,
+    floorsBuilt: s.dungeon.floors.length,
+    reachedMean: reachedSum / raids,
+    reachedMax,
+    maxFloorsBuilt,
   };
 }
 
@@ -197,6 +238,14 @@ interface Agg {
   avgDualTrack: number;
   avgMaxRank: number;
   avgTraits: number;
+  /** Excavation (§5.1, §16) — see the SeasonOutcome fields for why two depths. */
+  avgFloorsBuilt: number;
+  avgReachedMean: number;
+  avgReachedMax: number;
+  /** Share of seasons that dug at all, got past the DIG_COST_TABLE knee, capped. */
+  dugRate: number;
+  deepRate: number;
+  capRate: number;
   avgNemesesKilled: number;
   avgPatronsKilled: number;
   avgPartyRaids: number;
@@ -236,6 +285,14 @@ function aggregate(runs: SeasonOutcome[]): Agg {
     avgDualTrack: mean((r) => r.dualTrack),
     avgMaxRank: mean((r) => r.maxRank),
     avgTraits: mean((r) => r.traitsLearned),
+    avgFloorsBuilt: mean((r) => r.maxFloorsBuilt),
+    avgReachedMean: mean((r) => r.reachedMean),
+    avgReachedMax: mean((r) => r.reachedMax),
+    dugRate: mean((r) => (r.maxFloorsBuilt > 1 ? 1 : 0)),
+    // 4 is where DIG_COST_TABLE turns steep (180 -> 270) and where the rooms
+    // table widens to 4 — the first floor that is a real commitment.
+    deepRate: mean((r) => (r.maxFloorsBuilt >= 4 ? 1 : 0)),
+    capRate: mean((r) => (r.maxFloorsBuilt >= MAX_FLOORS ? 1 : 0)),
     avgNemesesKilled: mean((r) => r.nemesesKilled),
     avgPatronsKilled: mean((r) => r.patronsKilled),
     avgPartyRaids: mean((r) => r.partyRaids),
@@ -322,6 +379,7 @@ function strategyReport(n: number): void {
   }
 
   formationReport(aggs);
+  excavationReport(aggs);
   rivalryReport(aggs);
 }
 
@@ -352,6 +410,61 @@ function formationReport(aggs: readonly (readonly [Strategy, Agg])[]): void {
     console.log(
       '\nFAIL: no season ever faced a coordinated party. The formation flip on '
       + 'the tier table is unreachable content — check TIERS and the tier cap.',
+    );
+  }
+}
+
+/**
+ * Excavation (§5.1, §16) — how deep does a dungeon actually get?
+ *
+ * `MAX_FLOORS` is 10 and `DIG_COST_TABLE` prices all ten, but nothing reported
+ * whether a season ever uses them. "Keep building deeper" is the stated fantasy
+ * (§16), so floors nobody digs are the same unreachable content the formation
+ * report was written to catch — and the cap was silently 3 for a long stretch
+ * precisely because no column would have shown it.
+ *
+ * Read `built` against `reached`. Equal means the party walks the whole
+ * dungeon and depth is pure Thrill; a gap means the lower floors are storage.
+ */
+function excavationReport(aggs: readonly (readonly [Strategy, Agg])[]): void {
+  console.log(`\n─── Excavation & depth (§5.1, §16) ───\n`);
+  header([
+    'strategy'.padEnd(11), 'built'.padStart(8), 'reach/raid'.padStart(12),
+    'reachMax'.padStart(10), 'dug%'.padStart(7), 'floor4+%'.padStart(10),
+    'capped%'.padStart(9), 'depth'.padStart(8),
+  ]);
+  for (const [strat, a] of aggs) {
+    console.log([
+      strat.name.padEnd(11), f2(a.avgFloorsBuilt).padStart(8),
+      f2(a.avgReachedMean).padStart(12), f2(a.avgReachedMax).padStart(10),
+      pct(a.dugRate).padStart(7), pct(a.deepRate).padStart(10),
+      pct(a.capRate).padStart(9), f2(a.avgDepth).padStart(8),
+    ].join(''));
+  }
+
+  const dug = aggs.reduce((m, [, a]) => Math.max(m, a.dugRate), 0);
+  const deep = aggs.reduce((m, [, a]) => Math.max(m, a.deepRate), 0);
+  const built = aggs.reduce((m, [, a]) => Math.max(m, a.avgFloorsBuilt), 0);
+  if (dug <= 0) {
+    console.log(
+      '\nFAIL: no season ever dug a second floor. Digging is the only structural '
+      + 'decision in the game (§16) and no strategy is taking it — check '
+      + 'DIG_COST_TABLE against the mana curve, and the AI\'s digReserve.',
+    );
+  } else if (deep <= 0) {
+    console.log(
+      `\nWARN: no season reached floor 4. DIG_COST_TABLE prices ${MAX_FLOORS} floors `
+      + `and the deepest built is ${built.toFixed(1)} — floors 4-${MAX_FLOORS} are `
+      + 'unreachable content. Either the costs outrun the mana curve or the season '
+      + 'ends first; §16 is designing on top of floors nobody sees.',
+    );
+  } else if (aggs.every(([, a]) => a.capRate <= 0)) {
+    console.log(
+      `\nNOTE: no season reached the ${MAX_FLOORS}-floor cap — the deepest built is `
+      + `${built.toFixed(1)}. DIG_COST_TABLE prices all ${MAX_FLOORS} floors, so the `
+      + `bottom half of the table is never spent. Floors ${Math.ceil(built) + 1}-${MAX_FLOORS} `
+      + 'are priced content nobody sees: either the cap is aspirational and should say '
+      + 'so, or the mana curve has to reach further before §16 builds on top of it.',
     );
   }
 }
