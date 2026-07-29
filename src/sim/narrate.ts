@@ -939,6 +939,8 @@ function arrivalBeat(d: RaidDigest, rng: Rng): string {
       `Tier ${tier}, ${n} of them, and ${name} setting a pace the rest clearly regretted agreeing to.`,
       `${name} was at the front again — Tier ${tier}, ${n} strong, one of them famous and the rest hoping to be.`,
       `We had ${name} on the manifest: Tier ${tier}, ${n} in the party, and a reputation walking ahead of them down the stair.`,
+      `${name} paid at the gate without haggling, which from a party of ${n} at Tier ${tier} is either confidence or a will.`,
+      `Tier ${tier}. ${name} led ${rest} others past the sign, read none of it, and went straight down.`,
     ]);
   }
 
@@ -948,6 +950,8 @@ function arrivalBeat(d: RaidDigest, rng: Rng): string {
       `We recognised ${vet.name} on the stair — ${visit} descent — with ${rest} newer faces behind.`,
       `${N} came down at Tier ${tier}, and ${vet.name} did not need directions. That is the ${visit} time now.`,
       `A Tier ${tier} party of ${n}, ${vet.name} among them for the ${visit} time, which by now counts as loyalty.`,
+      `${vet.name} nodded at the gate like a regular, then took ${rest} others down at Tier ${tier}.`,
+      `Tier ${tier}, ${n} on the manifest, and ${vet.name} already knew which door to skip. ${cap(visit)} visit.`,
     ]);
   }
 
@@ -961,6 +965,8 @@ function arrivalBeat(d: RaidDigest, rng: Rng): string {
       `A company of ${n} arrived at Tier ${tier}. Somebody out there is organising these now.`,
       `${N} at Tier ${tier}, moving as one unit. The polite single file we used to get has stopped happening.`,
       `The stair delivered a coordinated ${n} at Tier ${tier} — everyone through the door at once, which is a very different afternoon.`,
+      `${N} at Tier ${tier}, in step and in formation. Somebody has been taking notes on us.`,
+      `A company of ${n} at Tier ${tier}, spread across the doorway rather than queued at it. That is a decision, not an accident.`,
     ]);
   }
 
@@ -972,6 +978,9 @@ function arrivalBeat(d: RaidDigest, rng: Rng): string {
     `The stair delivered ${n} more at Tier ${tier} — fresh boots, fresh debt, and an orderly queue at every doorway.`,
     `${N} arrived at Tier ${tier}, priced accordingly, and confident in a way the marching order did not support.`,
     `A party of ${n} arrived at Tier ${tier}, formed up nose to tail, and spent their first minute admiring the stonework.`,
+    `${N} at Tier ${tier}, single file, each of them certain the one in front would find the trouble first.`,
+    `Tier ${tier} brought ${n} through the gate — receipts issued, warnings ignored, torches lit.`,
+    `${N} came down at Tier ${tier}. The corridor allows one at a time and they had not thought about that until the first door.`,
   ]);
 }
 
