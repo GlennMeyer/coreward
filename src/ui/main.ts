@@ -1311,12 +1311,26 @@ function render(): void {
   if (import.meta.env.DEV) {
     (globalThis as unknown as { __coreward: SeasonState }).__coreward = app.season;
   }
-  root.innerHTML = '';
+  // Paint atomically.
+  //
+  // First sound piece of the renderer refactor (§42 item 1). The old sequence
+  // emptied `root` and then appended section by section, so between those calls
+  // the document genuinely held a partial UI — no topbar, or a topbar and no
+  // dungeon. Anything that ran in that window (a queued handler, a timer, a
+  // measurement) saw a page that never existed as far as the player was
+  // concerned, and `followAction` measured layout against it.
+  //
+  // Building into a fragment and swapping once removes the window entirely.
+  // The output is identical by construction, which is what makes this safe
+  // where memoising on a hand-written signature was not: there is no state to
+  // enumerate and therefore nothing to forget.
+  const frame = document.createDocumentFragment();
   if (app.phase === 'menu') {
-    root.append(menuScreen());
+    frame.append(menuScreen());
+    root.replaceChildren(frame);
     return;
   }
-  root.append(topbar());
+  frame.append(topbar());
   if (app.spectating) {
     // Offer Resume whenever the run is not moving — whether you held it or it
     // stopped on its own. The button describes what will happen, not what flag
@@ -1350,7 +1364,7 @@ function render(): void {
       render();
     };
     (bar.querySelectorAll('button')[1] as HTMLElement).onclick = stopSpectating;
-    root.append(bar);
+    frame.append(bar);
   }
 
   const cols = el('<div class="cols"></div>');
@@ -1370,12 +1384,13 @@ function render(): void {
   const hist = historyPanel();
   if (hist && app.phase === 'build') info.append(hist);
   cols.append(info, left, right);
-  root.append(cols);
+  frame.append(cols);
 
-  if (app.phase === 'aftermath' && app.aftermath) root.append(aftermathModal(app.aftermath));
-  if (app.phase === 'over') root.append(gameOverModal());
-  if (app.sim?.status === 'awaiting-taunt') root.append(tauntModal());
-  if (app.sim?.status === 'complete' && app.phase === 'raid') root.append(raidDoneBar());
+  if (app.phase === 'aftermath' && app.aftermath) frame.append(aftermathModal(app.aftermath));
+  if (app.phase === 'over') frame.append(gameOverModal());
+  if (app.sim?.status === 'awaiting-taunt') frame.append(tauntModal());
+  if (app.sim?.status === 'complete' && app.phase === 'raid') frame.append(raidDoneBar());
+  root.replaceChildren(frame);
   followAction();
 }
 
