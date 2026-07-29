@@ -3044,3 +3044,61 @@ exists so nobody later reads the 58% as a regression it is not.
 Third time in this document that a measurement has been quoted before checking what it
 could distinguish (§14, §25.4, §43.1). The recurring fault is not the number, it is
 reaching for whichever one is already printed.
+
+---
+
+## 47. The renderer refactor, written down before it is done
+
+This is the oldest item on the roadmap and the one I keep deferring, so here is the plan in
+enough detail that a cold session can start on it immediately.
+
+### 47.1 What is actually wrong
+
+`render()` rebuilds the entire tree every paint. Four shipped, user-visible bugs trace to
+it: the idler thrash (§36), the scroll jump (§37), swallowed clicks at 2× (§39), and a
+monster chip destroyed between `pointerup` and `click` so a monster could not be selected.
+Every one is a repaint landing inside a live interaction.
+
+Two mitigations are already in: a render hold around clicks (§39, §41) and an atomic
+fragment swap so the document never holds a partial frame. Neither addresses the churn.
+
+### 47.2 Two approaches tried and rejected
+
+**Memoise on a signature of app state.** Failed five tests immediately and deserved to.
+Correctness depends on the signature being exhaustive, and a missing field means a *missed*
+repaint — stale UI that does not correct until something unrelated changes. It trades a
+bounded bug class for an unbounded staleness class, with a fresh chance to break the screen
+every time state is added. **Do not retry this.**
+
+**Slice it panel by panel.** Tempting and wrong for the same reason: each panel needs its
+own "has this changed" test, which is the signature problem in smaller pieces.
+
+### 47.3 The approach that works
+
+Build the tree as now, then **diff it against what is mounted** and apply the difference.
+There is no state to enumerate, because the comparison *is* the state — the same property
+that made the atomic swap safe.
+
+Concretely: a `patch(parent, next)` walking children in order, comparing tag, then
+attributes, then text; recursing on matches, replacing on mismatch. Keyed by `data-mob`,
+`data-trap`, `data-floor`/`data-room` where they exist so a list reorder moves nodes rather
+than rewriting them — those attributes went in for tests (§44) and are load-bearing here.
+
+Handlers are assigned as `.onclick` properties throughout, not `addEventListener`, so
+copying them across on a match is one assignment and there is nothing to leak.
+
+### 47.4 How to know it worked
+
+- The full suite passes untouched. Any test that needs changing is a behaviour change and
+  must be justified, not accommodated.
+- The pointer-event tests (§drift, off-screen badge) are the ones that matter — they are
+  the only ones exercising the layer where all four bugs lived.
+- A node identity check: select a monster, force a repaint, assert the chip is the *same
+  element*. That assertion is impossible today and is the whole point.
+
+### 47.5 Why it is not sliceable
+
+Both attempts to slice it produced something unsound rather than something partial. The
+diff has to own the whole tree to be correct, because a subtree that is patched inside a
+parent that is rebuilt is still rebuilt. It is one change, and it wants a session with room
+to prove it rather than the tail of one.
