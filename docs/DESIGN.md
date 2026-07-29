@@ -3052,6 +3052,11 @@ reaching for whichever one is already printed.
 This is the oldest item on the roadmap and the one I keep deferring, so here is the plan in
 enough detail that a cold session can start on it immediately.
 
+**Done.** ✅ `src/ui/patch.ts`, applied at the two `patch(root, frame)` calls in `render()`.
+The plan below held: the diff is the approach in §47.3 and the whole suite passed untouched.
+Two of its stated premises did not, and §47.6 records what they cost — both were places the
+plan described the code from memory rather than from the code.
+
 ### 47.1 What is actually wrong
 
 `render()` rebuilds the entire tree every paint. Four shipped, user-visible bugs trace to
@@ -3102,3 +3107,48 @@ Both attempts to slice it produced something unsound rather than something parti
 diff has to own the whole tree to be correct, because a subtree that is patched inside a
 parent that is rebuilt is still rebuilt. It is one change, and it wants a session with room
 to prove it rather than the tail of one.
+
+### 47.6 What the plan got wrong
+
+Three things, all of the same kind: §47.3 described the renderer as I remembered writing it
+rather than as it is. None of them changed the approach, and all three had to be fixed
+before the diff was correct.
+
+**"Handlers are assigned as `.onclick` properties throughout, not `addEventListener`."**
+Not true of the one that mattered. `attachDrag` bound `pointerdown` with
+`addEventListener`, and two dock close buttons bound `click` the same way. A property is
+copied onto a reused node in one assignment; a listener cannot be copied at all, so it would
+have *survived* on the reused node still holding the payload closure of whatever was drawn
+there last frame — dragging a chip would have moved the monster that used to occupy its
+slot. Converted to `onpointerdown` / `onclick`, which is what the plan already assumed.
+`patch.ts` carries the list of handler properties it copies; a handler added outside that
+list works on first paint and goes dead the first time its node is reused.
+
+**"Keyed by `data-mob`, `data-trap` … where they exist."** They exist, but they are on the
+shop buttons and hold a *def id* (`data-mob="ogre"`), not an instance. The live monster and
+trap chips — the exact elements in the `pointerup`/`click` bug this refactor is for — carried
+no key at all. Added `data-uid="mob:<uid>"` / `"trap:<uid>"`, prefixed because a trap and a
+monster can share a uid. Worth being clear that keys here buy *identity*, not correctness:
+once handlers are copied by property, an unkeyed positional match still produces the right
+DOM. It just produces it by re-pointing a surviving chip at a different monster, which is
+the bug wearing a hat.
+
+**Two things touch nodes after the paint, and the plan mentions neither.** The raid log
+captured the `.log` element it had just built and pinned it to the bottom in a
+`queueMicrotask`; under a diff that node is the discarded one, so the log would have quietly
+stopped following the raid — silent, and no test would have caught it. It looks the log up
+in the document now. And `followAction` inserts the off-screen badge (§37) into the topbar
+*after* paint, so the document holds a node that is never in the built tree. Strict
+positional matching fails on it and rebuilds every sibling after it, every frame, for as
+long as the raid is off screen — so unkeyed children match by a forward scan instead of by
+position, and the badge falls out as a leftover for `followAction` to re-add from fresh
+measurements.
+
+The pattern across all three: the plan was written from the shape of the renderer, and every
+correction came from a detail one level below that shape. §47.4's insistence on the node
+identity check is what would have caught the first two — it is now
+`reuses a monster chip across repaints instead of rebuilding it`, and it fails on the old
+renderer with `expected <div class="mob"> to be <div class="mob">`, two elements that are
+identical in every respect except being the same one. The third was caught by reading for
+captured nodes rather than by a test, and the log case would still pass a suite that only
+checks content.

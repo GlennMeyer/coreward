@@ -950,6 +950,70 @@ describe('UI smoke', () => {
     expect(document.querySelector('.panel.dock')).toBeFalsy();
   });
 
+  /**
+   * The assertion §47.4 was written around, and the one that was impossible
+   * before the renderer diffed (§47.3): every repaint used to mount brand new
+   * nodes, so a chip was never the same element twice. That is the mechanism
+   * behind all four bugs the refactor was for — a repaint landing inside a live
+   * interaction pulled the element out from under it.
+   *
+   * Identity is the thing being tested, not appearance. `toBe` on an element,
+   * deliberately: `toEqual` would pass on a replacement that merely looked the
+   * same, which is exactly the bug.
+   */
+  it('reuses a monster chip across repaints instead of rebuilding it', () => {
+    app$().mana = 9999;
+    placeMob('bruiser');
+    placeMob('skirmisher');
+
+    const chips = () => [...document.querySelectorAll('.room .mob')];
+    const held = chips()[0]!;
+    const uid = held.getAttribute('data-uid');
+    expect(uid).toMatch(/^mob:\d+$/);
+
+    // Select it: a repaint that changes this very chip's own class.
+    click(held);
+    expect(chips()[0]!).toBe(held);
+    expect(held.classList.contains('selected')).toBe(true);
+
+    // Now a repaint driven by the *other* chip, which deselects this one. The
+    // class comes off the element that was already there.
+    click(chips()[1]!);
+    expect(chips()[0]!).toBe(held);
+    expect(held.classList.contains('selected')).toBe(false);
+    expect(held.getAttribute('data-uid')).toBe(uid);
+
+    // And the chip still belongs to the monster it started as: the dock names
+    // it, so a chip re-pointed at its neighbour would show up here.
+    click(held);
+    const name = MOBS[seasonDungeon().mobs.find((m) => `mob:${m.uid}` === uid)!.defId]!.name;
+    expect(document.querySelector('.panel.dock h2')?.textContent).toContain(name);
+  });
+
+  /**
+   * The keys earn their keep on a reorder (§47.3). Moving the first monster out
+   * of the room shifts the second chip up a slot; keyed by `data-uid` the node
+   * moves, unkeyed it would be rewritten in place — and a chip rewritten under
+   * a press is the swallowed-click bug again.
+   */
+  it('moves a chip rather than rewriting it when a room reorders', () => {
+    app$().mana = 9999;
+    placeMob('bruiser');
+    placeMob('skirmisher');
+
+    const inRoom = (i: number) => [...document.querySelectorAll('.room')[i]!.querySelectorAll('.mob')];
+    const second = inRoom(0)[1]!;
+    const uid = second.getAttribute('data-uid');
+
+    // Select the first and drop it into another room, so room 0 loses its head.
+    click(inRoom(0)[0]!);
+    click(document.querySelectorAll('.room')[1]!);
+
+    expect(inRoom(0)).toHaveLength(1);
+    expect(inRoom(0)[0]!).toBe(second);
+    expect(second.getAttribute('data-uid')).toBe(uid);
+  });
+
   it('selecting a monster replaces a selected trap in the dock', () => {
     app$().mana = 9999;
     click([...document.querySelectorAll('.buy')].find((b) => b.textContent?.includes('Cave Rat')));

@@ -45,6 +45,7 @@ import {
   type IdlerMode,
   type IdlerState,
 } from './idler';
+import { patch } from './patch';
 import { narrateRaid, type Narration } from '../sim/narrate';
 import { forecast, predictThrill, thrillRating, type ThrillPrediction } from './predict';
 import type { RaidSim } from '../sim/raid';
@@ -558,8 +559,15 @@ type DragPayload =
 const DRAG_THRESHOLD = 9;
 let ghost: HTMLElement | null = null;
 
+/**
+ * `onpointerdown`, not `addEventListener` — the renderer copies handlers across
+ * onto a reused node by property (§47), and a listener registered the other way
+ * cannot be copied. It would instead *survive* on the reused node, still
+ * holding the payload closure of whatever used to be drawn there, so dragging a
+ * chip would move the monster that occupied its slot last frame.
+ */
 function attachDrag(node: HTMLElement, payload: DragPayload, label: string): void {
-  node.addEventListener('pointerdown', (ev: PointerEvent) => {
+  node.onpointerdown = (ev: PointerEvent): void => {
     if (ev.button !== 0 || app.phase !== 'build') return;
     const x0 = ev.clientX;
     const y0 = ev.clientY;
@@ -593,7 +601,7 @@ function attachDrag(node: HTMLElement, payload: DragPayload, label: string): voi
     document.addEventListener('pointermove', move);
     document.addEventListener('pointerup', up);
     document.addEventListener('pointercancel', up);
-  });
+  };
 }
 
 /** The ghost is pointer-events:none, so elementFromPoint sees through it. */
@@ -1311,23 +1319,23 @@ function render(): void {
   if (import.meta.env.DEV) {
     (globalThis as unknown as { __coreward: SeasonState }).__coreward = app.season;
   }
-  // Paint atomically.
+  // Build the whole tree, then apply it by difference (§47).
   //
-  // First sound piece of the renderer refactor (§42 item 1). The old sequence
-  // emptied `root` and then appended section by section, so between those calls
-  // the document genuinely held a partial UI — no topbar, or a topbar and no
-  // dungeon. Anything that ran in that window (a queued handler, a timer, a
-  // measurement) saw a page that never existed as far as the player was
-  // concerned, and `followAction` measured layout against it.
+  // Two earlier steps live on in this shape. The tree is still built
+  // unconditionally into a fragment — that is what keeps this safe where
+  // memoising on a hand-written signature was not (§47.2): there is no state to
+  // enumerate and therefore nothing to forget. And it is still applied in one
+  // go rather than section by section, so the document never holds a partial
+  // frame for a queued handler or a layout measurement to see (§42 item 1).
   //
-  // Building into a fragment and swapping once removes the window entirely.
-  // The output is identical by construction, which is what makes this safe
-  // where memoising on a hand-written signature was not: there is no state to
-  // enumerate and therefore nothing to forget.
+  // What changed is the last step. `replaceChildren` threw away every node and
+  // mounted new ones, which is why a repaint landing inside a live interaction
+  // broke it (§36, §37, §39). `patch` reuses the nodes that did not change, so
+  // the element under the player's finger survives the frame.
   const frame = document.createDocumentFragment();
   if (app.phase === 'menu') {
     frame.append(menuScreen());
-    root.replaceChildren(frame);
+    patch(root, frame);
     return;
   }
   frame.append(topbar());
@@ -1390,7 +1398,7 @@ function render(): void {
   if (app.phase === 'over') frame.append(gameOverModal());
   if (app.sim?.status === 'awaiting-taunt') frame.append(tauntModal());
   if (app.sim?.status === 'complete' && app.phase === 'raid') frame.append(raidDoneBar());
-  root.replaceChildren(frame);
+  patch(root, frame);
   followAction();
 }
 
@@ -1783,8 +1791,13 @@ function mobChip(mob: Mob): HTMLElement {
   const sel = app.selectedMob === mob.uid ? 'selected' : '';
   const gear = mob.gear.length
     ? `<span class="gear"> ${mob.gear.map((g) => GEAR[g]!.name.split(' ')[0]).join('/')}</span>` : '';
+  // `data-uid` keys the chip to the monster across repaints (§47.3). Without it
+  // the renderer matches chips by position, so a death or a move re-points a
+  // surviving chip at a different monster mid-interaction — which is the
+  // original "chip destroyed between pointerup and click" bug wearing a hat.
+  // Prefixed because a trap can share a uid with a monster.
   const chip = el(`
-    <div class="mob ${mob.downed ? 'downed' : ''} ${sel}">
+    <div class="mob ${mob.downed ? 'downed' : ''} ${sel}" data-uid="mob:${mob.uid}">
       ${esc(def.name)}${mob.level > 1 ? ` <span class="lv">lv${mob.level}</span>` : ''}${gear}
       <div class="hpbar"><i style="width:${pct}%"></i></div>
     </div>`);
@@ -1824,7 +1837,7 @@ function trapChip(trap: Trap): HTMLElement {
   const spent = trap.charges === 0;
   const sel = app.selectedTrap === trap.uid ? 'selected' : '';
   const chip = el(`
-    <div class="trap ${spent ? 'spent' : ''} ${sel}" title="${esc(def.blurb)}">
+    <div class="trap ${spent ? 'spent' : ''} ${sel}" title="${esc(def.blurb)}" data-uid="trap:${trap.uid}">
       ${esc(def.name)} <span class="ch">${pips}</span>
     </div>`);
 
@@ -2133,10 +2146,10 @@ function selectionPanel(): HTMLElement | null {
     const tp = el('<div class="panel dock"></div>');
     const th = el(`<h2>${esc(tdef.name)} — ${trap.charges}/${tdef.charges} armed
       <span class="chev close">×</span></h2>`);
-    th.querySelector('.close')!.addEventListener('click', () => {
+    (th.querySelector('.close') as HTMLElement).onclick = (): void => {
       app.selectedTrap = null;
       render();
-    });
+    };
     tp.append(th);
     tp.append(el(`<div class="hint">${esc(tdef.blurb)}</div>`));
     tp.append(el(
@@ -2184,10 +2197,10 @@ function selectionPanel(): HTMLElement | null {
   const p = el('<div class="panel dock"></div>');
   const head = el(`<h2>${esc(def.name)} — lv ${mob.level} · ${mob.xp} xp
     <span class="chev close">×</span></h2>`);
-  head.querySelector('.close')!.addEventListener('click', () => {
+  (head.querySelector('.close') as HTMLElement).onclick = (): void => {
     app.selectedMob = null;
     render();
-  });
+  };
   p.append(head);
 
   // What the creature currently *is*. Without this the panel showed what you
@@ -2552,10 +2565,16 @@ function raidPanel(): HTMLElement {
   // Log
   const lp = el('<div class="panel"></div>');
   lp.append(el('<h2>Log</h2>'));
-  const log = logList(app.log);
-  lp.append(log);
+  lp.append(logList(app.log));
   wrap.append(lp);
-  queueMicrotask(() => { log.scrollTop = log.scrollHeight; });
+  // Look the log up in the document rather than capturing the node built above.
+  // Since §47 a repaint reuses the mounted log and discards this one, so the
+  // captured node would be detached by the time the microtask ran and the log
+  // would quietly stop following the raid.
+  queueMicrotask(() => {
+    const log = root.querySelector('.log');
+    if (log) log.scrollTop = log.scrollHeight;
+  });
   return wrap;
 }
 
