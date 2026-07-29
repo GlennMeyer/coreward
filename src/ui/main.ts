@@ -1367,6 +1367,8 @@ function render(): void {
   right.append(app.phase === 'raid' ? raidPanel() : buildPanel());
   const sel = selectionPanel();
   if (sel) left.append(sel);
+  const hist = historyPanel();
+  if (hist && app.phase === 'build') info.append(hist);
   cols.append(info, left, right);
   root.append(cols);
 
@@ -1467,6 +1469,42 @@ function spend(cur: 'mana' | 'gold', cost: number, label: string): void {
     return;
   }
   app.purchases.push({ label, cost, cur } as Purchase);
+}
+
+/**
+ * Every raid this run, oldest last.
+ *
+ * `season.log` has held the complete `RaidResult` for every raid since the
+ * beginning and been persisted with the run the whole time — it was simply
+ * never drawn. So "do we keep the history?" had the answer yes and the
+ * experience no, which for a game is the same as no.
+ *
+ * Deliberately one line per raid rather than a replay. What you want between
+ * delves is the *shape* of the run — where the Thrill fell off, which raid took
+ * the Heart — and a shape is legible at a glance or not at all.
+ */
+function historyPanel(): HTMLElement | null {
+  const log = app.season.log;
+  if (log.length === 0) return null;
+  const p = el('<div class="panel"></div>');
+  p.append(el(`<h2>This Run — ${log.length} raid${log.length === 1 ? '' : 's'}</h2>`));
+  const list = el('<div class="hist"></div>');
+  // Newest first: the last raid is the one you are reacting to.
+  [...log].reverse().forEach((r, i) => {
+    const n = log.length - i;
+    const thrill = Math.round(r.thrill?.total ?? 0);
+    const breach = r.outcome === 'breach';
+    const wipe = r.outcome === 'wiped';
+    list.append(el(`<div class="hist-row ${breach ? 'breach' : ''}">
+      <span class="h-n">${n}</span>
+      <span class="h-th" title="Thrill">${thrill}</span>
+      <span class="h-out">${wipe ? 'wiped' : breach ? 'BREACH' : 'turned back'}</span>
+      <span class="h-kv" title="killed / walked out">${r.killed}k · ${r.escaped}e</span>
+      <span class="h-lost" title="Monsters lost">${r.mobsLost.length ? `−${r.mobsLost.length}` : ''}</span>
+    </div>`));
+  });
+  p.append(list);
+  return p;
 }
 
 function topbar(): HTMLElement {

@@ -1069,6 +1069,32 @@ describe('UI smoke', () => {
     }
   });
 
+  it('keeps and shows the history of the run', () => {
+    // Nothing has happened yet, so there is nothing to show.
+    expect(document.querySelector('.hist')).toBeFalsy();
+
+    placeMob('skirmisher', 0);
+    click(button('Begin Raid'));
+    click(button('Instant'));
+    click(button('Aftermath'));
+    click(button('Continue'));
+
+    // One raid in, one line. `season.log` has always held the full RaidResult
+    // for every raid and been persisted with the run — it was just never drawn,
+    // which for a player is the same as not keeping it.
+    const rows = document.querySelectorAll('.hist-row');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.textContent).toMatch(/wiped|BREACH|turned back/);
+
+    // A second raid stacks, newest first.
+    click(button('Begin Raid'));
+    click(button('Instant'));
+    click(button('Aftermath'));
+    click(button('Continue'));
+    expect(document.querySelectorAll('.hist-row')).toHaveLength(2);
+    expect(document.querySelector('.hist-row .h-n')!.textContent).toBe('2');
+  });
+
   it('the dungeon condenses as it grows', () => {
     const panel = () => document.querySelector('.panel.dungeon')!;
     // Small: full size.
