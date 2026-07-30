@@ -27,6 +27,18 @@ export interface Fitness {
   tier: number;
   /** Raids actually played — distinct from the Threat Tier reached. */
   raids: number;
+  /**
+   * Share of seasons that lasted at least `DEEP_RUN_RAIDS`.
+   *
+   * Replaces `survival` in the readout, which is always 0 and always will be:
+   * runs are endless (§12a), so `ending === 'survived'` means reaching the
+   * `ENDLESS_SAFETY_CAP` of 200 raids and nothing ever does. A column that is
+   * structurally zero is worse than no column — it reads as "no build survives"
+   * to anyone who has not read `score()`, which is a mistake I made from my own
+   * output. This asks the question that column was standing in for: does the
+   * build hold up *consistently*, or is the mean propped up by lucky seeds?
+   */
+  deepRuns: number;
   gold: number;
   bestMobLevel: number;
 }
@@ -41,17 +53,25 @@ export interface Fitness {
  */
 type FitnessMode = 'renown' | 'survival';
 
+/** A run that got somewhere. Roughly twice a scripted strategy's mean (§48.6). */
+const DEEP_RUN_RAIDS = 25;
+
 /**
  * How to score a genome.
  *
  * `renown` is what §15 says the player chases, and optimising it surfaces
- * exploits — but its fittest build reliably has 0% survival, because dying rich
- * at a high tier beats living poor at a low one. That is the design working,
- * and it also means Renown alone cannot answer "is this survivable".
+ * exploits — but dying rich at a high tier beats living poor at a low one, so
+ * Renown alone cannot answer "is this survivable".
  *
- * `survival` weights finishing the season heavily, so it answers the other
- * question: what does a build that actually holds look like?
+ * `survival` answers that instead, and note what it actually reads: **raids
+ * lasted, not the `survival` field.** Runs are endless (§12a), so
+ * `ending === 'survived'` means reaching the 200-raid `ENDLESS_SAFETY_CAP` and
+ * nothing ever does — the field is structurally 0 for every genome, and a
+ * fitness function reading it would be scoring pure noise. Depth is the honest
+ * endless-mode substitute. The name is kept because the *question* is still
+ * "what does a build that holds look like".
  */
+
 function score(f: Omit<Fitness, 'score'>, mode: FitnessMode): number {
   // Runs are endless (§12a), so "survived the season" no longer exists —
   // every run ends overrun. Depth is the score: how many raids you lasted.
@@ -63,6 +83,7 @@ function evaluate(
   g: Genome, seasons: number, seedBase: number, mode: FitnessMode = 'renown',
 ): Fitness {
   let renown = 0, survived = 0, tier = 0, raids = 0, gold = 0, bestLv = 0;
+  let deep = 0;
   for (let i = 0; i < seasons; i++) {
     const seed = seedBase + i * 7919;
     const s = createSeason(seed, true);
@@ -80,6 +101,7 @@ function evaluate(
     gold += s.gold;
     if (s.ending === 'survived') survived++;
     raids += s.log.length;
+    if (s.log.length >= DEEP_RUN_RAIDS) deep++;
     tier += currentTier(s).tier;
     bestLv += s.dungeon.mobs.reduce((m, x) => (x.alive && x.level > m ? x.level : m), 0);
   }
@@ -88,6 +110,7 @@ function evaluate(
     renown: renown / seasons,
     tier: tier / seasons,
     raids: raids / seasons,
+    deepRuns: deep / seasons,
     gold: gold / seasons,
     bestMobLevel: bestLv / seasons,
   };
@@ -111,7 +134,7 @@ function main(): void {
     `evolving ${population} genomes × ${generations} generations × ${seasons} seasons`
     + `  [fitness: ${mode}]\n`,
   );
-  console.log('gen   best   survive  tier raids  gold  mobLv   build');
+  console.log(`gen   best   ${DEEP_RUN_RAIDS}+raid  tier raids  gold  mobLv   build`);
   console.log('─'.repeat(110));
 
   let best: { g: Genome; f: Fitness } | null = null;
@@ -129,7 +152,7 @@ function main(): void {
 
     console.log(
       `${String(gen).padStart(3)} ${top.f.score.toFixed(0).padStart(6)} `
-      + `${(top.f.survival * 100).toFixed(0).padStart(7)}% `
+      + `${(top.f.deepRuns * 100).toFixed(0).padStart(7)}% `
       + `${top.f.tier.toFixed(1).padStart(5)} ${top.f.raids.toFixed(1).padStart(5)} `
       + `${top.f.gold.toFixed(0).padStart(5)} `
       + `${top.f.bestMobLevel.toFixed(1).padStart(6)}   ${describeGenome(top.g)}`,
@@ -162,7 +185,7 @@ function main(): void {
   profile('monsters', best!.g.mobWeights);
   profile('traps', best!.g.trapWeights);
   console.log(
-    `renown=${best!.f.renown.toFixed(0)} survival=${(best!.f.survival * 100).toFixed(0)}% `
+    `renown=${best!.f.renown.toFixed(0)} ${DEEP_RUN_RAIDS}+raids=${(best!.f.deepRuns * 100).toFixed(0)}% `
     + `tier=${best!.f.tier.toFixed(1)} raids=${best!.f.raids.toFixed(1)} gold=${best!.f.gold.toFixed(0)} `
     + `bestMobLevel=${best!.f.bestMobLevel.toFixed(1)}`,
   );

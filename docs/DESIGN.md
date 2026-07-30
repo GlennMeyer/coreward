@@ -3373,3 +3373,32 @@ next.
 
 `traps` remains the exception at marginally below baseline (8.9 against 9.2 raids, 202 against
 213 Renown). It is the only build still carrying §16 uncompensated, and it is the one to watch.
+
+
+### 48.8 Two negative results worth keeping
+
+**The evolver's `survive` column was always zero, and I misread my own output.** Runs are
+endless (§12a), so `ending === 'survived'` means reaching the 200-raid `ENDLESS_SAFETY_CAP`
+and nothing ever does. `score()` already knew this — its `survival` mode reads *raids
+lasted*, never the flag — but the readout printed the dead field anyway, and I reported "the
+evolver cannot find a build that survives even when survival is the only thing it is scored
+on" as if it meant something. It meant the column was structurally 0. Replaced with the share
+of seasons reaching 25+ raids, which asks the question the old column was standing in for:
+does the build hold up consistently, or is the mean propped up by lucky seeds?
+
+**A build-aware draft policy made things worse, and the evolver had already said why.** The
+scripted AI takes the rarest card on offer. That looks obviously wrong for `traps` — a trap
+dungeon passing over Grand Reopening for a Legendary it cannot use is the §11 Q8 failure — so
+the policy was changed to weight cards by whether their effect touches what the strategy
+spends on. Every other strategy improved. **`traps` got worse**: 9.0 → 8.9 raids, 203 → 195
+Renown.
+
+The reason is in §48 already. The evolver, given free choice over all 35 boons, converges on
+*slots and survivability* — `thewidewarrens`, `hollowedhalls`, `undyingbloodline`. Weighting
+trap-effect boons above slot boons steered `traps` away from the thing that actually wins, on
+the strength of a plausible-sounding prior about what a trap build "should" want. Rarest-first
+was accidentally closer to optimal, and it has the further virtue of being the same policy for
+every strategy, which is what keeps the comparison honest. Reverted.
+
+The general lesson, which this file keeps relearning: when a hand-written policy and a search
+disagree about what a build wants, the search is not the one guessing.
