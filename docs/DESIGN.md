@@ -3345,3 +3345,31 @@ crowd actually coming.
 occasionally — but its favourites remain survivability and slots (`undyingbloodline`,
 `secondwind`, `thewidewarrens`). It wants a *little* fame and a lot of insurance, which is
 exactly the shape a well-priced devil's bargain should produce: taken, but respected.
+
+**And they pull the whole table back toward baseline, which was not the plan.** The stack
+shipped in §48.6 was inflated — combat at 18.4 raids against a pre-§16 baseline of 12.5.
+Adding the demand boons to the same pool, with nothing else changed:
+
+| strategy | baseline | §48.6 shipped | with demand boons |
+|---|---|---|---|
+| combat | 12.5 | 18.4 | **14.2** |
+| commerce | 13.2 | 14.1 | **14.5** |
+| balanced | 11.7 | 17.7 | **13.9** |
+| swarm | 11.0 | 11.8 | **10.9** |
+| wardens | 11.2 | 13.8 | **11.3** |
+| showman | 9.8 | 11.4 | **9.9** |
+| patron | 13.4 | 13.6 | **14.1** |
+| traps | 9.2 | 8.4 | **8.9** |
+
+Final tier follows: combat 4.1 → 3.7, against a baseline of 3.6. Every column lands nearer
+where it started than the version without them.
+
+The mechanism is the double edge acting at the level of the whole system rather than one
+choice. A draft that contains a notoriety card is a draft where the greedy pick costs you
+later, so a build that takes fame runs shorter and hotter instead of simply longer. That is a
+self-correcting pressure on power creep, and it came free with the design rather than out of a
+tuning pass — which is the strongest argument for this category being the right one to grow
+next.
+
+`traps` remains the exception at marginally below baseline (8.9 against 9.2 raids, 202 against
+213 Renown). It is the only build still carrying §16 uncompensated, and it is the one to watch.
