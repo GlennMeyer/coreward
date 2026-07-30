@@ -8,15 +8,15 @@
  */
 
 import {
-  AMENITIES, GEAR, MAX_GEAR_SLOTS, MOBS, TRAPS,
+  AMENITIES, BOONS, GEAR, MAX_GEAR_SLOTS, MOBS, TRAPS, widenCostFor,
   type UpgradeTrack,
 } from '../sim/data';
 import {
   assignStaff, buildAmenity, buyMob, buyTrap, buyUpgrade, digCost, digFloor,
   equipGear, livingMobs, nextReforgeCost, nextUpgradeCost, placeMobInRoom,
   placeTrapInRoom,
-  rearmTrap, reforgeGear, roomCapacityAt, roomSlotsUsed, totalUpkeep,
-  trapRearmPrice,
+  hasBoon, rearmTrap, reforgeGear, roomCapacityAt, roomSlotsUsed, startWiden,
+  takeBoon, totalUpkeep, trapRearmPrice,
 } from '../sim/dungeon';
 import { Rng } from '../sim/rng';
 import { applyAftermath, createSeason, currentTier, startRaid } from '../sim/season';
@@ -52,9 +52,22 @@ export interface Genome {
   tauntRate: number;
   /** Staff a shop with a monster, giving up a fighter for +35% takings. */
   staffShops: boolean;
+  /**
+   * Relative appetite for each boon (§48), same shape as `mobWeights`.
+   *
+   * Per boon rather than per rarity on purpose: the interesting question is not
+   * "does it chase Legendaries" — of course it does, if they are strictly
+   * better — but *which effects* a winning build actually wants. Weights per id
+   * let the search say "this one is a trap and that one is the whole plan",
+   * which is the answer worth having.
+   */
+  boonWeights: Record<string, number>;
+  /** Mana kept back before booking the Crew to widen a room (§16.11). */
+  widenReserve: number;
 }
 
 const MOB_IDS = Object.keys(MOBS);
+const BOON_IDS = Object.keys(BOONS);
 const TRAP_IDS = Object.keys(TRAPS);
 const AMENITY_IDS = Object.keys(AMENITIES) as AmenityId[];
 const PRICE_TIERS_L: PriceTier[] = ['modest', 'standard', 'premium', 'gouge'];
@@ -79,6 +92,8 @@ export function randomGenome(rng: Rng): Genome {
     digReserve: rng.float(0, 250),
     tauntRate: rng.float(0, 1),
     staffShops: rng.chance(0.5),
+    boonWeights: w(BOON_IDS),
+    widenReserve: rng.float(0, 250),
   };
 }
 
@@ -104,7 +119,16 @@ export function mutate(g: Genome, rng: Rng, rate: number): Genome {
     digReserve: jitter(g.digReserve, 0, 400),
     tauntRate: jitter(g.tauntRate, 0, 1),
     staffShops: rng.chance(rate) ? !g.staffShops : g.staffShops,
+    // `?? {}` and the rebuild below: a genome persisted before boons existed is
+    // still loadable, and gets random weights rather than an undefined map.
+    boonWeights: jitterMap({ ...randomWeights(BOON_IDS, rng), ...(g.boonWeights ?? {}) }),
+    widenReserve: jitter(g.widenReserve ?? 100, 0, 400),
   };
+}
+
+/** Fresh weights for a set of ids — used to backfill a genome missing a gene. */
+function randomWeights(ids: string[], rng: Rng): Record<string, number> {
+  return Object.fromEntries(ids.map((id) => [id, rng.float(0, 1)]));
 }
 
 export function crossover(a: Genome, b: Genome, rng: Rng): Genome {
@@ -125,6 +149,8 @@ export function crossover(a: Genome, b: Genome, rng: Rng): Genome {
     digReserve: pick(a.digReserve, b.digReserve),
     tauntRate: pick(a.tauntRate, b.tauntRate),
     staffShops: pick(a.staffShops, b.staffShops),
+    boonWeights: mix(a.boonWeights ?? {}, b.boonWeights ?? {}),
+    widenReserve: pick(a.widenReserve ?? 100, b.widenReserve ?? 100),
   };
 }
 
@@ -158,9 +184,47 @@ export function buildPhaseFor(s: SeasonState, g: Genome, rng: Rng): void {
   d.admission = g.admission;
   d.insurance = g.insurance;
 
+  // Boons first (§48). Free, so there is nothing to weigh them against — the
+  // only decision is which of the three, which is exactly what `boonWeights`
+  // is for. Without this the evolver plays the old game inside the new one and
+  // its verdict on boons would be "they do nothing", which is the §11 Q8 trap
+  // for the third time (see also §16.11).
+  if (s.boonDraft?.length) {
+    let best: string | null = null;
+    let bestW = -Infinity;
+    for (const id of s.boonDraft) {
+      if (hasBoon(d, id)) continue;
+      const wt = g.boonWeights?.[id] ?? 0.5;
+      if (wt > bestW) { bestW = wt; best = id; }
+    }
+    if (best) takeBoon(d, best);
+    s.boonDraft = [];
+  }
+
   const cost = digCost(d);
   if (cost !== null && s.mana >= cost + g.digReserve) {
     if (digFloor(d) === null) s.mana -= cost;
+  }
+
+  // Widen the shallowest full room (§16.3). `widenReserve` is the gene that
+  // decides whether this build buys space or bodies — the two compete for the
+  // same Mana, and which one wins is a real strategic question the search
+  // should be allowed to answer.
+  if (!d.project) {
+    let target: { f: number; r: number; cost: number } | null = null;
+    for (let f = 0; f < d.floors.length; f++) {
+      for (let r = 0; r < d.floors[f]!.rooms.length; r++) {
+        if ((d.floors[f]!.rooms[r]!.capacityTier ?? 'hewn') === 'widened') continue;
+        if (roomSlotsUsed(d, f, r) < roomCapacityAt(d, f, r)) continue;
+        const c = widenCostFor(f);
+        if (s.mana < c + (g.widenReserve ?? 100)) continue;
+        if (!target || c < target.cost) target = { f, r, cost: c };
+      }
+    }
+    if (target) {
+      const started = startWiden(d, target.f, target.r);
+      if (typeof started !== 'string') s.mana -= started.cost;
+    }
   }
 
   // Re-arm spent traps before buying anything new: a spent trap is a hole.
@@ -346,5 +410,7 @@ export function describeGenome(g: Genome): string {
     `gate ${g.admission}`,
     `cover ${g.insurance}`,
     `taunt ${Math.round(g.tauntRate * 100)}%`,
+    `boons ${top(g.boonWeights ?? {}, 3)}`,
+    `widen@${Math.round(g.widenReserve ?? 100)}`,
   ].join(' · ');
 }
