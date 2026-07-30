@@ -10,7 +10,13 @@
  *   npm run balance -- headtohead   # Thrill Renown vs the flat formula (§15)
  *   npm run balance -- all          # all three
  */
-import { MAX_FLOORS, TUNING, resetTuning, type Tuning } from '../src/sim/data';
+import { BOONS, MAX_FLOORS, TUNING, resetTuning, type Tuning } from '../src/sim/data';
+import type { BoonRarity } from '../src/sim/types';
+
+/** Weakest to strongest, so "best boon reached" is a number a table can show. */
+const RARITY_ORDER: BoonRarity[] = [
+  'common', 'uncommon', 'rare', 'elite', 'epic', 'legendary',
+];
 import { Rng } from '../src/sim/rng';
 import { applyAftermath, createSeason, currentTier, startRaid } from '../src/sim/season';
 import { STRATEGY_LIST, buildPhaseFor, type Strategy } from './strategy';
@@ -112,6 +118,9 @@ export interface SeasonOutcome {
    */
   widenedRooms: number;
   totalRooms: number;
+  /** Boons taken, and the best quality reached (§48). */
+  boonsTaken: number;
+  bestBoonRank: number;
 }
 
 export function runSeason(seed: number, strat: Strategy): SeasonOutcome {
@@ -216,6 +225,13 @@ export function runSeason(seed: number, strat: Strategy): SeasonOutcome {
       (n, f) => n + f.rooms.filter((r) => r.capacityTier === 'widened').length, 0,
     ),
     totalRooms: s.dungeon.floors.reduce((n, f) => n + f.rooms.length, 0),
+    boonsTaken: (s.dungeon.boons ?? []).length,
+    bestBoonRank: (s.dungeon.boons ?? []).reduce(
+      (best, id) => {
+        const r = BOONS[id]?.rarity;
+        return r ? Math.max(best, RARITY_ORDER.indexOf(r) + 1) : best;
+      }, 0,
+    ),
     reachedMean: reachedSum / raids,
     reachedMax,
     maxFloorsBuilt,
@@ -258,6 +274,8 @@ interface Agg {
   avgReachedMean: number;
   avgReachedMax: number;
   /** Share of seasons that dug at all, got past the DIG_COST_TABLE knee, capped. */
+  avgBoons: number;
+  avgBestBoon: number;
   avgWidened: number;
   widenedShare: number;
   dugRate: number;
@@ -305,6 +323,8 @@ function aggregate(runs: SeasonOutcome[]): Agg {
     avgFloorsBuilt: mean((r) => r.maxFloorsBuilt),
     avgReachedMean: mean((r) => r.reachedMean),
     avgReachedMax: mean((r) => r.reachedMax),
+    avgBoons: mean((r) => r.boonsTaken),
+    avgBestBoon: mean((r) => r.bestBoonRank),
     avgWidened: mean((r) => r.widenedRooms),
     widenedShare: (() => {
       const w = mean((r) => r.widenedRooms);
@@ -403,6 +423,7 @@ function strategyReport(n: number): void {
 
   formationReport(aggs);
   excavationReport(aggs);
+  boonReport(aggs);
   rivalryReport(aggs);
 }
 
@@ -433,6 +454,43 @@ function formationReport(aggs: readonly (readonly [Strategy, Agg])[]): void {
     console.log(
       '\nFAIL: no season ever faced a coordinated party. The formation flip on '
       + 'the tier table is unreachable content — check TIERS and the tier cap.',
+    );
+  }
+}
+
+/**
+ * Boons (§48) — are they reached, and does the ladder have a top?
+ *
+ * `best` is the highest quality any season actually owned, on the 1-6 scale of
+ * BOON_RARITY. If it never passes 2 the ladder has no top in practice and the
+ * upper tiers are content nobody sees — the same failure the excavation report
+ * catches for floors 6-10.
+ */
+function boonReport(aggs: readonly (readonly [Strategy, Agg])[]): void {
+  console.log(`\n─── Boons (§48) ───\n`);
+  header([
+    'strategy'.padEnd(11), 'taken'.padStart(8), 'best(1-6)'.padStart(11),
+    'souls'.padStart(8),
+  ]);
+  for (const [strat, a] of aggs) {
+    console.log([
+      strat.name.padEnd(11), f2(a.avgBoons).padStart(8),
+      f2(a.avgBestBoon).padStart(11), f1(a.avgSouls).padStart(8),
+    ].join(''));
+  }
+  const taken = aggs.reduce((m, [, a]) => Math.max(m, a.avgBoons), 0);
+  const best = aggs.reduce((m, [, a]) => Math.max(m, a.avgBestBoon), 0);
+  if (taken <= 0) {
+    console.log(
+      '\nFAIL: no season took a single boon. Either Souls income cannot reach '
+      + 'the cheapest price or the AI is not buying — check BOON_RARITY costs '
+      + 'against the souls column before concluding anything about the design.',
+    );
+  } else if (best < 2) {
+    console.log(
+      '\nWARN: no season got past Common. The upper five qualities are content '
+      + 'nobody sees; either Souls income is too thin or the offer roll is not '
+      + 'putting anything better on the table often enough.',
     );
   }
 }

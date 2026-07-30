@@ -2,6 +2,7 @@
  * Season orchestration and the Aftermath economy (§3, §4).
  */
 import {
+  BOONS, BOON_OFFER_SIZE, BOON_RARITY,
   ENDLESS_RAIDS, ENDLESS_SAFETY_CAP, GRUDGE_TRAIT, MOBS, PARTY_FORMATION_RAID, ROSTER_MOBS, ROSTER_TRAPS, TRAPS, tierAt, tierFloorFromRaids, MAX_TIER_PROTOTYPE, SEASON_RAIDS, TUNING,
   tierForRenown,
   type TierRow,
@@ -48,6 +49,33 @@ export function rollRoster(seed: number): { mobs: string[]; traps: string[] } {
   };
 }
 
+/**
+ * Roll the boons this run puts on the table (§48).
+ *
+ * Weighted by rarity and drawn without replacement, from the same seeded Rng as
+ * everything else so a seed still reproduces a run exactly (§13.2). This is the
+ * whole reason boons are rolled rather than shelved: a ladder you can buy down
+ * in order is a price list. A Legendary matters because most runs never see one.
+ */
+export function rollBoonOffer(seed: number): string[] {
+  const rng = new Rng(seed ^ 0xB007);
+  const pool = Object.values(BOONS);
+  const picked: string[] = [];
+  const remaining = [...pool];
+  while (picked.length < BOON_OFFER_SIZE && remaining.length > 0) {
+    const total = remaining.reduce((sum, b) => sum + BOON_RARITY[b.rarity].weight, 0);
+    let roll = rng.int(0, total - 1);
+    let idx = 0;
+    for (let i = 0; i < remaining.length; i++) {
+      roll -= BOON_RARITY[remaining[i]!.rarity].weight;
+      if (roll < 0) { idx = i; break; }
+    }
+    picked.push(remaining[idx]!.id);
+    remaining.splice(idx, 1);
+  }
+  return picked;
+}
+
 export function createSeason(seed: number, endless = true): SeasonState {
   return {
     seed,
@@ -63,6 +91,7 @@ export function createSeason(seed: number, endless = true): SeasonState {
     legends: [],
     guildLore: {},
     roster: rollRoster(seed),
+    boonOffer: rollBoonOffer(seed),
     over: false,
     ending: null,
     log: [],

@@ -3193,3 +3193,80 @@ renderer with `expected <div class="mob"> to be <div class="mob">`, two elements
 identical in every respect except being the same one. The third was caught by reading for
 captured nodes rather than by a test, and the log case would still pass a suite that only
 checks content.
+
+---
+
+## 48. Boons — what a run happens to offer you
+
+**Status: built.** A fourth progression axis, and the first one that is *rolled* rather than
+bought down a list.
+
+### 48.1 Why there was room for a fourth axis
+
+The three that existed were already sharply distinguished, and deliberately so (§43):
+
+| | Scope | Lifetime | Currency |
+|---|---|---|---|
+| Gear (§6.5) | one creature | dies with it | Gold |
+| Upgrade ranks (§6.6) | one species | the run | Mana |
+| Insight / Codex (§10) | every run | forever | Insight |
+
+Nothing was dungeon-wide, and **Souls had no sink at all** — `reconstituteCost()` was written
+and never called from anywhere, and the UI's `spend()` only ever knew Mana and Gold. A
+season banked Souls and did nothing with them whatsoever. Boons are dungeon-wide and cost
+Souls, which fills both holes at once.
+
+### 48.2 Rolled, not shelved — the whole point of the ladder
+
+Six qualities: Common, Uncommon, Rare, Elite, Epic, Legendary. Each run rolls
+`BOON_OFFER_SIZE` (4) from the pool, weighted 40/26/16/10/6/2, from the seeded Rng like the
+§44 roster.
+
+**A rarity ladder you can simply buy down is a price list.** If the Legendary is on the shelf
+and you take it the moment you can afford it, the six names are decoration on a cost curve —
+which is exactly the failure §16 names about digging: *"you can afford it or you can't."* What
+makes a Legendary feel legendary is that most runs never see one. That is a roll, not a price.
+
+### 48.3 Rules and numbers, folded by replacement
+
+The set is deliberately mixed. Rule-changers — Grave Tithe (Souls when your own monsters
+die), Grand Reopening (re-arming is free), The Long Dark (empty rooms cost no Tedium), The
+Core Remembers (the season's first breach costs no Heart) — sit alongside the numeric ones:
+percentage damage and HP, flat armour, extra room slots, and cost reductions on monsters,
+traps, digging and widening.
+
+**Same-field boons take the strongest value rather than summing.** Grave Tithe (+1) and
+Bonepickers (+2) held together pay 2, not 3; the deepest discount wins rather than the
+product. A rare should *replace* a common, not top it up — an additive ladder is the numeric
+treadmill this was meant not to be, and it is also the only thing keeping dungeon-wide
+multipliers from compounding with gear × upgrade ranks × Pack Tactics into nonsense.
+
+### 48.4 What it measured — **and the hole it opened**
+
+300 seasons per strategy, measured against the same build without boons:
+
+| strategy | raids | → | renown | → | boons taken | best quality |
+|---|---|---|---|---|---|---|
+| combat | 12.1 | **14.6** | 213 | **262** | 3.81 | 3.3 |
+| balanced | 11.9 | **14.0** | 238 | **293** | 3.79 | 3.3 |
+| showman | 9.6 | 10.4 | 247 | 293 | 3.10 | 2.5 |
+| commerce | 10.0 | 10.9 | 184 | 212 | 3.06 | 2.4 |
+| swarm | 8.8 | 9.5 | 107 | 119 | 2.77 | 2.5 |
+| **wardens** | 8.7 | **8.7** | 131 | **132** | **0.61** | 0.5 |
+| **traps** | 7.2 | **7.2** | 125 | **126** | **0.17** | 0.1 |
+
+The ladder is reached — best quality averages 3.3 for the kill builds, so Rare and Elite are
+live content rather than decoration. For those builds boons more than repay §16's capacity
+nerf: combat ends up at 14.6 raids against a pre-§16 baseline of 12.5.
+
+**And wardens and traps get nothing. Not a little — nothing.** Both are unmoved to the
+decimal. The cause is structural rather than a tuning miss: Souls are paid by kills and
+downs, and those two builds are *defined* by not killing. Wardens kill 0.0 a season and bank
+0.7 Souls; traps kill 0.1 and bank 0.1. They cannot afford the cheapest Common.
+
+So the boon economy is rich-get-richer along precisely the axis pillar 2 wants kept open —
+it pays the builds that were already winning on kills and locks out the two whose identity is
+turning people back. **The fix is a second Souls source that is not a corpse** — Souls for
+adventurers routed and sent home, or Souls off Thrill — and it should land before this is
+tuned any further, because every number above is measured through a currency half the
+strategies cannot earn.

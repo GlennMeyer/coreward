@@ -11,6 +11,7 @@ import {
   upgradeRankCost, type UpgradeTrack,
   MAX_LEVEL, MOBS, STARTING_HEARTS, TRAPS, XP_THRESHOLDS, mobDmg, mobMaxHp,
   roomCapacity, roomsOnFloor, trapCost, trapRearmCost, widenCostFor, TUNING,
+  BOONS, boonCost, boonEffects, type BoonEffect,
 } from './data';
 import type {
   Amenity, AmenityId, Dungeon, Landing, Mob, PriceTier, Room, Trap,
@@ -50,7 +51,7 @@ export function getMob(d: Dungeon, uid: number): Mob | undefined {
 export function digCost(d: Dungeon): number | null {
   const next = d.floors.length;
   if (next >= MAX_FLOORS) return null;
-  return digCostFor(next);
+  return Math.round(digCostFor(next) * (boonsOf(d).digCostMult ?? 1));
 }
 
 /**
@@ -97,7 +98,7 @@ export function buyMob(d: Dungeon, defId: string): Mob | string {
  * being a function of depth (§16.3).
  */
 export function roomCapacityAt(d: Dungeon, floor: number, room: number): number {
-  return roomCapacity(d.floors[floor]?.rooms[room]);
+  return roomCapacity(d.floors[floor]?.rooms[room]) + (boonsOf(d).roomSlotBonus ?? 0);
 }
 
 /**
@@ -133,6 +134,41 @@ export function roomSlotsUsed(d: Dungeon, floor: number, room: number): number {
   return mobSlots + trapSlots;
 }
 
+// ─── Boons (§48) ─────────────────────────────────────────────────────────────
+
+/** The resolved effect of everything this dungeon owns. Cheap; call it freely. */
+export function boonsOf(d: Dungeon): BoonEffect {
+  return boonEffects(d.boons);
+}
+
+/**
+ * What this dungeon actually pays for a monster or a trap (§48).
+ *
+ * Central because the discount boons are worthless if any one buy site reads
+ * `def.cost` directly — the price on the button and the price charged would
+ * disagree, which reads as a bug rather than a boon.
+ */
+export function mobCost(d: Dungeon, defId: string): number {
+  return Math.round((MOBS[defId]?.cost ?? 0) * (boonsOf(d).mobCostMult ?? 1));
+}
+
+export function trapPrice(d: Dungeon, defId: string): number {
+  return Math.round(trapCost(defId) * (boonsOf(d).trapCostMult ?? 1));
+}
+
+export function hasBoon(d: Dungeon, id: string): boolean {
+  return (d.boons ?? []).includes(id);
+}
+
+/** Take a boon. The caller deducts the Souls; this reports the price. */
+export function buyBoon(d: Dungeon, id: string): { cost: number } | string {
+  const def = BOONS[id];
+  if (!def) return 'No such boon.';
+  if (hasBoon(d, id)) return `You already have ${def.name}.`;
+  (d.boons ??= []).push(id);
+  return { cost: boonCost(id) };
+}
+
 // ─── Excavation: widening rooms (§16.3, §16.4, §16.11) ───────────────────────
 
 /**
@@ -154,7 +190,14 @@ export function startWiden(
     return `The Crew is already widening floor ${p.floor + 1}, room ${p.room + 1}.`;
   }
   if ((target.capacityTier ?? 'hewn') === 'widened') return 'That room is already widened.';
-  const cost = widenCostFor(floor);
+  const fx = boonsOf(d);
+  const cost = Math.round(widenCostFor(floor) * (fx.widenCostMult ?? 1));
+  // Quarry Rights / The Wide Warrens (§48): the Crew works between breaths, so
+  // there is no project to book — the room simply is wider.
+  if (fx.widenInstant) {
+    target.capacityTier = 'widened';
+    return { cost };
+  }
   d.project = { floor, room, raidsLeft: TUNING.widenRaids, paid: cost };
   return { cost };
 }
@@ -237,7 +280,8 @@ export function buyTrap(d: Dungeon, defId: string): Trap | string {
   const trap: Trap = {
     uid: d.nextTrapUid++,
     defId,
-    charges: def.charges,   // installed armed — the purchase price includes it
+    // Installed armed — the purchase price includes it, plus any boon charges.
+    charges: def.charges + (boonsOf(d).trapChargeBonus ?? 0),
     placement: { kind: 'unassigned' },
   };
   d.traps.push(trap);
@@ -290,7 +334,8 @@ export function trapRearmPrice(d: Dungeon, uid: number): number {
   const trap = getTrap(d, uid);
   if (!trap) return 0;
   const def = TRAPS[trap.defId]!;
-  return Math.max(0, def.charges - trap.charges) * trapRearmCost(trap.defId);
+  const gross = Math.max(0, def.charges - trap.charges) * trapRearmCost(trap.defId);
+  return Math.round(gross * (1 - (boonsOf(d).rearmDiscount ?? 0)));
 }
 
 /** Total mana to bring every installed trap back to full charges. */
@@ -446,6 +491,10 @@ export function assignStaff(
  * standing idle, not one that is being overrun.
  */
 export function totalUpkeep(d: Dungeon): number {
+  return Math.round(grossUpkeep(d) * (boonsOf(d).upkeepMult ?? 1));
+}
+
+function grossUpkeep(d: Dungeon): number {
   let total = 0;
   for (const m of d.mobs) {
     if (!m.alive || m.placement.kind === 'unassigned') continue;
@@ -489,12 +538,14 @@ export function mobEffectiveHp(d: Dungeon, mob: Mob): number {
   let hp = mobMaxHp(mob.defId, mob.level);
   for (const g of mob.gear) hp *= gearMult(mob, g, GEAR[g]?.hpMult ?? 1);
   hp *= 1 + UPGRADE_EFFECT.vigor.hp * upgradeRank(d, mob.defId, 'vigor');
+  hp *= boonsOf(d).hpMult ?? 1;
   return Math.round(hp);
 }
 
 /** Damage soaked per hit, from the hide track (§6.6). */
 export function mobArmor(d: Dungeon, mob: Mob): number {
-  return UPGRADE_EFFECT.hide.armor * upgradeRank(d, mob.defId, 'hide');
+  return UPGRADE_EFFECT.hide.armor * upgradeRank(d, mob.defId, 'hide')
+    + (boonsOf(d).armorFlat ?? 0);
 }
 
 /** Living members of a species — what a species-wide rank is actually bought for. */
@@ -547,6 +598,7 @@ export function mobEffectiveDmg(d: Dungeon, mob: Mob): number {
   let dmg = mobDmg(mob.defId, mob.level);
   for (const g of mob.gear) dmg *= gearMult(mob, g, GEAR[g]?.dmgMult ?? 1);
   dmg *= 1 + UPGRADE_EFFECT.bite.dmg * upgradeRank(d, mob.defId, 'bite');
+  dmg *= boonsOf(d).dmgMult ?? 1;
   return dmg;
 }
 

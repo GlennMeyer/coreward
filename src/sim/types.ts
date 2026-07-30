@@ -182,6 +182,13 @@ export interface Amenity {
  */
 export type CapacityTier = 'hewn' | 'widened';
 
+/**
+ * Boon quality (§48). Ordered weakest to strongest; the order is load-bearing
+ * for pricing and for the roll weights, so keep it.
+ */
+export type BoonRarity =
+  | 'common' | 'uncommon' | 'rare' | 'elite' | 'epic' | 'legendary';
+
 export interface Room {
   mobUids: number[];
   /**
@@ -271,6 +278,12 @@ export interface Dungeon {
    * Optional so a Dungeon literal written before excavation still loads.
    */
   project?: WidenProject | null;
+  /**
+   * Boons owned (§48), by id. Lives on the Dungeon rather than the season
+   * because the raid sim reads them and already receives the Dungeon — a boon
+   * is a property of the place, not of the bookkeeping around it.
+   */
+  boons?: string[];
 }
 
 // ─── Adventurers ─────────────────────────────────────────────────────────────
@@ -549,6 +562,7 @@ export type RaidEvent =
   | { t: number; type: 'kit-heal'; advId: number; amount: number; kitLeft: number }
   | { t: number; type: 'mob-downed'; uid: number; defId: string; level: number }
   | { t: number; type: 'mob-slain'; uid: number; defId: string; level: number }
+  | { t: number; type: 'mob-revived'; uid: number; defId: string; level: number }
   | { t: number; type: 'adv-death'; advId: number; name: string; goldDropped: number }
   | { t: number; type: 'adv-downed'; advId: number; name: string; overkill: boolean }
   | { t: number; type: 'death-save'; advId: number; name: string; success: boolean; successes: number; failures: number }
@@ -682,6 +696,15 @@ export interface SeasonState {
    * the tools and fixtures that build seasons directly valid.
    */
   roster?: { mobs: string[]; traps: string[] };
+  /**
+   * Boons this run put on the table (§48), by id.
+   *
+   * Rolled once at season start, exactly like the §44 roster and for the same
+   * reason: a rarity ladder you can simply buy down is a price list, not a
+   * ladder. What makes a Legendary feel legendary is that most runs never see
+   * it. Owned boons live on the Dungeon; this is only the offer.
+   */
+  boonOffer?: string[];
   over: boolean;
   /** Set when the season ends: 'survived' or 'overrun'. */
   ending: 'survived' | 'overrun' | null;

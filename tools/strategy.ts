@@ -7,17 +7,19 @@
  */
 import {
   AMENITIES, GEAR, HIRED_STAFF_COST, MAX_GEAR_SLOTS, MOBS, TRAPS,
-  trapCost, widenCostFor,
+  widenCostFor, boonCost,
 } from '../src/sim/data';
 import {
   allTraps, assignStaff, buildAmenity, buyMob, buyTrap, digCost, digFloor,
   equipGear, hireStaff, livingMobs, mobsInRoom, placeMobInRoom,
-  placeTrapInRoom, rearmAll, rearmAllPrice, roomCapacityAt, roomSlotsUsed, setPrice,
-  startWiden,
+  buyBoon, hasBoon, mobCost, placeTrapInRoom, rearmAll, rearmAllPrice, roomCapacityAt,
+  roomSlotsUsed, setPrice, startWiden, trapPrice,
   totalUpkeep, trapsInRoom,
 } from '../src/sim/dungeon';
 import type { Rng } from '../src/sim/rng';
-import type { AmenityId, Mob, PriceTier, SeasonState, Trap } from '../src/sim/types';
+import type {
+  AmenityId, Dungeon, Mob, PriceTier, SeasonState, Trap,
+} from '../src/sim/types';
 
 export type StrategyName =
   | 'combat' | 'commerce' | 'balanced' | 'swarm' | 'wardens' | 'showman'
@@ -278,6 +280,30 @@ export function buildPhaseFor(s: SeasonState, strat: Strategy, rng: Rng): void {
     if (digFloor(d) === null) s.mana -= cost;
   }
 
+  // 0. Boons (§48).
+  //
+  // Before anything else, because Souls buy nothing else — there is no
+  // competing claim on the currency, so holding it back would just be hoarding.
+  // The policy is the same shape as the widening one and for the same reason
+  // (§16.11, §11 Q8): an AI that never takes a boon would report that the whole
+  // system does nothing, and that would read as a verdict on boons rather than
+  // on the AI. Cheapest first, so a run buys breadth rather than saving all
+  // season for one Legendary it may not live to enjoy.
+  if (s.boonOffer?.length) {
+    for (;;) {
+      const affordable = s.boonOffer
+        .filter((id) => !hasBoon(d, id))
+        .map((id) => ({ id, cost: boonCost(id) }))
+        .filter((b) => b.cost <= s.souls)
+        .sort((a, b) => a.cost - b.cost);
+      const pick = affordable[0];
+      if (!pick) break;
+      const got = buyBoon(d, pick.id);
+      if (typeof got === 'string') break;
+      s.souls -= got.cost;
+    }
+  }
+
   // 1a. Widen (§16.3, §16.11).
   //
   // After the dig and before anything is bought, because widening competes with
@@ -413,7 +439,7 @@ export function buildPhaseFor(s: SeasonState, strat: Strategy, rng: Rng): void {
       d.mobs.pop(); // nowhere to put it; undo
       break;
     }
-    s.mana -= MOBS[defId]!.cost;
+    s.mana -= mobCost(d, defId);
     if (rng.chance(0.02)) break; // jitter so batches aren't lockstep
   }
 
@@ -424,7 +450,7 @@ export function buildPhaseFor(s: SeasonState, strat: Strategy, rng: Rng): void {
     let tcursor = 0;
     let tguard = 0;
     while (tguard++ < 40) {
-      const defId = nextTrapInRotation(trapOrder, tcursor++, budget);
+      const defId = nextTrapInRotation(d, trapOrder, tcursor++, budget);
       if (!defId) break;
       const trap = buyTrap(d, defId);
       if (typeof trap === 'string') break;
@@ -432,7 +458,7 @@ export function buildPhaseFor(s: SeasonState, strat: Strategy, rng: Rng): void {
         d.traps = allTraps(d).filter((t) => t.uid !== trap.uid); // nowhere to put it
         break;
       }
-      const price = trapCost(defId);
+      const price = trapPrice(d, defId);
       s.gold -= price;
       budget -= price;
     }
@@ -440,10 +466,12 @@ export function buildPhaseFor(s: SeasonState, strat: Strategy, rng: Rng): void {
 }
 
 /** `nextInRotation`, for traps. Same argument, different price table. */
-function nextTrapInRotation(order: string[], cursor: number, budget: number): string | null {
+function nextTrapInRotation(
+  d: Dungeon, order: string[], cursor: number, budget: number,
+): string | null {
   for (let i = 0; i < order.length; i++) {
     const id = order[(cursor + i) % order.length]!;
-    if (trapCost(id) <= budget) return id;
+    if (trapPrice(d, id) <= budget) return id;
   }
   return null;
 }

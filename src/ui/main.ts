@@ -13,7 +13,7 @@ import {
   type GearDef,
   INSURANCE_BASE, STAFFED_REVENUE_MULT,
   admissionPrice,
-  CAPACITY_TIERS, PRICE_TIERS, TRAPS, TUNING, trapCost, widenCostFor,
+  BOONS, boonCost, CAPACITY_TIERS, PRICE_TIERS, TRAPS, TUNING, widenCostFor,
   trapRearmCost,
 } from '../sim/data';
 import {
@@ -24,8 +24,8 @@ import {
   hireStaff, isOpen, mobArmor, mobEffectiveDmg, mobEffectiveHp,
   placeMobInRoom, placeTrapInRoom, rearmAll,
   rearmTrap, trapRearmPrice,
-  isScaffolded, rearmAllPrice, removeTrap, roomCapacityAt, roomSlotsUsed, setPrice,
-  startWiden, totalUpkeep, trapsInRoom,
+  buyBoon, hasBoon, isScaffolded, mobCost, rearmAllPrice, removeTrap, roomCapacityAt,
+  roomSlotsUsed, setPrice, startWiden, totalUpkeep, trapPrice, trapsInRoom,
   trapSalvageValue,
 } from '../sim/dungeon';
 import { applyAftermath, createSeason, currentTier, startRaid } from '../sim/season';
@@ -345,6 +345,10 @@ function describe(e: RaidEvent): { cls: string; text: string } | null {
       return { cls: 'crit', text: `${MOBS[e.defId]!.name} is downed.` };
     case 'mob-slain':
       return { cls: 'crit', text: `${MOBS[e.defId]!.name} (lv ${e.level}) is slain for good.` };
+    case 'mob-revived':
+      // Named in the log, or a monster that should have died and did not just
+      // looks like the slay roll is broken (§48).
+      return { cls: 'good', text: `${MOBS[e.defId]!.name} (lv ${e.level}) drags itself back up.` };
     case 'admission':
       return e.turnedAway > 0
         ? { cls: 'buy2', text: `${e.total}g at the gate — ${e.turnedAway} turned away, unable to pay ${e.each}g.` }
@@ -644,7 +648,7 @@ function drop(e: PointerEvent, payload: DragPayload): void {
       if (!err) { app.selectedTrap = payload.uid; app.selectedMob = null; }
       return void fail(err);
     }
-    const price = trapCost(payload.defId);
+    const price = trapPrice(d, payload.defId);
     if (app.season.mana < price) return void fail('Not enough mana.');
     const trap = buyTrap(d, payload.defId);
     if (typeof trap === 'string') return void fail(trap);
@@ -663,7 +667,7 @@ function drop(e: PointerEvent, payload: DragPayload): void {
   let uid: number;
   if (payload.kind === 'buy') {
     const def = MOBS[payload.defId]!;
-    if (app.season.mana < def.cost) return void fail('Not enough mana.');
+    if (app.season.mana < mobCost(d, def.id)) return void fail('Not enough mana.');
     const mob = buyMob(d, def.id);
     if (typeof mob === 'string') return void fail(mob);
     uid = mob.uid;
@@ -673,7 +677,7 @@ function drop(e: PointerEvent, payload: DragPayload): void {
       d.mobs.pop(); // undo the purchase rather than stranding it
       return void fail(err);
     }
-    spend('mana', def.cost, def.name);
+    spend('mana', mobCost(d, def.id), def.name);
     app.selectedMob = uid;
     return void fail(null);
   }
@@ -1479,11 +1483,16 @@ function toMenu(): void {
  * Recorded at the point of payment rather than diffed from the treasury,
  * because a total tells you nothing about which purchase was the mistake.
  */
-interface Purchase { label: string; cost: number; cur: 'mana' | 'gold'; count?: number }
+interface Purchase { label: string; cost: number; cur: 'mana' | 'gold' | 'souls'; count?: number }
 
-function spend(cur: 'mana' | 'gold', cost: number, label: string): void {
+function spend(cur: 'mana' | 'gold' | 'souls', cost: number, label: string): void {
   if (cost <= 0) return;
-  if (cur === 'mana') app.season.mana -= cost; else app.season.gold -= cost;
+  // Souls joined the list with boons (§48). Before that it was a currency the
+  // game banked all season and never let you spend — `reconstituteCost` was
+  // written and never called, and this function only knew Mana and Gold.
+  if (cur === 'mana') app.season.mana -= cost;
+  else if (cur === 'gold') app.season.gold -= cost;
+  else app.season.souls -= cost;
   const last = app.purchases[app.purchases.length - 1];
   // Fold repeats: buying four rats is one line reading "Cave Rat ×4", not four
   // identical rows that push the interesting purchases off the card.
@@ -1990,6 +1999,58 @@ function landingRow(idx: number, amenities: readonly (Amenity | null)[]): HTMLEl
 
 // ─── Build panel ─────────────────────────────────────────────────────────────
 
+/**
+ * Boons (§48) — what this run happened to put on the table.
+ *
+ * Shows the offer, not the catalogue. That is the whole design: the ladder is
+ * only a ladder because most runs never see the top of it, and a panel listing
+ * all 28 with four of them buyable would quietly turn it back into a price
+ * list. Owned boons stay on show so the dungeon's character is readable at a
+ * glance — and because a passive you cannot see is a passive you forget you
+ * bought.
+ */
+function boonPanel(): HTMLElement {
+  const s = app.season;
+  const d = s.dungeon;
+  const offer = s.boonOffer ?? [];
+  const p = el('<div class="panel boons"></div>');
+  p.append(el(`<h2>Boons &nbsp;·&nbsp; ${Math.round(s.souls)} souls</h2>`));
+
+  if (!offer.length) {
+    p.append(el('<div class="hint">Nothing is stirring this run.</div>'));
+    return p;
+  }
+
+  for (const id of offer) {
+    const def = BOONS[id];
+    if (!def) continue;
+    const owned = hasBoon(d, id);
+    const cost = boonCost(id);
+    const poor = s.souls < cost;
+    const row = el(`
+      <div class="buy boon ${def.rarity} ${owned ? 'owned' : ''} ${!owned && poor ? 'off' : ''}"
+           data-boon="${def.id}" data-rarity="${def.rarity}">
+        <span><b>${esc(def.name)}</b>
+          <span class="rarity">${def.rarity}</span>
+          <div class="meta">${esc(def.blurb)}</div></span>
+        <span class="cost">${owned ? 'held' : `${cost}◇`}</span>
+      </div>`);
+    if (!owned && !poor) {
+      row.onclick = () => {
+        const got = buyBoon(d, def.id);
+        if (typeof got === 'string') return fail(got);
+        spend('souls', got.cost, def.name);
+        return fail(null);
+      };
+    }
+    p.append(row);
+  }
+  p.append(el(
+    '<div class="hint">Souls are paid by the dying — theirs and yours. What is on offer is rolled when the run begins, so a Legendary is luck before it is a purchase.</div>',
+  ));
+  return p;
+}
+
 function buildPanel(): HTMLElement {
   const s = app.season;
   const d = s.dungeon;
@@ -2089,20 +2150,21 @@ function buildPanel(): HTMLElement {
   }
   for (const def of Object.values(MOBS)) {
     if (roster && !roster.mobs.includes(def.id)) continue;
-    const off = s.mana < def.cost;
+    const price = mobCost(d, def.id);
+    const off = s.mana < price;
     // Identified by id, not by the name printed on it. Tests that reach for
     // "Ogre" encode a bestiary that a per-run roster (§44) will stop
     // guaranteeing; a role-based lookup keeps working when the offer changes.
     const b = el(`<div class="buy ${off ? 'off' : ''}" data-mob="${def.id}" data-role="${def.role}">
         <span>${def.name}<div class="meta">${def.role} · ${def.hp}hp ${def.dmg}dmg ${def.spd}spd · ${def.slots} slot${def.slots > 1 ? 's' : ''} · ${def.upkeep} upkeep</div></span>
-        <span class="cost">${def.cost}</span>
+        <span class="cost">${price}</span>
       </div>`);
     if (!off) {
       attachDrag(b, { kind: 'buy', defId: def.id }, def.name);
       b.onclick = () => {
         const mob = buyMob(d, def.id);
         if (typeof mob === 'string') return fail(mob);
-        spend('mana', def.cost, def.name);
+        spend('mana', mobCost(d, def.id), def.name);
         // Stack same-species buys so a row of four rats is four clicks and one
         // drag, not four of each.
         if (app.stack?.defId === def.id) app.stack.uids.push(mob.uid);
@@ -2125,7 +2187,7 @@ function buildPanel(): HTMLElement {
   traps.append(el('<h2>Traps &nbsp;·&nbsp; no upkeep</h2>'));
   for (const def of Object.values(TRAPS)) {
     if (roster && !roster.traps.includes(def.id)) continue;
-    const price = trapCost(def.id);
+    const price = trapPrice(d, def.id);
     const off = s.mana < price;
     const b = el(`<div class="buy trap-buy ${off ? "off" : ""}" data-trap="${def.id}" data-job="${def.job}">
         <span>${def.name}<div class="meta">${def.job} ${def.power} · ${def.slots} slot${def.slots > 1 ? 's' : ''} · ${def.charges} charge${def.charges > 1 ? 's' : ''} · re-arm ${trapRearmCost(def.id)}</div></span>
@@ -2148,6 +2210,7 @@ function buildPanel(): HTMLElement {
     '<div class="hint">A trap fires once on the threshold, before anything swings — then it needs re-arming. It softens; the monster behind it finishes.</div>',
   ));
   wrap.append(traps);
+  wrap.append(boonPanel());
 
   // Roster sits BELOW the shops. Buying anything makes something unassigned,
   // so putting this above the menus meant every purchase shoved the next one

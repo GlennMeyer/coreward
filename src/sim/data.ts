@@ -3,8 +3,8 @@
  * one, change the doc too, or the doc becomes a lie.
  */
 import type {
-  AdventurerClass, AmenityDef, AmenityId, CapacityTier, Formation, MobDef,
-  PriceTier, Room, TrapDef,
+  AdventurerClass, AmenityDef, AmenityId, BoonRarity, CapacityTier, Formation,
+  MobDef, PriceTier, Room, TrapDef,
 } from './types';
 
 // ─── Monsters (§6.3, prototype subset of 6) ──────────────────────────────────
@@ -1434,3 +1434,307 @@ export const PARTY_FORMATION_RAID = 5;
 export function tierFloorFromRaids(raidNumber: number): number {
   return 1 + Math.floor((raidNumber - 1) / TIER_FLOOR_RAIDS);
 }
+
+// ─── Boons (§48) ─────────────────────────────────────────────────────────────
+
+/**
+ * What a boon can change.
+ *
+ * Deliberately a fixed set of typed fields rather than a callback per boon.
+ * `src/sim` has to stay headless and deterministic, and a table of data folds
+ * into one resolved object that every hook reads the same way every time —
+ * where arbitrary functions would be a dozen new places for a rule to hide.
+ * Adding a boon that reuses an existing field is a data change only.
+ *
+ * **Rules, not percentages.** There are already two numeric ladders — gear is
+ * per-creature and dies with it (§6.5), upgrade ranks are per-species and
+ * permanent (§6.6). A third ladder of dungeon-wide multipliers would be a
+ * fourth flavour of the same thing, and it would compound with both of those
+ * *and* Pack Tactics. These change what happens instead.
+ */
+export interface BoonEffect {
+  /** Souls banked whenever one of your own monsters is permanently slain. */
+  soulsPerMobLost?: number;
+  /** Fraction off the trap re-arm bill (§17). 1 means free. */
+  rearmDiscount?: number;
+  /** Extra charges on a trap when it is installed. */
+  trapChargeBonus?: number;
+  /** The first of your monsters to fall each raid gets back up once. */
+  reviveFirstFallen?: boolean;
+  /** Empty rooms stop reading as padding for Tedium (§15.3). */
+  emptyRoomsForgiven?: boolean;
+  /** Rooms being widened stop reading as building sites (§16.11). */
+  scaffoldForgiven?: boolean;
+  /** Widening lands immediately instead of taking a raid. */
+  widenInstant?: boolean;
+  /** The first breach of a season costs no Heart. */
+  breachSparesHeart?: boolean;
+  /** Monsters keep their gear when they die (§43 reversed, for one run). */
+  gearSurvivesDeath?: boolean;
+
+  // ── The numeric side ──
+  //
+  // These do compound with gear (§6.5) and upgrade ranks (§6.6) and Pack
+  // Tactics, which is exactly why they are folded by *replacement* rather than
+  // by sum (see `boonEffects`) and why the balance runner reports boon uptake
+  // alongside survival. A dungeon-wide multiplier is the strongest thing in
+  // this file; it should be measured, not assumed.
+  /** Multiplier on every monster's damage — 1.10 is +10%. */
+  dmgMult?: number;
+  /** Multiplier on every monster's max HP. */
+  hpMult?: number;
+  /** Flat damage soaked per hit, on top of the hide track. */
+  armorFlat?: number;
+  /** Extra slots in every room, on top of its capacity tier (§16.3). */
+  roomSlotBonus?: number;
+  /** Cost multipliers. Folded by *minimum* — the best discount wins, not the sum. */
+  mobCostMult?: number;
+  trapCostMult?: number;
+  digCostMult?: number;
+  widenCostMult?: number;
+  upkeepMult?: number;
+}
+
+export interface BoonDef {
+  id: string;
+  name: string;
+  rarity: BoonRarity;
+  blurb: string;
+  effect: BoonEffect;
+}
+
+/**
+ * Price and roll weight per quality.
+ *
+ * Souls, because Souls had no sink at all — `reconstituteCost` was written and
+ * never called, and the UI's `spend` only ever knew Mana and Gold, so a season
+ * banked them and did nothing with them.
+ *
+ * The numbers are small because the income is: a measured season banks 1-9
+ * Souls for most builds (swarm is the outlier at ~112). That scarcity is a
+ * feature here — most runs buy two or three things, and a Legendary is
+ * something you go without other boons all season to afford.
+ */
+export const BOON_RARITY: Record<BoonRarity, { cost: number; weight: number }> = {
+  common: { cost: 2, weight: 40 },
+  uncommon: { cost: 4, weight: 26 },
+  rare: { cost: 7, weight: 16 },
+  elite: { cost: 10, weight: 10 },
+  epic: { cost: 14, weight: 6 },
+  legendary: { cost: 20, weight: 2 },
+};
+
+export const BOONS: Record<string, BoonDef> = {
+  // ── Common: the numeric floor ──
+  whetstone: {
+    id: 'whetstone', name: 'Shared Whetstone', rarity: 'common',
+    blurb: 'Every monster hits 8% harder.',
+    effect: { dmgMult: 1.08 },
+  },
+  thickhides: {
+    id: 'thickhides', name: 'Thick Hides', rarity: 'common',
+    blurb: 'Every monster has 10% more HP.',
+    effect: { hpMult: 1.10 },
+  },
+  bulkorders: {
+    id: 'bulkorders', name: 'Bulk Orders', rarity: 'common',
+    blurb: 'Monsters cost 10% less Mana.',
+    effect: { mobCostMult: 0.90 },
+  },
+  scrapiron: {
+    id: 'scrapiron', name: 'Scrap Iron', rarity: 'common',
+    blurb: 'Traps cost 15% less.',
+    effect: { trapCostMult: 0.85 },
+  },
+  // ── Uncommon ──
+  sharpenedfangs: {
+    id: 'sharpenedfangs', name: 'Sharpened Fangs', rarity: 'uncommon',
+    blurb: 'Every monster hits 15% harder.',
+    effect: { dmgMult: 1.15 },
+  },
+  stonehide: {
+    id: 'stonehide', name: 'Stonehide', rarity: 'uncommon',
+    blurb: 'Every monster soaks 1 more damage per hit.',
+    effect: { armorFlat: 1 },
+  },
+  leanledger: {
+    id: 'leanledger', name: 'Lean Ledger', rarity: 'uncommon',
+    blurb: 'Upkeep costs 25% less. A bigger dungeon for the same bill.',
+    effect: { upkeepMult: 0.75 },
+  },
+  // ── Rare ──
+  deeperpockets: {
+    id: 'deeperpockets', name: 'Deeper Pockets', rarity: 'rare',
+    blurb: 'Every room holds one more slot, whatever its tier.',
+    effect: { roomSlotBonus: 1 },
+  },
+  softrock: {
+    id: 'softrock', name: 'Soft Rock', rarity: 'rare',
+    blurb: 'Digging and widening both cost 35% less.',
+    effect: { digCostMult: 0.65, widenCostMult: 0.65 },
+  },
+  ironblood: {
+    id: 'ironblood', name: 'Ironblood', rarity: 'rare',
+    blurb: 'Every monster has 25% more HP.',
+    effect: { hpMult: 1.25 },
+  },
+  // ── Elite ──
+  warbred: {
+    id: 'warbred', name: 'War-Bred', rarity: 'elite',
+    blurb: 'Every monster hits 25% harder and soaks 1 more per hit.',
+    effect: { dmgMult: 1.25, armorFlat: 1 },
+  },
+  hollowedhalls: {
+    id: 'hollowedhalls', name: 'Hollowed Halls', rarity: 'elite',
+    blurb: 'Every room holds two more slots.',
+    effect: { roomSlotBonus: 2 },
+  },
+  // ── Epic ──
+  apexstrain: {
+    id: 'apexstrain', name: 'Apex Strain', rarity: 'epic',
+    blurb: 'The whole bestiary improves: +35% damage, +25% HP, 2 armour.',
+    effect: { dmgMult: 1.35, hpMult: 1.25, armorFlat: 2 },
+  },
+  companystore: {
+    id: 'companystore', name: 'Company Store', rarity: 'epic',
+    blurb: 'Everything is cheaper: monsters, traps, digging, widening — a third off.',
+    effect: {
+      mobCostMult: 0.67, trapCostMult: 0.67, digCostMult: 0.67, widenCostMult: 0.67,
+    },
+  },
+  // ── Legendary ──
+  theeldestthing: {
+    id: 'theeldestthing', name: 'The Eldest Thing', rarity: 'legendary',
+    blurb: 'Something old is breeding down there. +50% damage, +50% HP, 3 armour.',
+    effect: { dmgMult: 1.50, hpMult: 1.50, armorFlat: 3 },
+  },
+  thewidewarrens: {
+    id: 'thewidewarrens', name: 'The Wide Warrens', rarity: 'legendary',
+    blurb: 'Three more slots in every room, and widening is free and instant.',
+    effect: { roomSlotBonus: 3, widenCostMult: 0, widenInstant: true },
+  },
+  // ── Common: the rule-changers ──
+  gravetithe: {
+    id: 'gravetithe', name: 'Grave Tithe', rarity: 'common',
+    blurb: 'Your dead are not wasted. +1 Soul whenever one of your monsters is slain.',
+    effect: { soulsPerMobLost: 1 },
+  },
+  oiledhinges: {
+    id: 'oiledhinges', name: 'Oiled Hinges', rarity: 'common',
+    blurb: 'Traps are installed with one extra charge.',
+    effect: { trapChargeBonus: 1 },
+  },
+  // ── Uncommon ──
+  scavengersright: {
+    id: 'scavengersright', name: "Scavenger's Right", rarity: 'uncommon',
+    blurb: 'Re-arming costs half. The cheapest defence gets cheaper.',
+    effect: { rearmDiscount: 0.5 },
+  },
+  dustsheets: {
+    id: 'dustsheets', name: 'Dust Sheets', rarity: 'uncommon',
+    blurb: 'A room under construction no longer reads as a building site.',
+    effect: { scaffoldForgiven: true },
+  },
+  // ── Rare ──
+  bonepickers: {
+    id: 'bonepickers', name: 'Bonepickers', rarity: 'rare',
+    blurb: 'Your dead pay better. +2 Souls per monster slain.',
+    effect: { soulsPerMobLost: 2 },
+  },
+  quarryrights: {
+    id: 'quarryrights', name: 'Quarry Rights', rarity: 'rare',
+    blurb: 'The Crew works between breaths. Widening finishes the moment it is paid for.',
+    effect: { widenInstant: true },
+  },
+  // ── Elite ──
+  secondwind: {
+    id: 'secondwind', name: 'Second Wind', rarity: 'elite',
+    blurb: 'The first of your monsters to fall each raid gets back up once.',
+    effect: { reviveFirstFallen: true },
+  },
+  grandreopening: {
+    id: 'grandreopening', name: 'Grand Reopening', rarity: 'elite',
+    blurb: 'Re-arming is free. Every charge, every raid, at no cost.',
+    effect: { rearmDiscount: 1 },
+  },
+  // ── Epic ──
+  thelongdark: {
+    id: 'thelongdark', name: 'The Long Dark', rarity: 'epic',
+    blurb: 'Empty corridors read as dread rather than padding. Empty rooms cost no Tedium.',
+    effect: { emptyRoomsForgiven: true },
+  },
+  gravegoods: {
+    id: 'gravegoods', name: 'Grave Goods', rarity: 'epic',
+    blurb: 'Kit is buried with its owner and dug back up. Gear survives its wearer.',
+    effect: { gearSurvivesDeath: true },
+  },
+  // ── Legendary ──
+  thecoreremembers: {
+    id: 'thecoreremembers', name: 'The Core Remembers', rarity: 'legendary',
+    blurb: 'The first breach of the season costs no Heart. The Core forgives once.',
+    effect: { breachSparesHeart: true },
+  },
+  undyingbloodline: {
+    id: 'undyingbloodline', name: 'Undying Bloodline', rarity: 'legendary',
+    blurb: 'Grave Tithe in full, and your dead rise once a raid. +3 Souls per loss, and the first to fall returns.',
+    effect: { soulsPerMobLost: 3, reviveFirstFallen: true },
+  },
+};
+
+export function boonCost(id: string): number {
+  const def = BOONS[id];
+  return def ? BOON_RARITY[def.rarity].cost : 0;
+}
+
+/**
+ * Fold every owned boon into one resolved effect.
+ *
+ * Same-field boons take the strongest value rather than summing: Grave Tithe
+ * (+1) and Bonepickers (+2) owned together pay 2, not 3. Stacking would make
+ * the ladder additive, and an additive ladder is exactly the numeric treadmill
+ * these were designed not to be — a rare should *replace* a common, not top it up.
+ */
+export function boonEffects(boons: readonly string[] | undefined): BoonEffect {
+  const out: BoonEffect = {};
+  for (const id of boons ?? []) {
+    const def = BOONS[id];
+    if (!def) continue;
+    const e = def.effect;
+    if (e.soulsPerMobLost !== undefined) {
+      out.soulsPerMobLost = Math.max(out.soulsPerMobLost ?? 0, e.soulsPerMobLost);
+    }
+    if (e.rearmDiscount !== undefined) {
+      out.rearmDiscount = Math.max(out.rearmDiscount ?? 0, e.rearmDiscount);
+    }
+    if (e.trapChargeBonus !== undefined) {
+      out.trapChargeBonus = Math.max(out.trapChargeBonus ?? 0, e.trapChargeBonus);
+    }
+    if (e.reviveFirstFallen) out.reviveFirstFallen = true;
+    if (e.emptyRoomsForgiven) out.emptyRoomsForgiven = true;
+    if (e.scaffoldForgiven) out.scaffoldForgiven = true;
+    if (e.widenInstant) out.widenInstant = true;
+    if (e.breachSparesHeart) out.breachSparesHeart = true;
+    if (e.gearSurvivesDeath) out.gearSurvivesDeath = true;
+    // Buffs: the strongest wins.
+    if (e.dmgMult !== undefined) out.dmgMult = Math.max(out.dmgMult ?? 1, e.dmgMult);
+    if (e.hpMult !== undefined) out.hpMult = Math.max(out.hpMult ?? 1, e.hpMult);
+    if (e.armorFlat !== undefined) out.armorFlat = Math.max(out.armorFlat ?? 0, e.armorFlat);
+    if (e.roomSlotBonus !== undefined) {
+      out.roomSlotBonus = Math.max(out.roomSlotBonus ?? 0, e.roomSlotBonus);
+    }
+    // Discounts: the deepest wins. Minimum, not maximum — these are all < 1.
+    if (e.mobCostMult !== undefined) out.mobCostMult = Math.min(out.mobCostMult ?? 1, e.mobCostMult);
+    if (e.trapCostMult !== undefined) {
+      out.trapCostMult = Math.min(out.trapCostMult ?? 1, e.trapCostMult);
+    }
+    if (e.digCostMult !== undefined) out.digCostMult = Math.min(out.digCostMult ?? 1, e.digCostMult);
+    if (e.widenCostMult !== undefined) {
+      out.widenCostMult = Math.min(out.widenCostMult ?? 1, e.widenCostMult);
+    }
+    if (e.upkeepMult !== undefined) out.upkeepMult = Math.min(out.upkeepMult ?? 1, e.upkeepMult);
+  }
+  return out;
+}
+
+/** How many boons a run puts on the table. */
+export const BOON_OFFER_SIZE = 4;

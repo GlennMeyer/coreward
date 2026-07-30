@@ -18,8 +18,8 @@ import {
   CLASS_MODS, mobMaxHp, soulsTierMult, trapPower, type TierRow,
 } from './data';
 import {
-  armedTrapsInRoom, downMob, getMob, getTrap, grantCommerceXp, grantXp, isOpen,
-  isScaffolded, mobArmor, mobEffectiveDmg, mobStripsKit, mobsInRoom,
+  armedTrapsInRoom, boonsOf, downMob, getMob, getTrap, grantCommerceXp, grantXp,
+  isOpen, isScaffolded, mobArmor, mobEffectiveDmg, mobStripsKit, mobsInRoom,
   packMultiplier, slayMob,
 } from './dungeon';
 import { Rng } from './rng';
@@ -163,6 +163,8 @@ export class RaidSim {
   private emptyRooms = 0;
   /** Rooms the party walked through while the Crew was working in them (§16.11). */
   private scaffoldedRooms = 0;
+  /** Souls owed by Grave Tithe and kin (§48), banked with the raid's take. */
+  private soulsFromLosses = 0;
   private repeatedRooms = 0;
   private lastRoomSig: string | null = null;
   private rolesFaced = new Set<MobRole>();
@@ -1556,7 +1558,11 @@ export class RaidSim {
   }
 
   private breachCore(): void {
-    this.d.hearts = Math.max(0, this.d.hearts - 1);
+    // The Core Remembers (§48): the first breach of a season costs no Heart.
+    // Keyed off `priorBreaches`, which the season already threads in, so the
+    // boon cannot be re-triggered by anything the raid does to itself.
+    const spared = !!boonsOf(this.d).breachSparesHeart && this.priorBreaches === 0;
+    if (!spared) this.d.hearts = Math.max(0, this.d.hearts - 1);
     // They are standing in the treasury. Escalates with every previous breach
     // this season — word gets out that the dungeon can be cracked, and the next
     // crew arrives knowing where the vault is (§5.4).
@@ -1642,9 +1648,12 @@ export class RaidSim {
   }
 
   private scoreDelve(): void {
+    // The Long Dark / Dust Sheets (§48) forgive a whole term rather than
+    // shaving it — a boon that changes a rule, not a coefficient.
+    const fx = boonsOf(this.d);
     const tedium =
-      TUNING.tediumPerEmptyRoom * this.emptyRooms
-      + TUNING.tediumPerScaffoldedRoom * this.scaffoldedRooms
+      (fx.emptyRoomsForgiven ? 0 : TUNING.tediumPerEmptyRoom * this.emptyRooms)
+      + (fx.scaffoldForgiven ? 0 : TUNING.tediumPerScaffoldedRoom * this.scaffoldedRooms)
       + TUNING.tediumPerRepeatedRoom * this.repeatedRooms;
 
     // Only those who walked out under their own power tell the story (§19.4).
@@ -1853,6 +1862,13 @@ export class RaidSim {
    * back for them. That is most of what makes losing a Heart hurt.
    */
   private resolveDowned(outcome: RaidOutcome): void {
+    const fx = boonsOf(this.d);
+    // Second Wind / Undying Bloodline (§48). Spent on the FIRST monster that
+    // would otherwise be slain, not held for the best one — the sim cannot know
+    // which loss the player would have minded most, and picking for them would
+    // be a rule nobody could predict from the tooltip.
+    let reviveLeft = fx.reviveFirstFallen ? 1 : 0;
+
     for (const entry of this.mobsDowned) {
       const mob = getMob(this.d, entry.uid);
       if (!mob || !mob.alive) continue;
@@ -1860,11 +1876,28 @@ export class RaidSim {
         outcome === 'breach' ? TUNING.breachSlayChance : TUNING.slayChance,
       );
       if (!slain) continue;
+
+      if (reviveLeft > 0) {
+        reviveLeft -= 1;
+        this.emit({
+          t: this.tick, type: 'mob-revived',
+          uid: entry.uid, defId: entry.defId, level: entry.level,
+        });
+        continue;
+      }
+
       // Take the gear off before the entry is recorded: it is destroyed with
       // the wearer (§6.5) and the Aftermath has to be able to say what that
-      // cost, or a monster dying looks free.
-      const gear = slayMob(this.d, entry.uid);
+      // cost, or a monster dying looks free. Grave Goods (§48) reverses that
+      // for one run — the kit comes back up with the bones.
+      const gear = fx.gearSurvivesDeath ? [...mob.gear] : slayMob(this.d, entry.uid);
+      if (fx.gearSurvivesDeath) {
+        const keep = [...mob.gear];
+        slayMob(this.d, entry.uid);
+        mob.gear = keep;
+      }
       this.mobsLost.push({ ...entry, gear });
+      this.soulsFromLosses += fx.soulsPerMobLost ?? 0;
       this.emit({
         t: this.tick, type: 'mob-slain',
         uid: entry.uid, defId: entry.defId, level: entry.level,
@@ -1912,7 +1945,7 @@ export class RaidSim {
       * soulsTierMult(this.tier.tier)
       + namedKilled * SOULS_PER_NAMED
       + bountySouls,
-    );
+    ) + this.soulsFromLosses;
 
     // The reframe (§15.3): reputation is the quality of the delve, not the
     // headcount that walked out. The flag keeps the old flat formula reachable

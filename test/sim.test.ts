@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   AMENITIES, GEAR, MOBS, RENOWN_PER_ESCAPEE, RENOWN_WIPE_MULT, TIERS, TRAPS, TUNING,
   MAX_FLOORS, STARTING_HEARTS, XP_THRESHOLDS, digCostFor, mobMaxHp, resetTuning, roomsOnFloor,
-  widenCostFor,
+  widenCostFor, BOONS, BOON_OFFER_SIZE, boonEffects,
   tierForRenown, trapCost, trapRearmCost, MAX_TIER_PROTOTYPE, mobDmg,
 } from '../src/sim/data';
 import { generateParty } from '../src/sim/adventurers';
@@ -14,10 +14,12 @@ import {
   slayMob,
   mobsInRoom, packMultiplier, placeMobInRoom, placeTrapInRoom, rearmAll,
   rearmAllPrice, removeTrap, roomCapacityAt, roomSlotsUsed, startWiden, advanceProject,
-  cancelWiden, isScaffolded, totalUpkeep, unplace,
+  cancelWiden, isScaffolded, totalUpkeep, unplace, buyBoon, mobCost,
 } from '../src/sim/dungeon';
 import { RaidSim } from '../src/sim/raid';
-import { applyAftermath, createSeason, startRaid } from '../src/sim/season';
+import {
+  applyAftermath, createSeason, rollBoonOffer, startRaid,
+} from '../src/sim/season';
 import type { Dungeon, Mob } from '../src/sim/types';
 import {
   addMob, addStaffedAmenity, addTrap, seasonWithFloors, widenRoom,
@@ -1508,5 +1510,73 @@ describe('upgrades are the bloodline, gear is the creature (§6.6)', () => {
     // It gains the increase, not a top-up: Higher Metabolism is not a heal.
     expect(mob.hp).toBe(Math.round(full / 2) + (grown - full));
     expect(mob.hp).toBeLessThan(grown);
+  });
+});
+
+describe('boons (§48)', () => {
+  it('rolls a stable offer from the seed, weighted toward the common end', () => {
+    const a = rollBoonOffer(1234);
+    expect(a).toHaveLength(BOON_OFFER_SIZE);
+    expect(new Set(a).size).toBe(a.length);       // no duplicates in one offer
+    expect(rollBoonOffer(1234)).toEqual(a);       // deterministic (§13.2)
+
+    // Rarity has to actually be rare, or the ladder is decoration. Across many
+    // runs the common end must dominate the legendary end by a wide margin.
+    const seen: Record<string, number> = {};
+    for (let seed = 0; seed < 400; seed++) {
+      for (const id of rollBoonOffer(seed)) {
+        const r = BOONS[id]!.rarity;
+        seen[r] = (seen[r] ?? 0) + 1;
+      }
+    }
+    expect(seen.common ?? 0).toBeGreaterThan((seen.legendary ?? 0) * 3);
+    expect(seen.legendary ?? 0).toBeGreaterThan(0);  // but reachable
+  });
+
+  it('takes the strongest of a stacked field rather than summing it', () => {
+    // Grave Tithe (+1) and Bonepickers (+2) together pay 2, not 3. An additive
+    // ladder is the numeric treadmill these were designed not to be.
+    expect(boonEffects(['gravetithe']).soulsPerMobLost).toBe(1);
+    expect(boonEffects(['bonepickers']).soulsPerMobLost).toBe(2);
+    expect(boonEffects(['gravetithe', 'bonepickers']).soulsPerMobLost).toBe(2);
+    // Discounts fold the other way: the deepest wins, not the sum.
+    expect(boonEffects(['bulkorders']).mobCostMult).toBeCloseTo(0.90, 5);
+    expect(boonEffects(['bulkorders', 'companystore']).mobCostMult).toBeCloseTo(0.67, 5);
+  });
+
+  it('changes what the dungeon costs and what its monsters are worth', () => {
+    const d2 = createDungeon();
+    const baseMob = mobCost(d2, 'ogre');
+    const baseCap = roomCapacityAt(d2, 0, 0);
+    const mob = buyMob(d2, 'ogre') as Mob;
+    const baseDmg = mobEffectiveDmg(d2, mob);
+    const baseHp = mobEffectiveHp(d2, mob);
+
+    buyBoon(d2, 'bulkorders');       // -10% monster cost
+    buyBoon(d2, 'deeperpockets');    // +1 slot everywhere
+    buyBoon(d2, 'whetstone');        // +8% damage
+    buyBoon(d2, 'thickhides');       // +10% HP
+
+    expect(mobCost(d2, 'ogre')).toBe(Math.round(baseMob * 0.9));
+    expect(roomCapacityAt(d2, 0, 0)).toBe(baseCap + 1);
+    expect(mobEffectiveDmg(d2, mob)).toBeCloseTo(baseDmg * 1.08, 5);
+    expect(mobEffectiveHp(d2, mob)).toBe(Math.round(baseHp * 1.10));
+  });
+
+  it('refuses to sell the same boon twice', () => {
+    const d2 = createDungeon();
+    expect(typeof buyBoon(d2, 'whetstone')).not.toBe('string');
+    expect(buyBoon(d2, 'whetstone')).toMatch(/already/);
+    expect(d2.boons).toEqual(['whetstone']);
+  });
+
+  it('Quarry Rights skips the build time entirely', () => {
+    const d2 = createDungeon();
+    buyBoon(d2, 'quarryrights');
+    const started = startWiden(d2, 0, 0);
+    expect(typeof started).not.toBe('string');
+    // No project booked, and the room is already bigger.
+    expect(d2.project ?? null).toBeNull();
+    expect(roomCapacityAt(d2, 0, 0)).toBe(5);
   });
 });
