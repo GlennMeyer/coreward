@@ -6,9 +6,9 @@
  * Runs in jsdom — see environmentMatchGlobs in vite.config.ts.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { GEAR, MOBS, TIERS, TRAPS, TUNING } from '../src/sim/data';
+import { GEAR, MOBS, TIERS, TRAPS, TUNING, boonEffects } from '../src/sim/data';
 import {
-  buildAmenity, buyMob, createDungeon, placeMobInRoom, roomCapacityAt,
+  buildAmenity, buyMob, createDungeon, placeMobInRoom, roomCapacityAt, takeBoon,
 } from '../src/sim/dungeon';
 import { predictThrill, thrillRating } from '../src/ui/predict';
 import { rulesHash as idlerRulesHash } from '../src/ui/idler';
@@ -166,6 +166,29 @@ describe('UI smoke', () => {
     // Reads the room, not the floor: capacity is per room since §16.3.
     expect(document.querySelector('.room .slots')?.textContent)
       .toBe(`1/${roomCapacityAt(seasonDungeon(), 0, 0)}`);
+  });
+
+  /**
+   * §48.7's double edge only works if the player can see it (the "ship the
+   * readout" rule). Notoriety is folded into `result.renown` before anything
+   * reads it, so without a row naming it the player just sees a bigger number
+   * and a harder raid two turns later with no stated connection.
+   */
+  it('names notoriety and bought foot traffic rather than folding them in', () => {
+    app$().mana = 9999;
+    placeMob('bruiser');                 // render$ needs a chip to toggle
+    const d = seasonDungeon();
+    takeBoon(d, 'thewholeworldknows');   // +3 party, +80% Renown
+    render$();
+
+    // The forecast separates the crowd the world sends from the crowd you bought.
+    const party = document.querySelector('.fc-party')?.textContent ?? '';
+    expect(party).toMatch(/3 drawn by your name/);
+
+    // The Aftermath's notoriety row is driven from the same resolved effect, and
+    // is covered in the browser pass — asserting it here would mean running a
+    // whole raid on mocked timers for one string.
+    expect(boonEffects(seasonDungeon().boons).renownMult).toBeCloseTo(1.8, 5);
   });
 
   it('digs a floor, which opens another landing', () => {

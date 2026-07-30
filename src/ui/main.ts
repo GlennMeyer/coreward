@@ -13,7 +13,7 @@ import {
   type GearDef,
   INSURANCE_BASE, STAFFED_REVENUE_MULT,
   admissionPrice,
-  BOONS, CAPACITY_TIERS, PRICE_TIERS, TRAPS, TUNING, widenCostFor,
+  BOONS, boonEffects, CAPACITY_TIERS, PRICE_TIERS, TRAPS, TUNING, widenCostFor,
   trapRearmCost,
 } from '../sim/data';
 import {
@@ -2008,6 +2008,27 @@ function landingRow(idx: number, amenities: readonly (Amenity | null)[]): HTMLEl
  * and `traps` took 0.61 and 0.17 boons a season while combat took 3.8 (§48.4).
  * A draft costs the same for everyone.
  */
+/**
+ * Name the notoriety multiplier on the Aftermath (§48.7).
+ *
+ * It is folded into `result.renown` before anything reads it, so without this
+ * the player sees a bigger number and no reason for it. That matters more here
+ * than for any other boon in the file: Renown is the difficulty dial (§4.4), so
+ * this row is not a bonus being announced, it is the bill for the raid after
+ * next. A devil's bargain the player cannot see is just a difficulty spike.
+ */
+function notorietyRow(): string {
+  const fx = boonEffects(app.season.dungeon.boons);
+  if (!fx.renownMult || fx.renownMult <= 1) return '';
+  const named = (app.season.dungeon.boons ?? [])
+    .filter((id) => (BOONS[id]?.effect.renownMult ?? 0) > 1)
+    .map((id) => BOONS[id]!.name)
+    .join(', ');
+  const pct = Math.round((fx.renownMult - 1) * 100);
+  return `<tr><td class="dimmed">…including +${pct}% notoriety (${esc(named)}) —
+    word spreads, and the tier follows</td><td class="dimmed">×${fx.renownMult.toFixed(2)}</td></tr>`;
+}
+
 function boonPanel(): HTMLElement | null {
   const s = app.season;
   const d = s.dungeon;
@@ -2482,9 +2503,19 @@ function forecastPanel(): HTMLElement {
 
   const lore = guildLoreBlock();
   const returning = s.veterans.filter((v) => !v.retired).length;
+  // Foot traffic is called out separately (§48.7). The tier row says how many
+  // the *world* is sending; a boon that adds three more is the player's own
+  // doing, and lumping the two together hides a decision they made.
+  const fx = boonEffects(s.dungeon.boons);
+  const extra = fx.partySizeBonus ?? 0;
+  const drawn = (s.dungeon.boons ?? [])
+    .filter((id) => (BOONS[id]?.effect.partySizeBonus ?? 0) > 0)
+    .map((id) => BOONS[id]!.name)
+    .join(', ');
   p.append(el(`
     <div class="fc-party">
       <b>${f.partySize} adventurers</b>, level ${f.levelMin}–${f.levelMax}
+      ${extra > 0 ? `<span class="fc-drawn" title="Foot traffic you bought: ${esc(drawn)}">· ${extra} drawn by your name</span>` : ''}
       ${returning > 0 ? `<span class="fc-ret" title="Survivors who may come back (§15.5)">· ${returning} may return</span>` : ''}
     </div>`));
   if (lore) p.append(lore);
@@ -2965,6 +2996,7 @@ function aftermathModal(a: AftermathType): HTMLElement {
   m.append(el(`
     <table>
       <tr class="tot"><td>Renown — ${renownFrom}</td><td class="pos">+${r.renown}</td></tr>
+      ${notorietyRow()}
       ${r.retired.length ? `<tr><td class="dimmed">…including ${r.retired.length} retirement bonus${r.retired.length === 1 ? '' : 'es'}</td><td class="dimmed">+${r.retired.length * TUNING.retireRenownBonus}</td></tr>` : ''}
       ${trickle ? `<tr><td class="dimmed">…and ${app.season.legends.length} Legend${app.season.legends.length === 1 ? '' : 's'} on the wall</td><td class="dimmed">+${trickle}</td></tr>` : ''}
       <tr><td>Base</td><td class="pos">+${b.base}</td></tr>

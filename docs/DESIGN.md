@@ -3402,3 +3402,21 @@ every strategy, which is what keeps the comparison honest. Reverted.
 
 The general lesson, which this file keeps relearning: when a hand-written policy and a search
 disagree about what a build wants, the search is not the one guessing.
+
+
+### 48.9 Showing the bargain
+
+A devil's bargain nobody can see is just a difficulty spike, so both halves of §48.7 are now
+stated where the player meets them:
+
+- **Forecast** separates the crowd the world sends from the crowd you bought: *"6 adventurers,
+  level 1-2 · 3 drawn by your name"*. The tier row and the boon are different facts and lumping
+  them together hides a decision the player made.
+- **Aftermath** names the multiplier instead of folding it in: *"…including +80% notoriety (The
+  Whole World Knows, Signposted from the Road) — word spreads, and the tier follows"*. That row
+  is not a bonus being announced. It is the bill for the raid after next.
+
+The rest of the panel does the work from there without being told to: at +3 party the power bar
+reads 348 HP against your 8, single-file becomes "1 of 6 engaged at a time", and the tier
+threshold line becomes "all 6 of them at once". The consequence was always rendered — what was
+missing was the sentence connecting it to the card the player took.

@@ -720,3 +720,7 @@ button.wipe:hover { background: #2a1a1e; border-color: var(--danger); }
 .boon.legendary { border-left: 2px solid #d9c04f; box-shadow: 0 0 6px -2px #d9c04f; }
 .boon.owned { opacity: .62; cursor: default; }
 .boon.owned .cost { color: var(--dim); font-style: italic; }
+
+/* Foot traffic you brought on yourself (§48.7) — coloured like Renown, because
+   that is what it costs you. */
+.fc-drawn { color: var(--renown); font-size: 11px; }
