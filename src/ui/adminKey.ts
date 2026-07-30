@@ -7,4 +7,4 @@
  *
  * Rotated: 2026-07-30
  */
-export const ADMIN_HASH = 'c736a3e157412c69ba48c0460a83bf46386d46a149feb987559d46b2540cc23c';
+export const ADMIN_HASH = 'bcf4c02e07cb97a401a7683b1c3a4f7395f8f139565b7ee35c864597e7504af0';
