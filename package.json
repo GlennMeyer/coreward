@@ -15,7 +15,8 @@
     "rotate-key": "tsx tools/rotate-key.ts",
     "audit-idler": "tsx tools/audit-idler.ts",
     "release": "bash tools/release.sh",
-    "prepare": "git config core.hooksPath .githooks || true"
+    "prepare": "git config core.hooksPath .githooks || true",
+    "admin-key": "tsx tools/admin-key.ts"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",

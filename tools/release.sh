@@ -29,4 +29,9 @@ repository and the shipped bundle contain no way to recover the key. Every
 browser unlocked with the previous key is revoked on its next load."
 git push --quiet origin "$(git rev-parse --abbrev-ref HEAD)"
 
-echo "Pushed. The key above is the only copy — the old one is dead."
+# Print it again at the very end. The rotation happens before the build and the
+# push, so on a slow deploy the key has scrolled well off screen by the time the
+# command returns — which is exactly when you want to copy it.
+echo
+npm run --silent admin-key
+echo "Pushed. The old key is dead. This one is also in admin-key.local."

@@ -2,3 +2,7 @@ node_modules/
 dist/
 *.local
 .DS_Store
+
+# The admin key, written locally by `npm run rotate-key`. Never commit this —
+# the repository is public and so are its Actions logs.
+admin-key.local
