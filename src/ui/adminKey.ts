@@ -5,6 +5,6 @@
  * only this hash. The key itself is never committed and never reaches the
  * bundle, so reading either tells you a key exists and nothing more.
  *
- * Rotated: 2026-07-29
+ * Rotated: 2026-07-30
  */
-export const ADMIN_HASH = '51435b1d53390a63bdd916623d18f5366704534938df67b89bae0dc6131fc612';
+export const ADMIN_HASH = 'c19bb8761b5fbaf29409dd60e85442f4f40c3a5ccf13a9aab4adc27c2f5e1517';
