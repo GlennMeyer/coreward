@@ -2,7 +2,7 @@
  * Season orchestration and the Aftermath economy (§3, §4).
  */
 import {
-  BOONS, BOON_DRAFT_SIZE, BOON_DRAFT_EVERY_RAIDS, BOON_RARITY,
+  BOONS, BOON_DRAFT_SIZE, BOON_DRAFT_EVERY_RAIDS, BOON_RARITY, boonEffects,
   ENDLESS_RAIDS, ENDLESS_SAFETY_CAP, GRUDGE_TRAIT, MOBS, PARTY_FORMATION_RAID, ROSTER_MOBS, ROSTER_TRAPS, TRAPS, tierAt, tierFloorFromRaids, MAX_TIER_PROTOTYPE, SEASON_RAIDS, TUNING,
   tierForRenown,
   type TierRow,
@@ -109,10 +109,21 @@ export function currentTier(s: SeasonState): TierRow {
   // Formation gets its own schedule (§18.2): word of a dungeon worth organising
   // for spreads on its own, and the beat should not be hostage to a threshold
   // tuned for something else.
-  if (row.formation !== 'party' && s.raidNumber >= PARTY_FORMATION_RAID) {
-    return { ...row, formation: 'party' };
-  }
-  return row;
+  const shaped = row.formation !== 'party' && s.raidNumber >= PARTY_FORMATION_RAID
+    ? { ...row, formation: 'party' as const }
+    : row;
+
+  // Foot traffic (§48.7). Applied here rather than at party generation so that
+  // every reader agrees — the forecast panel, the Thrill prediction and the raid
+  // itself all go through `currentTier`, and a boon the forecast did not know
+  // about would quietly make the readout a lie.
+  const fx = boonEffects(s.dungeon.boons);
+  if (!fx.partySizeBonus && !fx.advGoldMult) return shaped;
+  return {
+    ...shaped,
+    partySize: shaped.partySize + (fx.partySizeBonus ?? 0),
+    gold: Math.round(shaped.gold * (fx.advGoldMult ?? 1)),
+  };
 }
 
 /**
@@ -268,6 +279,12 @@ export function applyAftermath(s: SeasonState, sim: RaidSim): Aftermath {
   const tierBonus = currentTier(s).manaBonus;
   const upkeep = totalUpkeep(s.dungeon);
   const manaIncome = base + floors + kills + thrill + tierBonus - upkeep;
+
+  // Notoriety (§48.7). Scaled before anything reads it, because Renown is the
+  // difficulty dial (§4.4): this is the boon paying out and raising the tier of
+  // whoever comes next in the same stroke.
+  const boonFx = boonEffects(s.dungeon.boons);
+  if (boonFx.renownMult) result.renown = Math.round(result.renown * boonFx.renownMult);
 
   // Legends already on the wall pay out before this raid's retirees join them —
   // you do not get the trickle on the same raid you earned the Legend (§15.5).

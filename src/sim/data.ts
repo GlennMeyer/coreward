@@ -1493,6 +1493,21 @@ export interface BoonEffect {
   digCostMult?: number;
   widenCostMult?: number;
   upkeepMult?: number;
+
+  // ── The demand side (§48.7) ──
+  //
+  // The only boons here that are genuinely double-edged, and the reason is
+  // §4.4: Renown IS the difficulty dial. More of it does not mean a better
+  // dungeon, it means a *harder* one, sooner — bigger parties, higher levels,
+  // and more gold in their pockets, all off the same TIERS row. A player taking
+  // Notoriety is choosing to be famous before they are ready, which is the
+  // first boon in this file that can lose you the run.
+  /** Extra adventurers per party, on top of the tier's `partySize`. */
+  partySizeBonus?: number;
+  /** Multiplier on the Renown a raid pays — and therefore on how fast it gets hard. */
+  renownMult?: number;
+  /** Multiplier on the gold each adventurer walks in carrying. */
+  advGoldMult?: number;
 }
 
 export interface BoonDef {
@@ -1621,6 +1636,42 @@ export const BOONS: Record<string, BoonDef> = {
     blurb: 'Three more slots in every room, and widening is free and instant.',
     effect: { roomSlotBonus: 3, widenCostMult: 0, widenInstant: true },
   },
+  // ── The demand side: foot traffic and notoriety (§48.7) ──
+  wordofmouth: {
+    id: 'wordofmouth', name: 'Word of Mouth', rarity: 'common',
+    blurb: 'They talk. +15% Renown — and Renown is what brings the dangerous ones.',
+    effect: { renownMult: 1.15 },
+  },
+  opengate: {
+    id: 'opengate', name: 'Open Gate', rarity: 'uncommon',
+    blurb: 'One more adventurer in every party. More purses, more swords.',
+    effect: { partySizeBonus: 1 },
+  },
+  rumoursofgold: {
+    id: 'rumoursofgold', name: 'Rumours of Gold', rarity: 'uncommon',
+    blurb: 'They arrive expecting to spend. Adventurers carry 30% more gold.',
+    effect: { advGoldMult: 1.30 },
+  },
+  signposted: {
+    id: 'signposted', name: 'Signposted from the Road', rarity: 'rare',
+    blurb: 'Easy to find, hard to leave. +35% Renown.',
+    effect: { renownMult: 1.35 },
+  },
+  thefamousdungeon: {
+    id: 'thefamousdungeon', name: 'The Famous Dungeon', rarity: 'elite',
+    blurb: 'Two more in every party, and they come richer. A crowd is a crowd.',
+    effect: { partySizeBonus: 2, advGoldMult: 1.25 },
+  },
+  legendinthemaking: {
+    id: 'legendinthemaking', name: 'Legend in the Making', rarity: 'epic',
+    blurb: 'Songs are being written. +60% Renown, +40% gold on every delver.',
+    effect: { renownMult: 1.60, advGoldMult: 1.40 },
+  },
+  thewholeworldknows: {
+    id: 'thewholeworldknows', name: 'The Whole World Knows', rarity: 'legendary',
+    blurb: 'Three more in every party, +80% Renown, +50% gold. Be careful what you wish for.',
+    effect: { partySizeBonus: 3, renownMult: 1.80, advGoldMult: 1.50 },
+  },
   // ── Common: the rule-changers ──
   gravetithe: {
     id: 'gravetithe', name: 'Grave Tithe', rarity: 'common',
@@ -1735,6 +1786,11 @@ export function boonEffects(boons: readonly string[] | undefined): BoonEffect {
       out.widenCostMult = Math.min(out.widenCostMult ?? 1, e.widenCostMult);
     }
     if (e.upkeepMult !== undefined) out.upkeepMult = Math.min(out.upkeepMult ?? 1, e.upkeepMult);
+    if (e.partySizeBonus !== undefined) {
+      out.partySizeBonus = Math.max(out.partySizeBonus ?? 0, e.partySizeBonus);
+    }
+    if (e.renownMult !== undefined) out.renownMult = Math.max(out.renownMult ?? 1, e.renownMult);
+    if (e.advGoldMult !== undefined) out.advGoldMult = Math.max(out.advGoldMult ?? 1, e.advGoldMult);
   }
   return out;
 }

@@ -3314,3 +3314,34 @@ run longest.
 Note the whole table is *up*, which is what a boon system is for — and the tier ratchet takes
 its cut: combat's final tier goes 3.6 → 4.1 and commerce's 3.8 → 4.4, so the dungeon that
 earns more also fights harder. The difficulty follows the power rather than lagging it.
+
+
+### 48.7 The demand side — the only boons that can lose you the run
+
+Everything above changes what your dungeon *is*. This category changes who walks into it:
+**foot traffic** (party size, how much gold they carry) and **notoriety** (how much Renown a
+delve pays).
+
+Notoriety is the interesting half, and it is interesting because of §4.4: **Renown is the
+difficulty dial.** It is not a score, it is what decides the tier, and the tier decides party
+size, adventurer level and the gold in their pockets. So a boon that pays +80% Renown is not a
+buff — it is a decision to become famous before you are ready. Every other boon in this file
+makes the dungeon stronger; these ones make it *busier*, and busier cuts both ways.
+
+That is not theoretical. The first draft of the test for `The Whole World Knows` (+3 party,
++80% Renown, +50% adventurer gold) asserted the obvious — that a Renown multiplier increases
+Renown — and it failed: 25 against a plain dungeon's 32. The extra three bodies changed the
+raid, the dungeon did worse, and the multiplier had less to multiply. **The double edge landed
+inside a single raid, before the tier ratchet even got involved.** The test now uses
+`Signposted from the Road`, which moves Renown and nothing else, and the combined boon is
+documented as the trap it is.
+
+Applied through `currentTier`, deliberately: the forecast panel, the Thrill prediction and the
+raid itself all read it, so the "3 adventurers, level 1-2" on screen is never a lie about the
+crowd actually coming.
+
+**What the evolver does with them** is the useful signal. Given free choice it takes
+`wordofmouth` (+15% Renown, the cheapest notoriety) constantly, and `thewholeworldknows`
+occasionally — but its favourites remain survivability and slots (`undyingbloodline`,
+`secondwind`, `thewidewarrens`). It wants a *little* fame and a lot of insurance, which is
+exactly the shape a well-priced devil's bargain should produce: taken, but respected.

@@ -18,7 +18,7 @@ import {
 } from '../src/sim/dungeon';
 import { RaidSim } from '../src/sim/raid';
 import {
-  applyAftermath, createSeason, rollBoonDraft, startRaid,
+  applyAftermath, createSeason, currentTier, rollBoonDraft, startRaid,
 } from '../src/sim/season';
 import type { Dungeon, Mob } from '../src/sim/types';
 import {
@@ -1571,6 +1571,51 @@ describe('boons (§48)', () => {
     expect(takeBoon(d2, 'whetstone')).toBeNull();
     expect(takeBoon(d2, 'whetstone')).toMatch(/already/);
     expect(d2.boons).toEqual(['whetstone']);
+  });
+
+  /**
+   * Foot traffic (§48.7) — the crowd really does get bigger and richer, and
+   * every reader agrees about it because it goes through `currentTier`.
+   */
+  it('foot traffic brings a bigger, richer crowd', () => {
+    const plain = createSeason(4242, false);
+    const famous = createSeason(4242, false);
+    takeBoon(famous.dungeon, 'thewholeworldknows');
+
+    const a = currentTier(plain);
+    const b = currentTier(famous);
+    expect(b.partySize).toBe(a.partySize + 3);
+    expect(b.gold).toBe(Math.round(a.gold * 1.5));
+  });
+
+  /**
+   * Notoriety (§48.7) — and the *point* is that this is not a free buff.
+   * Renown is the difficulty dial (§4.4), so paying more of it is choosing to
+   * be famous before you are ready. Tested with `signposted`, which moves
+   * Renown and nothing else: `thewholeworldknows` also enlarges the party,
+   * which changes the raid itself and can leave you with LESS Renown than you
+   * started with — the double edge landing inside a single raid.
+   */
+  it('notoriety pays more Renown, which is what makes it dangerous', () => {
+    const build = (s: ReturnType<typeof createSeason>) => {
+      for (let r = 0; r < 3; r++) {
+        addMob(s.dungeon, 'ogre', 0, r);
+        addMob(s.dungeon, 'rat', 0, r);
+      }
+    };
+    const plain = createSeason(4242, false);
+    const famous = createSeason(4242, false);
+    build(plain); build(famous);
+    takeBoon(famous.dungeon, 'signposted');   // +35% Renown, nothing else
+
+    for (const s of [plain, famous]) {
+      const sim = startRaid(s);
+      sim.runToCompletion();
+      applyAftermath(s, sim);
+    }
+    expect(famous.renown).toBeGreaterThan(plain.renown);
+    // Which drags the tier under whoever comes next — the boon's own cost.
+    expect(currentTier(famous).tier).toBeGreaterThanOrEqual(currentTier(plain).tier);
   });
 
   it('Quarry Rights skips the build time entirely', () => {
