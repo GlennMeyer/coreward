@@ -11,7 +11,7 @@ import {
   upgradeRankCost, type UpgradeTrack,
   MAX_LEVEL, MOBS, STARTING_HEARTS, TRAPS, XP_THRESHOLDS, mobDmg, mobMaxHp,
   roomCapacity, roomsOnFloor, trapCost, trapRearmCost, widenCostFor, TUNING,
-  BOONS, boonCost, boonEffects, type BoonEffect,
+  BOONS, boonEffects, type BoonEffect,
 } from './data';
 import type {
   Amenity, AmenityId, Dungeon, Landing, Mob, PriceTier, Room, Trap,
@@ -160,13 +160,13 @@ export function hasBoon(d: Dungeon, id: string): boolean {
   return (d.boons ?? []).includes(id);
 }
 
-/** Take a boon. The caller deducts the Souls; this reports the price. */
-export function buyBoon(d: Dungeon, id: string): { cost: number } | string {
+/** Take a boon. Free — the cost of a draft is the two you did not pick. */
+export function takeBoon(d: Dungeon, id: string): BuildError {
   const def = BOONS[id];
   if (!def) return 'No such boon.';
   if (hasBoon(d, id)) return `You already have ${def.name}.`;
   (d.boons ??= []).push(id);
-  return { cost: boonCost(id) };
+  return null;
 }
 
 // ─── Excavation: widening rooms (§16.3, §16.4, §16.11) ───────────────────────

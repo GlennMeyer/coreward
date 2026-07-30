@@ -2,7 +2,7 @@
  * Season orchestration and the Aftermath economy (§3, §4).
  */
 import {
-  BOONS, BOON_OFFER_SIZE, BOON_RARITY,
+  BOONS, BOON_DRAFT_SIZE, BOON_DRAFT_EVERY_RAIDS, BOON_RARITY,
   ENDLESS_RAIDS, ENDLESS_SAFETY_CAP, GRUDGE_TRAIT, MOBS, PARTY_FORMATION_RAID, ROSTER_MOBS, ROSTER_TRAPS, TRAPS, tierAt, tierFloorFromRaids, MAX_TIER_PROTOTYPE, SEASON_RAIDS, TUNING,
   tierForRenown,
   type TierRow,
@@ -50,19 +50,19 @@ export function rollRoster(seed: number): { mobs: string[]; traps: string[] } {
 }
 
 /**
- * Roll the boons this run puts on the table (§48).
+ * Roll one draft (§48) — three cards, weighted by rarity, no duplicates and
+ * nothing already owned.
  *
- * Weighted by rarity and drawn without replacement, from the same seeded Rng as
- * everything else so a seed still reproduces a run exactly (§13.2). This is the
- * whole reason boons are rolled rather than shelved: a ladder you can buy down
- * in order is a price list. A Legendary matters because most runs never see one.
+ * Seeded from the same Rng as everything else, so a seed reproduces a run
+ * exactly (§13.2). Rarity is what decides *what turns up*, which is the only
+ * job it has now that nothing has a price: a Legendary matters because the roll
+ * rarely puts one in front of you, not because you saved for it.
  */
-export function rollBoonOffer(seed: number): string[] {
+export function rollBoonDraft(seed: number, owned: readonly string[] = []): string[] {
   const rng = new Rng(seed ^ 0xB007);
-  const pool = Object.values(BOONS);
   const picked: string[] = [];
-  const remaining = [...pool];
-  while (picked.length < BOON_OFFER_SIZE && remaining.length > 0) {
+  const remaining = Object.values(BOONS).filter((b) => !owned.includes(b.id));
+  while (picked.length < BOON_DRAFT_SIZE && remaining.length > 0) {
     const total = remaining.reduce((sum, b) => sum + BOON_RARITY[b.rarity].weight, 0);
     let roll = rng.int(0, total - 1);
     let idx = 0;
@@ -91,7 +91,8 @@ export function createSeason(seed: number, endless = true): SeasonState {
     legends: [],
     guildLore: {},
     roster: rollRoster(seed),
-    boonOffer: rollBoonOffer(seed),
+    boonDraft: rollBoonDraft(seed),
+    lastBoonDraftRaid: 0,
     over: false,
     ending: null,
     log: [],
@@ -321,6 +322,19 @@ export function applyAftermath(s: SeasonState, sim: RaidSim): Aftermath {
   }
 
   s.log.push(result);
+
+  // A new draft every few raids (§48). Offered here rather than at raid start
+  // so the pick is made in the Build Phase, against a dungeon whose losses you
+  // have already seen — choosing Second Wind is a different decision when you
+  // have just buried three monsters.
+  const raidsDone = s.log.length;
+  if (raidsDone > 0
+    && raidsDone % BOON_DRAFT_EVERY_RAIDS === 0
+    && (s.boonDraft ?? []).length === 0
+    && raidsDone !== s.lastBoonDraftRaid) {
+    s.boonDraft = rollBoonDraft(raidSeed(s) ^ raidsDone, s.dungeon.boons ?? []);
+    s.lastBoonDraftRaid = raidsDone;
+  }
 
   const tierAfter = currentTier(s).tier;
 

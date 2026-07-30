@@ -1229,6 +1229,11 @@ this one, depth is earned twice — once by the dig, once by the widening — an
 on floor 3 is a statement of intent. Deeper floors still get more *rooms* (`ROOMS_BY_FLOOR`
 is untouched), so the "digging is worth it" argument in §5.1 survives intact.
 
+> **Superseded by measurement (§16.12): Hewn ships at 4 and Widened at 6.** The argument
+> below is aesthetic and it is a good one, but 3/5 measured as a uniform nerf across all
+> eight strategies and 4/6 does not. The paragraph is kept because the reasoning is still
+> the reasoning — if the economy is ever loose enough to afford it, 3/5 is the better rule.
+
 **Why Hewn is 3 and not 4.** Two reasons. First, §6.2 already states rooms hold 3 slots —
 the `ROOM_CAPACITY_BASE = 4` in `data.ts` is drift, and this puts the doc and the code back
 in agreement at the base tier. Second, and more importantly: at 3, an Ogre (3 slots) exactly
@@ -3241,7 +3246,7 @@ product. A rare should *replace* a common, not top it up — an additive ladder 
 treadmill this was meant not to be, and it is also the only thing keeping dungeon-wide
 multipliers from compounding with gear × upgrade ranks × Pack Tactics into nonsense.
 
-### 48.4 What it measured — **and the hole it opened**
+### 48.4 The Souls version, and why it was thrown away
 
 300 seasons per strategy, measured against the same build without boons:
 
@@ -3264,9 +3269,48 @@ decimal. The cause is structural rather than a tuning miss: Souls are paid by ki
 downs, and those two builds are *defined* by not killing. Wardens kill 0.0 a season and bank
 0.7 Souls; traps kill 0.1 and bank 0.1. They cannot afford the cheapest Common.
 
-So the boon economy is rich-get-richer along precisely the axis pillar 2 wants kept open —
-it pays the builds that were already winning on kills and locks out the two whose identity is
-turning people back. **The fix is a second Souls source that is not a corpse** — Souls for
-adventurers routed and sent home, or Souls off Thrill — and it should land before this is
-tuned any further, because every number above is measured through a currency half the
-strategies cannot earn.
+So the boon economy was rich-get-richer along precisely the axis pillar 2 wants kept open —
+it paid the builds already winning on kills and locked out the two whose identity is turning
+people back.
+
+The first fix tried was a second Souls source: Souls per survivor on a repelled delve. It
+worked — wardens went 0.61 → 3.13 boons, traps 0.17 → 2.70. But it was a patch on a gate that
+should not have existed, and it left the axis still keyed to how a build earns rather than to
+what it chooses.
+
+### 48.5 Drafted, not bought — the version that shipped
+
+**Three cards, every `BOON_DRAFT_EVERY_RAIDS` (3) raids, pick one. No currency at all.**
+
+This is strictly better than pricing them, and the measurement above is why. A price gates the
+axis behind whatever earns the currency; a draft costs everyone the same thing — the two cards
+you turn down. The decision moves from "can I afford it", which is the §16 complaint about
+digging wearing a new coat, to "which of these three", which is a decision every time. Rarity
+keeps its only real job: deciding what turns up.
+
+Uptake is now even — 4.5 to 9.4 boons a season across all eight strategies, with the best
+quality reached averaging ~5 of 6. Nobody is locked out.
+
+### 48.6 What the whole stack measures
+
+Drafted boons every 3 raids, with capacity at Hewn 4 / Widened 6 (§16.12):
+
+| strategy | raids before | after | renown before | after |
+|---|---|---|---|---|
+| combat | 12.5 | 17.1 | 340 | 400 |
+| commerce | 13.2 | 19.0 | 366 | 443 |
+| balanced | 11.7 | 16.3 | 366 | 425 |
+| swarm | 11.0 | 12.2 | 149 | 167 |
+| wardens | 11.2 | 13.2 | 204 | 261 |
+| showman | 9.8 | 11.2 | 313 | 379 |
+| patron | 13.4 | 18.2 | 344 | 421 |
+| traps | 9.2 | 9.7 | 213 | 214 |
+
+**Every strategy at or above where it started, and no build left behind** — traps, the one the
+boon currency had shut out entirely, lands exactly on its old line. The ordering is preserved:
+traps is still the weakest, showman still trades raids for Renown, commerce and patron still
+run longest.
+
+Note the whole table is *up*, which is what a boon system is for — and the tier ratchet takes
+its cut: combat's final tier goes 3.6 → 4.1 and commerce's 3.8 → 4.4, so the dungeon that
+earns more also fights harder. The difficulty follows the power rather than lagging it.

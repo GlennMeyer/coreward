@@ -854,7 +854,7 @@ export function roomsOnFloor(floorIndex: number): number {
  * Hewn is 3, not the old base of 4: §6.2 has said rooms hold 3 slots all along
  * and the 4 was drift (§16.3).
  */
-export const CAPACITY_TIERS: Record<CapacityTier, number> = { hewn: 3, widened: 5 };
+export const CAPACITY_TIERS: Record<CapacityTier, number> = { hewn: 4, widened: 6 };
 
 /** Missing tier reads as Hewn, so every Room literal written before this loads. */
 export function roomCapacity(room: Room | undefined): number {
@@ -1504,25 +1504,33 @@ export interface BoonDef {
 }
 
 /**
- * Price and roll weight per quality.
+ * Roll weight per quality. **No price — boons are drafted, not bought.**
  *
- * Souls, because Souls had no sink at all — `reconstituteCost` was written and
- * never called, and the UI's `spend` only ever knew Mana and Gold, so a season
- * banked them and did nothing with them.
+ * The first build of this charged Souls, and the measurement killed it: Souls
+ * are paid by kills, so `wardens` and `traps` — the two builds whose whole
+ * identity is turning people back rather than killing them — banked 0.7 and 0.1
+ * a season and took 0.61 and 0.17 boons. The boon economy paid the builds
+ * already winning on corpses and locked out the two that pillar 2 needs kept
+ * open. That is not a price that wants tuning, it is a currency gate on an axis
+ * that should not have one.
  *
- * The numbers are small because the income is: a measured season banks 1-9
- * Souls for most builds (swarm is the outlier at ~112). That scarcity is a
- * feature here — most runs buy two or three things, and a Legendary is
- * something you go without other boons all season to afford.
+ * Drafting removes the gate entirely: every build gets the same number of
+ * picks, and the decision moves from "can I afford it" — the §16 complaint
+ * about digging, in a new coat — to "which of these three". Rarity still means
+ * something, because it decides what turns up.
  */
-export const BOON_RARITY: Record<BoonRarity, { cost: number; weight: number }> = {
-  common: { cost: 2, weight: 40 },
-  uncommon: { cost: 4, weight: 26 },
-  rare: { cost: 7, weight: 16 },
-  elite: { cost: 10, weight: 10 },
-  epic: { cost: 14, weight: 6 },
-  legendary: { cost: 20, weight: 2 },
+export const BOON_RARITY: Record<BoonRarity, { weight: number }> = {
+  common: { weight: 40 },
+  uncommon: { weight: 26 },
+  rare: { weight: 16 },
+  elite: { weight: 10 },
+  epic: { weight: 6 },
+  legendary: { weight: 2 },
 };
+
+/** Cards in a draft, and how many raids between drafts. */
+export const BOON_DRAFT_SIZE = 3;
+export const BOON_DRAFT_EVERY_RAIDS = 3;
 
 export const BOONS: Record<string, BoonDef> = {
   // ── Common: the numeric floor ──
@@ -1681,11 +1689,6 @@ export const BOONS: Record<string, BoonDef> = {
   },
 };
 
-export function boonCost(id: string): number {
-  const def = BOONS[id];
-  return def ? BOON_RARITY[def.rarity].cost : 0;
-}
-
 /**
  * Fold every owned boon into one resolved effect.
  *
@@ -1736,5 +1739,4 @@ export function boonEffects(boons: readonly string[] | undefined): BoonEffect {
   return out;
 }
 
-/** How many boons a run puts on the table. */
-export const BOON_OFFER_SIZE = 4;
+

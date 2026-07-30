@@ -697,14 +697,18 @@ export interface SeasonState {
    */
   roster?: { mobs: string[]; traps: string[] };
   /**
-   * Boons this run put on the table (§48), by id.
+   * The draft on the table right now (§48), by id — or empty when there is none.
    *
-   * Rolled once at season start, exactly like the §44 roster and for the same
-   * reason: a rarity ladder you can simply buy down is a price list, not a
-   * ladder. What makes a Legendary feel legendary is that most runs never see
-   * it. Owned boons live on the Dungeon; this is only the offer.
+   * Three cards, offered every few raids, pick one. The two you turn down are
+   * the price, which is what makes it a decision rather than a purchase, and it
+   * is why there is no currency: a Souls price gated the whole axis behind
+   * killing and shut out the builds that do not kill (§48.4). Rolled from the
+   * seeded Rng so a seed still reproduces a run exactly (§13.2). Owned boons
+   * live on the Dungeon; this is only what is being offered.
    */
-  boonOffer?: string[];
+  boonDraft?: string[];
+  /** Raid number the last draft was offered on, so it is not re-rolled each paint. */
+  lastBoonDraftRaid?: number;
   over: boolean;
   /** Set when the season ends: 'survived' or 'overrun'. */
   ending: 'survived' | 'overrun' | null;

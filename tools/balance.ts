@@ -470,21 +470,20 @@ function boonReport(aggs: readonly (readonly [Strategy, Agg])[]): void {
   console.log(`\n─── Boons (§48) ───\n`);
   header([
     'strategy'.padEnd(11), 'taken'.padStart(8), 'best(1-6)'.padStart(11),
-    'souls'.padStart(8),
   ]);
   for (const [strat, a] of aggs) {
     console.log([
       strat.name.padEnd(11), f2(a.avgBoons).padStart(8),
-      f2(a.avgBestBoon).padStart(11), f1(a.avgSouls).padStart(8),
+      f2(a.avgBestBoon).padStart(11),
     ].join(''));
   }
   const taken = aggs.reduce((m, [, a]) => Math.max(m, a.avgBoons), 0);
   const best = aggs.reduce((m, [, a]) => Math.max(m, a.avgBestBoon), 0);
   if (taken <= 0) {
     console.log(
-      '\nFAIL: no season took a single boon. Either Souls income cannot reach '
-      + 'the cheapest price or the AI is not buying — check BOON_RARITY costs '
-      + 'against the souls column before concluding anything about the design.',
+      '\nFAIL: no season took a single boon. Drafts are free, so this can only '
+      + 'be the cadence never firing or the AI not picking — check '
+      + 'BOON_DRAFT_EVERY_RAIDS against the raids column.',
     );
   } else if (best < 2) {
     console.log(

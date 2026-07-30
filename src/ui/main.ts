@@ -13,7 +13,7 @@ import {
   type GearDef,
   INSURANCE_BASE, STAFFED_REVENUE_MULT,
   admissionPrice,
-  BOONS, boonCost, CAPACITY_TIERS, PRICE_TIERS, TRAPS, TUNING, widenCostFor,
+  BOONS, CAPACITY_TIERS, PRICE_TIERS, TRAPS, TUNING, widenCostFor,
   trapRearmCost,
 } from '../sim/data';
 import {
@@ -24,7 +24,7 @@ import {
   hireStaff, isOpen, mobArmor, mobEffectiveDmg, mobEffectiveHp,
   placeMobInRoom, placeTrapInRoom, rearmAll,
   rearmTrap, trapRearmPrice,
-  buyBoon, hasBoon, isScaffolded, mobCost, rearmAllPrice, removeTrap, roomCapacityAt,
+  isScaffolded, takeBoon, mobCost, rearmAllPrice, removeTrap, roomCapacityAt,
   roomSlotsUsed, setPrice, startWiden, totalUpkeep, trapPrice, trapsInRoom,
   trapSalvageValue,
 } from '../sim/dungeon';
@@ -2000,54 +2000,61 @@ function landingRow(idx: number, amenities: readonly (Amenity | null)[]): HTMLEl
 // ─── Build panel ─────────────────────────────────────────────────────────────
 
 /**
- * Boons (§48) — what this run happened to put on the table.
+ * Boons (§48) — the draft on the table, and what the dungeon already carries.
  *
- * Shows the offer, not the catalogue. That is the whole design: the ladder is
- * only a ladder because most runs never see the top of it, and a panel listing
- * all 28 with four of them buyable would quietly turn it back into a price
- * list. Owned boons stay on show so the dungeon's character is readable at a
- * glance — and because a passive you cannot see is a passive you forget you
- * bought.
+ * Three cards, pick one. The two you turn down are the price, which is the
+ * whole reason this is not a shop: the first build charged Souls and the
+ * measurement showed the currency gating the axis behind killing, so `wardens`
+ * and `traps` took 0.61 and 0.17 boons a season while combat took 3.8 (§48.4).
+ * A draft costs the same for everyone.
  */
-function boonPanel(): HTMLElement {
+function boonPanel(): HTMLElement | null {
   const s = app.season;
   const d = s.dungeon;
-  const offer = s.boonOffer ?? [];
+  const draft = s.boonDraft ?? [];
+  const owned = d.boons ?? [];
+  if (!draft.length && !owned.length) return null;
+
   const p = el('<div class="panel boons"></div>');
-  p.append(el(`<h2>Boons &nbsp;·&nbsp; ${Math.round(s.souls)} souls</h2>`));
 
-  if (!offer.length) {
-    p.append(el('<div class="hint">Nothing is stirring this run.</div>'));
-    return p;
-  }
-
-  for (const id of offer) {
-    const def = BOONS[id];
-    if (!def) continue;
-    const owned = hasBoon(d, id);
-    const cost = boonCost(id);
-    const poor = s.souls < cost;
-    const row = el(`
-      <div class="buy boon ${def.rarity} ${owned ? 'owned' : ''} ${!owned && poor ? 'off' : ''}"
-           data-boon="${def.id}" data-rarity="${def.rarity}">
-        <span><b>${esc(def.name)}</b>
-          <span class="rarity">${def.rarity}</span>
-          <div class="meta">${esc(def.blurb)}</div></span>
-        <span class="cost">${owned ? 'held' : `${cost}◇`}</span>
-      </div>`);
-    if (!owned && !poor) {
+  if (draft.length) {
+    p.append(el('<h2>Take one</h2>'));
+    for (const id of draft) {
+      const def = BOONS[id];
+      if (!def) continue;
+      const row = el(`
+        <div class="buy boon ${def.rarity}" data-boon="${def.id}" data-rarity="${def.rarity}">
+          <span><b>${esc(def.name)}</b>
+            <span class="rarity">${def.rarity}</span>
+            <div class="meta">${esc(def.blurb)}</div></span>
+        </div>`);
       row.onclick = () => {
-        const got = buyBoon(d, def.id);
-        if (typeof got === 'string') return fail(got);
-        spend('souls', got.cost, def.name);
+        const err = takeBoon(d, def.id);
+        if (err) return fail(err);
+        // The draft is spent whichever card you took — that is the cost.
+        app.season.boonDraft = [];
         return fail(null);
       };
+      p.append(row);
     }
-    p.append(row);
+    p.append(el(
+      '<div class="hint">The two you leave are the price. Another three in a couple of raids.</div>',
+    ));
   }
-  p.append(el(
-    '<div class="hint">Souls are paid by the dying — theirs and yours. What is on offer is rolled when the run begins, so a Legendary is luck before it is a purchase.</div>',
-  ));
+
+  if (owned.length) {
+    p.append(el(`<h2>Held (${owned.length})</h2>`));
+    for (const id of owned) {
+      const def = BOONS[id];
+      if (!def) continue;
+      p.append(el(`
+        <div class="buy boon ${def.rarity} owned" data-boon="${def.id}">
+          <span><b>${esc(def.name)}</b>
+            <span class="rarity">${def.rarity}</span>
+            <div class="meta">${esc(def.blurb)}</div></span>
+        </div>`));
+    }
+  }
   return p;
 }
 
@@ -2210,7 +2217,8 @@ function buildPanel(): HTMLElement {
     '<div class="hint">A trap fires once on the threshold, before anything swings — then it needs re-arming. It softens; the monster behind it finishes.</div>',
   ));
   wrap.append(traps);
-  wrap.append(boonPanel());
+  const boons = boonPanel();
+  if (boons) wrap.append(boons);
 
   // Roster sits BELOW the shops. Buying anything makes something unassigned,
   // so putting this above the menus meant every purchase shoved the next one

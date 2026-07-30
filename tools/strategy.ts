@@ -7,12 +7,12 @@
  */
 import {
   AMENITIES, GEAR, HIRED_STAFF_COST, MAX_GEAR_SLOTS, MOBS, TRAPS,
-  widenCostFor, boonCost,
+  widenCostFor, BOONS, BOON_RARITY,
 } from '../src/sim/data';
 import {
   allTraps, assignStaff, buildAmenity, buyMob, buyTrap, digCost, digFloor,
   equipGear, hireStaff, livingMobs, mobsInRoom, placeMobInRoom,
-  buyBoon, hasBoon, mobCost, placeTrapInRoom, rearmAll, rearmAllPrice, roomCapacityAt,
+  hasBoon, mobCost, takeBoon, placeTrapInRoom, rearmAll, rearmAllPrice, roomCapacityAt,
   roomSlotsUsed, setPrice, startWiden, trapPrice,
   totalUpkeep, trapsInRoom,
 } from '../src/sim/dungeon';
@@ -289,19 +289,18 @@ export function buildPhaseFor(s: SeasonState, strat: Strategy, rng: Rng): void {
   // system does nothing, and that would read as a verdict on boons rather than
   // on the AI. Cheapest first, so a run buys breadth rather than saving all
   // season for one Legendary it may not live to enjoy.
-  if (s.boonOffer?.length) {
-    for (;;) {
-      const affordable = s.boonOffer
-        .filter((id) => !hasBoon(d, id))
-        .map((id) => ({ id, cost: boonCost(id) }))
-        .filter((b) => b.cost <= s.souls)
-        .sort((a, b) => a.cost - b.cost);
-      const pick = affordable[0];
-      if (!pick) break;
-      const got = buyBoon(d, pick.id);
-      if (typeof got === 'string') break;
-      s.souls -= got.cost;
-    }
+  if (s.boonDraft?.length) {
+    // Take the rarest card. Not a clever policy — a clever one would need to
+    // know which effect suits this strategy, and the point of the column in the
+    // balance report is to show the system is *exercised*, not to play well
+    // (§16.11, §11 Q8). Rarest-first is at least consistent across strategies,
+    // which is what keeps the comparison honest.
+    const best = [...s.boonDraft]
+      .filter((id) => !hasBoon(d, id) && BOONS[id])
+      .sort((a, b) => BOON_RARITY[BOONS[b]!.rarity].weight - BOON_RARITY[BOONS[a]!.rarity].weight)
+      .pop();
+    if (best) takeBoon(d, best);
+    s.boonDraft = [];
   }
 
   // 1a. Widen (§16.3, §16.11).

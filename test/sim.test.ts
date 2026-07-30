@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   AMENITIES, GEAR, MOBS, RENOWN_PER_ESCAPEE, RENOWN_WIPE_MULT, TIERS, TRAPS, TUNING,
   MAX_FLOORS, STARTING_HEARTS, XP_THRESHOLDS, digCostFor, mobMaxHp, resetTuning, roomsOnFloor,
-  widenCostFor, BOONS, BOON_OFFER_SIZE, boonEffects,
+  widenCostFor, BOONS, BOON_DRAFT_SIZE, boonEffects, CAPACITY_TIERS,
   tierForRenown, trapCost, trapRearmCost, MAX_TIER_PROTOTYPE, mobDmg,
 } from '../src/sim/data';
 import { generateParty } from '../src/sim/adventurers';
@@ -14,11 +14,11 @@ import {
   slayMob,
   mobsInRoom, packMultiplier, placeMobInRoom, placeTrapInRoom, rearmAll,
   rearmAllPrice, removeTrap, roomCapacityAt, roomSlotsUsed, startWiden, advanceProject,
-  cancelWiden, isScaffolded, totalUpkeep, unplace, buyBoon, mobCost,
+  cancelWiden, isScaffolded, totalUpkeep, unplace, takeBoon, mobCost,
 } from '../src/sim/dungeon';
 import { RaidSim } from '../src/sim/raid';
 import {
-  applyAftermath, createSeason, rollBoonOffer, startRaid,
+  applyAftermath, createSeason, rollBoonDraft, startRaid,
 } from '../src/sim/season';
 import type { Dungeon, Mob } from '../src/sim/types';
 import {
@@ -54,25 +54,21 @@ describe('dungeon construction', () => {
   });
 
   it('enforces room slot capacity', () => {
-    // An Ogre (3) exactly fills a Hewn room by itself (§16.3) — that equality
-    // is the cleanest statement of what capacity means, so it is asserted
-    // rather than assumed.
+    // Fill a Hewn room to the brim with an Ogre (3) and whatever else fits.
     addMob(d, 'ogre', 0, 0);
+    while (roomSlotsUsed(d, 0, 0) < CAPACITY_TIERS.hewn) addMob(d, 'rat', 0, 0);
     expect(roomSlotsUsed(d, 0, 0)).toBe(roomCapacityAt(d, 0, 0));
+    const filled = mobsInRoom(d, 0, 0).length;
 
-    // So even a single Cave Rat has nowhere to go.
+    // Full is full: nothing more goes in, however small.
     const rat = buyMob(d, 'rat') as Mob;
     expect(placeMobInRoom(d, rat.uid, 0, 0)).toMatch(/full/);
-    expect(mobsInRoom(d, 0, 0)).toHaveLength(1);
+    expect(mobsInRoom(d, 0, 0)).toHaveLength(filled);
 
     // Widening is what buys the big body AND a screen.
     widenRoom(d, 0, 0);
     expect(placeMobInRoom(d, rat.uid, 0, 0)).toBeNull();
-    expect(mobsInRoom(d, 0, 0)).toHaveLength(2);
-
-    // Still not room for a 2-slot Skeleton: 5 slots, 4 spoken for.
-    const skeleton = buyMob(d, 'skeleton') as Mob;
-    expect(placeMobInRoom(d, skeleton.uid, 0, 0)).toMatch(/full/);
+    expect(mobsInRoom(d, 0, 0)).toHaveLength(filled + 1);
   });
 
   it('Pack Tactics scales with living allies, and only for small monsters', () => {
@@ -84,9 +80,12 @@ describe('dungeon construction', () => {
   });
 
   it('fits a swarm of cheap monsters in the space of one big one', () => {
-    // The whole point of slot costs: 3 rats or 1 ogre, same Hewn room (§16.3).
+    // The whole point of slot costs: a Hewn room's worth of rats, or one big
+    // body and change. Read off the tier rather than hardcoded — the numbers
+    // are tuning (§16.12) and the rule is what this test is for.
+    const hewn = CAPACITY_TIERS.hewn;
     for (let i = 0; i < roomCapacityAt(d, 0, 0); i++) addMob(d, 'rat', 0, 0);
-    expect(mobsInRoom(d, 0, 0)).toHaveLength(3);
+    expect(mobsInRoom(d, 0, 0)).toHaveLength(hewn);
     const extra = buyMob(d, 'rat') as Mob;
     expect(placeMobInRoom(d, extra.uid, 0, 0)).toMatch(/full/);
   });
@@ -110,11 +109,11 @@ describe('dungeon construction', () => {
     expect(typeof started).not.toBe('string');
 
     // Paid, booked — and still the old size for the raid you are about to fight.
-    expect(roomCapacityAt(d2, 0, 0)).toBe(3);
+    expect(roomCapacityAt(d2, 0, 0)).toBe(CAPACITY_TIERS.hewn);
     expect(isScaffolded(d2, 0, 0)).toBe(true);
 
     expect(advanceProject(d2)).toEqual({ floor: 0, room: 0 });
-    expect(roomCapacityAt(d2, 0, 0)).toBe(5);
+    expect(roomCapacityAt(d2, 0, 0)).toBe(CAPACITY_TIERS.widened);
     expect(isScaffolded(d2, 0, 0)).toBe(false);
   });
 
@@ -135,25 +134,26 @@ describe('dungeon construction', () => {
   it('rooms are the same size at every depth until you pay to widen one', () => {
     digFloor(d);
     digFloor(d);
-    expect(roomCapacityAt(d, 0, 0)).toBe(3);
-    expect(roomCapacityAt(d, 1, 0)).toBe(3);
-    expect(roomCapacityAt(d, 2, 0)).toBe(3);
+    expect(roomCapacityAt(d, 0, 0)).toBe(CAPACITY_TIERS.hewn);
+    expect(roomCapacityAt(d, 1, 0)).toBe(CAPACITY_TIERS.hewn);
+    expect(roomCapacityAt(d, 2, 0)).toBe(CAPACITY_TIERS.hewn);
     // Deeper rock costs more to move, the inversion of the old rule.
     expect(widenCostFor(0)).toBe(40);
     expect(widenCostFor(2)).toBe(64);
 
-    // An Ogre alone fills a Hewn room; it takes a widening to add a screen.
+    // Fill a deep room, then buy the space that lets one more in.
     addMob(d, 'ogre', 2, 0);
-    expect(mobsInRoom(d, 2, 0)).toHaveLength(1);
+    while (roomSlotsUsed(d, 2, 0) < CAPACITY_TIERS.hewn) addMob(d, 'rat', 2, 0);
+    const before = mobsInRoom(d, 2, 0).length;
     const spare = buyMob(d, 'rat') as Mob;
     expect(placeMobInRoom(d, spare.uid, 2, 0)).toMatch(/full/);
 
     const started = startWiden(d, 2, 0);
     expect(typeof started).not.toBe('string');
     expect(advanceProject(d)).toEqual({ floor: 2, room: 0 });
-    expect(roomCapacityAt(d, 2, 0)).toBe(5);
+    expect(roomCapacityAt(d, 2, 0)).toBe(CAPACITY_TIERS.widened);
     expect(placeMobInRoom(d, spare.uid, 2, 0)).toBeNull();
-    expect(mobsInRoom(d, 2, 0)).toHaveLength(2);
+    expect(mobsInRoom(d, 2, 0)).toHaveLength(before + 1);
   });
 
   it('deeper floors have more rooms (§5.1)', () => {
@@ -1514,17 +1514,20 @@ describe('upgrades are the bloodline, gear is the creature (§6.6)', () => {
 });
 
 describe('boons (§48)', () => {
-  it('rolls a stable offer from the seed, weighted toward the common end', () => {
-    const a = rollBoonOffer(1234);
-    expect(a).toHaveLength(BOON_OFFER_SIZE);
-    expect(new Set(a).size).toBe(a.length);       // no duplicates in one offer
-    expect(rollBoonOffer(1234)).toEqual(a);       // deterministic (§13.2)
+  it('rolls a stable draft from the seed, weighted toward the common end', () => {
+    const a = rollBoonDraft(1234);
+    expect(a).toHaveLength(BOON_DRAFT_SIZE);
+    expect(new Set(a).size).toBe(a.length);       // no duplicates in one draft
+    expect(rollBoonDraft(1234)).toEqual(a);       // deterministic (§13.2)
+
+    // Never offers what you already hold — a dead card is a card you did not get.
+    expect(rollBoonDraft(1234, a)).not.toContain(a[0]);
 
     // Rarity has to actually be rare, or the ladder is decoration. Across many
     // runs the common end must dominate the legendary end by a wide margin.
     const seen: Record<string, number> = {};
     for (let seed = 0; seed < 400; seed++) {
-      for (const id of rollBoonOffer(seed)) {
+      for (const id of rollBoonDraft(seed)) {
         const r = BOONS[id]!.rarity;
         seen[r] = (seen[r] ?? 0) + 1;
       }
@@ -1552,10 +1555,10 @@ describe('boons (§48)', () => {
     const baseDmg = mobEffectiveDmg(d2, mob);
     const baseHp = mobEffectiveHp(d2, mob);
 
-    buyBoon(d2, 'bulkorders');       // -10% monster cost
-    buyBoon(d2, 'deeperpockets');    // +1 slot everywhere
-    buyBoon(d2, 'whetstone');        // +8% damage
-    buyBoon(d2, 'thickhides');       // +10% HP
+    takeBoon(d2, 'bulkorders');       // -10% monster cost
+    takeBoon(d2, 'deeperpockets');    // +1 slot everywhere
+    takeBoon(d2, 'whetstone');        // +8% damage
+    takeBoon(d2, 'thickhides');       // +10% HP
 
     expect(mobCost(d2, 'ogre')).toBe(Math.round(baseMob * 0.9));
     expect(roomCapacityAt(d2, 0, 0)).toBe(baseCap + 1);
@@ -1563,20 +1566,20 @@ describe('boons (§48)', () => {
     expect(mobEffectiveHp(d2, mob)).toBe(Math.round(baseHp * 1.10));
   });
 
-  it('refuses to sell the same boon twice', () => {
+  it('refuses to grant the same boon twice', () => {
     const d2 = createDungeon();
-    expect(typeof buyBoon(d2, 'whetstone')).not.toBe('string');
-    expect(buyBoon(d2, 'whetstone')).toMatch(/already/);
+    expect(takeBoon(d2, 'whetstone')).toBeNull();
+    expect(takeBoon(d2, 'whetstone')).toMatch(/already/);
     expect(d2.boons).toEqual(['whetstone']);
   });
 
   it('Quarry Rights skips the build time entirely', () => {
     const d2 = createDungeon();
-    buyBoon(d2, 'quarryrights');
+    takeBoon(d2, 'quarryrights');
     const started = startWiden(d2, 0, 0);
     expect(typeof started).not.toBe('string');
     // No project booked, and the room is already bigger.
     expect(d2.project ?? null).toBeNull();
-    expect(roomCapacityAt(d2, 0, 0)).toBe(5);
+    expect(roomCapacityAt(d2, 0, 0)).toBe(CAPACITY_TIERS.widened);
   });
 });
