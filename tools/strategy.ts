@@ -12,7 +12,7 @@ import {
 import {
   allTraps, assignStaff, buildAmenity, buyMob, buyTrap, digCost, digFloor,
   equipGear, hireStaff, livingMobs, mobsInRoom, placeMobInRoom,
-  hasBoon, mobCost, takeBoon, placeTrapInRoom, rearmAll, rearmAllPrice, roomCapacityAt,
+  hasBoon, mobCost, reconstituteMob, slainMobs, takeBoon, placeTrapInRoom, rearmAll, rearmAllPrice, roomCapacityAt,
   roomSlotsUsed, setPrice, startWiden, trapPrice,
   totalUpkeep, trapsInRoom,
 } from '../src/sim/dungeon';
@@ -219,10 +219,15 @@ export const AI = {
   /** Mana left over a dig, so a new floor is never opened completely naked. */
   digReserve: 90,
   /**
-   * Stop digging past this raid. A floor bought on raid 7 cannot be staffed
-   * before the season ends — strictly worse than another monster.
+   * Stop digging past this raid.
+   *
+   * Was 5, set when a season was the §12 fixed 8 raids — "a floor bought on
+   * raid 7 cannot be staffed before the season ends". Seasons now run 15+ under
+   * endless (§12a), so 5 had quietly become a cap on the measurement rather
+   * than a judgement about value: every "floors 6-10 are unreachable" finding in
+   * this repo was partly this constant. 9 keeps the same share of a season.
    */
-  digUntilRaid: 5,
+  digUntilRaid: 9,
   /** placeForVariety weights — see the function for what they trade off. */
   placeDepth: 15,
   placeEmpty: 45,
@@ -301,6 +306,18 @@ export function buildPhaseFor(s: SeasonState, strat: Strategy, rng: Rng): void {
       .pop();
     if (best) takeBoon(d, best);
     s.boonDraft = [];
+  }
+
+  // 0b. Buy back the dead (§6.4).
+  //
+  // Before anything else that spends: a reconstituted veteran keeps its level,
+  // its XP and its species upgrades, so it is strictly cheaper than raising a
+  // replacement from scratch — and it is paid for in a currency nothing else
+  // wants. Highest level first, because that is where the sunk Mana is.
+  for (const mob of slainMobs(d).sort((a, b) => b.level - a.level)) {
+    const paid = reconstituteMob(d, mob.uid, s.souls);
+    if (typeof paid === 'string') continue;
+    s.souls -= paid;
   }
 
   // 1a. Widen (§16.3, §16.11).

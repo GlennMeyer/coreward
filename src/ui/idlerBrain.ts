@@ -15,7 +15,8 @@ import {
   assignStaff, buildAmenity, buyMob, buyTrap, buyUpgrade, digCost, digFloor,
   equipGear, livingMobs, nextReforgeCost, nextUpgradeCost, placeMobInRoom,
   placeTrapInRoom,
-  hasBoon, rearmTrap, reforgeGear, roomCapacityAt, roomSlotsUsed, startWiden,
+  hasBoon, rearmTrap, reconstituteMob, reforgeGear, roomCapacityAt, roomSlotsUsed,
+  slainMobs, startWiden,
   takeBoon, totalUpkeep, trapRearmPrice,
 } from '../sim/dungeon';
 import { Rng } from '../sim/rng';
@@ -199,6 +200,14 @@ export function buildPhaseFor(s: SeasonState, g: Genome, rng: Rng): void {
     }
     if (best) takeBoon(d, best);
     s.boonDraft = [];
+  }
+
+  // Buy back the dead (§6.4) — same reasoning as the scripted AI: a veteran is
+  // cheaper to reclaim than to regrow, and Souls buy nothing else.
+  for (const mob of slainMobs(d).sort((a, b) => b.level - a.level)) {
+    const paid = reconstituteMob(d, mob.uid, s.souls);
+    if (typeof paid === 'string') continue;
+    s.souls -= paid;
   }
 
   const cost = digCost(d);

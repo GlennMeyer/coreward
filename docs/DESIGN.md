@@ -3420,3 +3420,65 @@ The rest of the panel does the work from there without being told to: at +3 part
 reads 348 HP against your 8, single-file becomes "1 of 6 engaged at a time", and the tier
 threshold line becomes "all 6 of them at once". The consequence was always rendered — what was
 missing was the sentence connecting it to the card the player took.
+
+
+---
+
+## 49. Why depth was not fun, and the one-line reason
+
+The question was "should we be able to unlock deeper levels". The answer turned out not to be
+about unlocking, or cost, or the floor cap. **Nothing was stopping a player digging to floor 10.
+There was just no reason to, and the reason traces to a currency that did nothing.**
+
+### 49.1 The chain
+
+1. Parties turn back on **casualties** (§7.3, §19.2). So the better your dungeon, the *less* of
+   it they walk — a well-defended floor 3 means floors 4 and below are never seen.
+2. **Taunt** (§7.4) is the tool built to override exactly that: spend a Ley Charge to goad them
+   one floor deeper, giving up the Renown they would have carried home in exchange for Souls.
+3. **Souls did nothing.** `reconstituteCost()` was written in `data.ts` and never called from
+   anywhere; the UI's `spend()` did not know the currency existed. A season banked them and
+   that was the end of it.
+4. So Taunt traded a live currency for a dead one, which is a bad deal at any price. The evolver
+   agreed: `tauntRate` came out at **0%** in nearly every fittest build.
+5. Nobody taunted, so nobody was driven deeper, so the deep floors nobody could be bothered to
+   dig were correct not to bother.
+
+Implementing §6.4's Reconstitute — buy a slain monster back with Souls, keeping its level, its
+XP and its species upgrades but not its gear — closes the loop at step 3, and everything above
+it moves.
+
+### 49.2 What changed when Souls got a job
+
+| | before | after |
+|---|---|---|
+| evolver `tauntRate` | 0% | **44–67%** |
+| evolver best Renown | 3378 | **4959** |
+| evolver best monster level | 6.5 | **10.0** |
+| floors built (scripted) | 4.2 | **5.0** |
+| Souls banked at season end | 17–20 | **~4** (spent) |
+| monster level (scripted) | 3.0–4.3 | **3.9–5.7** |
+
+The Souls column falling is the point: it was accumulating because there was nothing to spend it
+on. And monster levels rising 30–40% is the second-order effect that actually makes the game
+better — a veteran now survives its own death, so pillar 3's "monsters that become characters"
+finally has something holding it up. Losing an Ogre used to end its story.
+
+### 49.3 The cost is linear, and the doc is wrong
+
+§6.4 prices Reconstitute at `20 × level²` — 1280 Souls for a level 8 monster, which §11 Q6
+already flags as "likely never affordable". The code's `reconstituteCost` is linear
+(`4 × level`) and that is what ships. **A sink nobody can reach is the same as no sink**, and
+this whole section exists because of a sink nobody could reach.
+
+### 49.4 And a fourth instrument bug
+
+`AI.digUntilRaid` was 5, set when a season was §12's fixed 8 raids — "a floor bought on raid 7
+cannot be staffed before the season ends". Seasons now run 15+ under endless (§12a), so the
+constant had quietly become a cap on the *measurement*: every "floors 6–10 are unreachable"
+finding in this document is partly this number rather than the design. Raised to 9, the same
+share of a season, and floors built went 4.2 → 5.0 immediately.
+
+That is the fourth time this repo has measured its own agent instead of its game (§11 Q8,
+§16.11, §48.4, and this). The pattern is always the same: a constant tuned for an older shape of
+the game, still enforcing that shape long after it changed.

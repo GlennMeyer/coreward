@@ -724,3 +724,8 @@ button.wipe:hover { background: #2a1a1e; border-color: var(--danger); }
 /* Foot traffic you brought on yourself (§48.7) — coloured like Renown, because
    that is what it costs you. */
 .fc-drawn { color: var(--renown); font-size: 11px; }
+
+/* The Dead (§6.4). Reads as a graveyard, not a shop — these were yours. */
+.panel.graves .grave { border-left: 2px solid #6b5a6e; opacity: .9; }
+.panel.graves .grave:not(.off):hover { opacity: 1; border-left-color: var(--souls, #a678d8); }
+.panel.graves .grave .lv { color: var(--dim); font-size: 10px; margin-left: 4px; }

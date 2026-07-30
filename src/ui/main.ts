@@ -13,7 +13,7 @@ import {
   type GearDef,
   INSURANCE_BASE, STAFFED_REVENUE_MULT,
   admissionPrice,
-  BOONS, boonEffects, CAPACITY_TIERS, PRICE_TIERS, TRAPS, TUNING, widenCostFor,
+  BOONS, boonEffects, CAPACITY_TIERS, reconstituteCost, PRICE_TIERS, TRAPS, TUNING, widenCostFor,
   trapRearmCost,
 } from '../sim/data';
 import {
@@ -24,8 +24,9 @@ import {
   hireStaff, isOpen, mobArmor, mobEffectiveDmg, mobEffectiveHp,
   placeMobInRoom, placeTrapInRoom, rearmAll,
   rearmTrap, trapRearmPrice,
-  isScaffolded, takeBoon, mobCost, rearmAllPrice, removeTrap, roomCapacityAt,
-  roomSlotsUsed, setPrice, startWiden, totalUpkeep, trapPrice, trapsInRoom,
+  isScaffolded, takeBoon, mobCost, rearmAllPrice, reconstituteMob, removeTrap,
+  roomCapacityAt, roomSlotsUsed, setPrice, slainMobs, startWiden, totalUpkeep,
+  trapPrice, trapsInRoom,
   trapSalvageValue,
 } from '../sim/dungeon';
 import { applyAftermath, createSeason, currentTier, startRaid } from '../sim/season';
@@ -2029,6 +2030,55 @@ function notorietyRow(): string {
     word spreads, and the tier follows</td><td class="dimmed">×${fx.renownMult.toFixed(2)}</td></tr>`;
 }
 
+/**
+ * The dead, and what it costs to have them back (§6.4).
+ *
+ * This is the panel that gives Souls a job. Without it Souls accumulate all
+ * season and buy nothing, which quietly breaks the Taunt intervention (§7.4)
+ * too — taunting trades the Renown they would have carried home for Souls, and
+ * that is a bad trade at any price if Souls do nothing. Depth follows from the
+ * same thread: parties turn back on casualties, Taunt is the tool for driving
+ * them deeper, and nobody uses a tool that pays in a dead currency.
+ *
+ * Cost is linear in level rather than §6.4's `20 x level²`, which §11 Q6 flags
+ * as "likely never affordable" — a sink nobody can reach is the same as no sink.
+ */
+function gravePanel(): HTMLElement | null {
+  const s = app.season;
+  const d = s.dungeon;
+  const dead = slainMobs(d);
+  if (!dead.length) return null;
+
+  const p = el('<div class="panel graves"></div>');
+  p.append(el(`<h2>The Dead (${dead.length}) &nbsp;·&nbsp; ${Math.round(s.souls)} souls</h2>`));
+
+  for (const mob of dead) {
+    const def = MOBS[mob.defId]!;
+    const cost = reconstituteCost(mob.level);
+    const poor = s.souls < cost;
+    const row = el(`
+      <div class="buy grave ${poor ? 'off' : ''}" data-uid="dead:${mob.uid}">
+        <span><b>${esc(def.name)}</b>
+          ${mob.level > 1 ? `<span class="lv">lv${mob.level}</span>` : ''}
+          <div class="meta">${def.role} · ${mob.xp} xp kept · gear did not survive</div></span>
+        <span class="cost">${cost}◇</span>
+      </div>`);
+    if (!poor) {
+      row.onclick = () => {
+        const paid = reconstituteMob(d, mob.uid, s.souls);
+        if (typeof paid === 'string') return fail(paid);
+        spend('souls', paid, `Reconstitute ${def.name}`);
+        return fail(null);
+      };
+    }
+    p.append(row);
+  }
+  p.append(el(
+    '<div class="hint">Souls are paid by the dying. Goading a party one floor deeper (Taunt) is how you get more of them — the bloodline and its levels come back, the kit does not.</div>',
+  ));
+  return p;
+}
+
 function boonPanel(): HTMLElement | null {
   const s = app.season;
   const d = s.dungeon;
@@ -2238,6 +2288,8 @@ function buildPanel(): HTMLElement {
     '<div class="hint">A trap fires once on the threshold, before anything swings — then it needs re-arming. It softens; the monster behind it finishes.</div>',
   ));
   wrap.append(traps);
+  const graves = gravePanel();
+  if (graves) wrap.append(graves);
   const boons = boonPanel();
   if (boons) wrap.append(boons);
 

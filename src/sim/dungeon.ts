@@ -11,7 +11,7 @@ import {
   upgradeRankCost, type UpgradeTrack,
   MAX_LEVEL, MOBS, STARTING_HEARTS, TRAPS, XP_THRESHOLDS, mobDmg, mobMaxHp,
   roomCapacity, roomsOnFloor, trapCost, trapRearmCost, widenCostFor, TUNING,
-  BOONS, boonEffects, type BoonEffect,
+  BOONS, boonEffects, reconstituteCost, type BoonEffect,
 } from './data';
 import type {
   Amenity, AmenityId, Dungeon, Landing, Mob, PriceTier, Room, Trap,
@@ -132,6 +132,45 @@ export function roomSlotsUsed(d: Dungeon, floor: number, room: number): number {
     return sum + (t ? TRAPS[t.defId]!.slots : 0);
   }, 0);
   return mobSlots + trapSlots;
+}
+
+// ─── Reconstitute (§6.4) ─────────────────────────────────────────────────────
+
+/** The dead, still on the roster and still buyable back. */
+export function slainMobs(d: Dungeon): Mob[] {
+  return d.mobs.filter((m) => !m.alive);
+}
+
+/**
+ * Bring a slain monster back for Souls.
+ *
+ * **This is what Souls are for, and until now they were for nothing.**
+ * `reconstituteCost` was written and never called from anywhere; the UI's
+ * `spend` did not even know the currency. That mattered well beyond a dead
+ * line item, because Souls are the *entire* payoff of the Taunt intervention
+ * (§7.4) — goad them one floor deeper and take Souls instead of the Renown they
+ * would have carried home. Trading a live currency for a dead one is a bad deal
+ * at any price, which is why the evolver sets `tauntRate` to 0% in nearly every
+ * fittest build, and why parties turn back at floor three of a six-floor
+ * dungeon. Depth is unused because the tool for driving them into it pays in
+ * something worthless.
+ *
+ * It comes back with its level, its XP and its species upgrades — the bloodline
+ * is what Mana bought and death never touched it (§43). The gear does not: that
+ * was Gold, and it died with the wearer.
+ */
+export function reconstituteMob(d: Dungeon, uid: number, souls: number): number | string {
+  const mob = getMob(d, uid);
+  if (!mob) return 'No such monster.';
+  if (mob.alive) return `${MOBS[mob.defId]!.name} is not dead.`;
+  const cost = reconstituteCost(mob.level);
+  if (souls < cost) return `Reconstituting a level ${mob.level} ${MOBS[mob.defId]!.name} costs ${cost} Souls.`;
+
+  mob.alive = true;
+  mob.downed = false;
+  mob.hp = mobEffectiveHp(d, mob);
+  mob.placement = { kind: 'unassigned' };
+  return cost;
 }
 
 // ─── Boons (§48) ─────────────────────────────────────────────────────────────
